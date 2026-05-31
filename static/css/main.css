@@ -381,6 +381,8 @@ body {
   margin-top: 6px;
   line-height: 1.4;
 }
+.requirement-list { display: flex; flex-direction: column; gap: 5px; margin-bottom: 8px; }
+.requirement-item { font-size: 12.5px; color: #374151; }
 .filters-action {
   padding: 14px 16px;
   border-top: 1px solid #e5e7eb;

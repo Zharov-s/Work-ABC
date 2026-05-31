@@ -335,22 +335,36 @@ def _extract_lpr_from_combined(client, company: dict, combined_text: str,
             )},
         ], expect_json=False)
         data = json.loads(_extract_json(raw))
+        # Чистим "null"-строки от модели
+        for field in ('person_name', 'title', 'email', 'phone', 'source_url'):
+            if str(data.get(field, '') or '').lower() in ('null', 'none', ''):
+                data[field] = None
+
         email = (data.get('email') or '').lower().strip()
         if email and is_generic_email(email):
             data['email'] = None
             email = ''
         data['email'] = email or None
 
-        # Директор из реестра — подставляем всегда если ИИ не нашёл лучше
+        # ФИО: директор из реестра если модель не нашла
         if known_director and not data.get('person_name'):
             data['person_name'] = known_director
             data['title']       = data.get('title') or 'Генеральный директор'
 
-        # Также пробуем вытащить email из текста regex-ом, если ИИ не нашёл
+        # Email: regex-фолбэк если модель не нашла
         if not data.get('email'):
             regex_emails = extract_emails_from_text(combined_text)
             if regex_emails:
                 data['email'] = regex_emails[0]
+
+        # Телефон: regex-фолбэк если модель не нашла
+        if not is_valid_phone(data.get('phone', '')):
+            phones = re.findall(
+                r'(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',
+                combined_text
+            )
+            if phones:
+                data['phone'] = phones[0]
 
         # Возвращаем если есть хотя бы имя ЛПР
         if data.get('person_name') or data.get('email') or data.get('phone'):
@@ -370,14 +384,23 @@ def _results_to_text(results: dict, max_chars: int = 500) -> str:
     return '\n\n---\n\n'.join(parts)
 
 
+def is_valid_phone(phone: str) -> bool:
+    """Телефон валиден если содержит минимум 7 цифр."""
+    if not phone or str(phone).lower() in ('null', 'none', ''):
+        return False
+    digits = re.sub(r'\D', '', str(phone))
+    return len(digits) >= 7
+
+
 # ── Многопроходный поиск ЛПР ──────────────────────────────────────────────
 
 def _multi_pass_lpr_search(tavily, company: dict, log_fn) -> tuple[str | None, str]:
     """
-    Трёхпроходный поиск контактов ЛПР:
+    4-проходный поиск полного комплекта ЛПР (ФИО + email + телефон):
     1. Rusprofile/Zachestnyibiznes → директор (regex из сниппета)
     2. Email по имени директора + компания
-    3. Контакты с официального сайта
+    3. Контакты с официального сайта (email + телефон)
+    4. Телефон ЛПР — если не нашли на шаге 3
 
     Возвращает (director_name, combined_text).
     """
@@ -393,13 +416,11 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn) -> tuple[str | None, s
     # Проход 1: директор из российских реестров
     q1 = f'"{name}" генеральный директор'
     try:
-        r1 = tavily.search(q1, max_results=4)
-        text1 = _results_to_text(r1, 600)
+        r1 = tavily.search(q1, max_results=5)
+        text1 = _results_to_text(r1, 700)
         combined_parts.append(text1)
-        # Пробуем regex-извлечение директора из каждого сниппета
         for item in r1.get('results', []):
-            snippet = (item.get('content') or '')
-            found   = extract_director_name(snippet)
+            found = extract_director_name(item.get('content') or '')
             if found:
                 director_name = found
                 log_fn(f'   📋 Директор из реестра: {director_name}')
@@ -408,33 +429,47 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn) -> tuple[str | None, s
         pass
     time.sleep(0.2)
 
-    # Проход 2: если нашли директора — ищем его личный email
+    # Проход 2: личный email директора
     if director_name:
         q2 = f'"{director_name}" "{name}" email'
         try:
-            r2 = tavily.search(q2, max_results=3)
+            r2 = tavily.search(q2, max_results=4)
             text2 = _results_to_text(r2, 500)
             combined_parts.append(text2)
-            # Быстрая проверка: есть ли личные email прямо в сниппетах
             for item in r2.get('results', []):
                 emails = extract_emails_from_text(item.get('content', ''))
                 if emails:
-                    log_fn(f'   📧 Личный email в выдаче: {emails[0]}')
+                    log_fn(f'   📧 Email в выдаче: {emails[0]}')
                     break
         except Exception:
             pass
         time.sleep(0.2)
 
-    # Проход 3: контакты с сайта компании (или общий поиск)
-    if domain:
-        q3 = f'site:{domain} контакты директор email'
-    else:
-        q3 = f'"{name}" контакты email телефон официальный сайт'
+    # Проход 3: контакты компании (email + телефон)
+    q3 = (f'site:{domain} контакты email телефон' if domain
+          else f'"{name}" контакты email телефон официальный')
     try:
-        r3 = tavily.search(q3, max_results=3)
-        combined_parts.append(_results_to_text(r3, 500))
+        r3 = tavily.search(q3, max_results=4)
+        text3 = _results_to_text(r3, 600)
+        combined_parts.append(text3)
+        # Быстрая проверка на телефон в сниппетах
+        for item in r3.get('results', []):
+            phones = re.findall(r'[\+7|8][\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}', item.get('content', ''))
+            if phones:
+                log_fn(f'   📞 Телефон в выдаче: {phones[0]}')
+                break
     except Exception:
         pass
+    time.sleep(0.2)
+
+    # Проход 4: отдельный поиск телефона директора (если нужно)
+    if director_name:
+        q4 = f'"{name}" телефон мобильный директор контакты'
+        try:
+            r4 = tavily.search(q4, max_results=3)
+            combined_parts.append(_results_to_text(r4, 400))
+        except Exception:
+            pass
 
     return director_name, '\n\n===\n\n'.join(combined_parts)
 
@@ -458,8 +493,7 @@ def _research_worker(run_id: int, config: dict):
     target_count  = int(config.get('count', 10))
     keywords      = config.get('keywords', '').strip()
     company_scale = config.get('company_scale', 'any')
-    require_email = bool(config.get('require_email'))
-    require_phone = bool(config.get('require_phone'))
+    # ФИО + email + телефон всегда обязательны — это жёсткое требование, не настройка
 
     region_label = REGION_SUFFIX.get(region_key, 'Москва')
     scale_suffix = SCALE_SUFFIX.get(company_scale, '')
@@ -548,42 +582,38 @@ def _research_worker(run_id: int, config: dict):
 
             lpr = _extract_lpr_from_combined(client, company, combined_text, director_name)
 
-            # Фолбэк: если модель не справилась, но директор известен — создаём запись вручную
-            if not lpr and director_name:
-                # Пытаемся вытащить email из текста напрямую
-                fallback_emails = extract_emails_from_text(combined_text)
-                lpr = {
-                    'person_name': director_name,
-                    'title':       'Генеральный директор',
-                    'email':       fallback_emails[0] if fallback_emails else None,
-                    'phone':       None,
-                    'source_url':  None,
-                    'company_name': name,
-                    'website':     company.get('website', ''),
-                }
-                _log(run_id, f'   🔄 Фолбэк: сохраняем директора без AI-извлечения')
-
             if not lpr:
                 _log(run_id, '   ⚠️  ЛПР не определён, пропускаем')
                 continue
 
-            email = (lpr.get('email') or '').lower().strip()
-            phone = (lpr.get('phone') or '').strip()
+            # ── Строгая валидация: нужны ФИО + email + телефон ──────────────
+            person = (lpr.get('person_name') or '').strip()
+            email  = (lpr.get('email') or '').lower().strip()
+            phone  = (lpr.get('phone') or '').strip()
 
-            if email and is_generic_email(email):
-                _log(run_id, f'   ⛔  {email} — общий адрес, пропускаем')
-                lpr['email'] = None
-                email = ''
+            # Чистим "null" строки от модели
+            email = '' if email  in ('null', 'none') else email
+            phone = '' if phone  in ('null', 'none') else phone
+            person = '' if person in ('null', 'none') else person
 
-            if email and email in existing_emails:
+            # ФИО: минимум 2 слова
+            if not person or len(person.split()) < 2:
+                _log(run_id, f'   ⛔  нет ФИО ЛПР — компания не засчитывается, ищем дальше')
+                continue
+
+            # Email: личный, не общий
+            if not email or is_generic_email(email):
+                _log(run_id, f'   ⛔  нет личного email — компания не засчитывается, ищем дальше')
+                continue
+
+            # Телефон: минимум 7 цифр
+            if not is_valid_phone(phone):
+                _log(run_id, f'   ⛔  нет телефона — компания не засчитывается, ищем дальше')
+                continue
+
+            # Email уже в базе
+            if email in existing_emails:
                 _log(run_id, f'   ⏭  {email} — уже в базе')
-                continue
-
-            if require_email and not email:
-                _log(run_id, '   ⏭  нет личного email (фильтр)')
-                continue
-            if require_phone and not phone:
-                _log(run_id, '   ⏭  нет телефона (фильтр)')
                 continue
 
             if email:
