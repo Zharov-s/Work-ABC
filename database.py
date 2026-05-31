@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS contacts (
     website      TEXT,
     person_name  TEXT,
     title        TEXT,
-    email        TEXT UNIQUE NOT NULL,
+    email        TEXT,
     phone        TEXT,
     source_url   TEXT,
     segment      TEXT,
@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS contacts (
     date_found   TEXT,
     status       TEXT DEFAULT 'new',
     notes        TEXT,
-    created_at   TEXT DEFAULT (datetime('now'))
+    created_at   TEXT DEFAULT (datetime('now')),
+    UNIQUE(email) ON CONFLICT IGNORE
 );
 
 CREATE TABLE IF NOT EXISTS send_history (

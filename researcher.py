@@ -548,8 +548,23 @@ def _research_worker(run_id: int, config: dict):
 
             lpr = _extract_lpr_from_combined(client, company, combined_text, director_name)
 
+            # Фолбэк: если модель не справилась, но директор известен — создаём запись вручную
+            if not lpr and director_name:
+                # Пытаемся вытащить email из текста напрямую
+                fallback_emails = extract_emails_from_text(combined_text)
+                lpr = {
+                    'person_name': director_name,
+                    'title':       'Генеральный директор',
+                    'email':       fallback_emails[0] if fallback_emails else None,
+                    'phone':       None,
+                    'source_url':  None,
+                    'company_name': name,
+                    'website':     company.get('website', ''),
+                }
+                _log(run_id, f'   🔄 Фолбэк: сохраняем директора без AI-извлечения')
+
             if not lpr:
-                _log(run_id, '   ⚠️  ЛПР не определён')
+                _log(run_id, '   ⚠️  ЛПР не определён, пропускаем')
                 continue
 
             email = (lpr.get('email') or '').lower().strip()
@@ -591,17 +606,21 @@ def _research_worker(run_id: int, config: dict):
     saved = 0
     today = datetime.now().strftime('%Y-%m-%d')
     for c in found_contacts:
+        # Пропускаем если нет ни email, ни телефона, ни имени — бесполезная запись
+        if not c.get('person_name') and not c.get('email') and not c.get('phone'):
+            continue
         try:
-            conn.execute(
+            cur = conn.execute(
                 """INSERT OR IGNORE INTO contacts
                    (company_name, website, person_name, title, email, phone,
                     source_url, segment, region, date_found, status)
                    VALUES (?,?,?,?,?,?,?,?,?,?,'new')""",
                 (c.get('company_name'), c.get('website'), c.get('person_name'),
-                 c.get('title'), c.get('email'), c.get('phone'),
+                 c.get('title'), c.get('email') or None, c.get('phone') or None,
                  c.get('source_url'), c.get('segment'), c.get('region'), today)
             )
-            saved += 1
+            if cur.rowcount > 0:
+                saved += 1
         except Exception as e:
             _log(run_id, f'⚠️ Ошибка записи: {e}')
 
