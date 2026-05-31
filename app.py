@@ -432,6 +432,12 @@ def preview_template(template_key):
 # ── Init DB on startup (работает и с gunicorn, и напрямую) ───────────────────
 init_db()
 
+# При рестарте все "running" воркеры убиты — помечаем как interrupted
+_boot_conn = get_db()
+_boot_conn.execute("UPDATE research_runs SET status='interrupted' WHERE status='running'")
+_boot_conn.commit()
+_boot_conn.close()
+
 # ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5050))

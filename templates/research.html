@@ -193,7 +193,7 @@
           </thead>
           <tbody>
             {% for r in runs %}
-            <tr class="run-row" data-run-id="{{ r['id'] }}" onclick="toggleRunDetails(this)">
+            <tr class="run-row" data-run-id="{{ r['id'] }}" data-found="{{ r['found_count'] }}" onclick="toggleRunDetails(this)">
               <td><span class="run-chevron">▶</span></td>
               <td>{{ r['id'] }}</td>
               <td>{{ r['started_at'][:16] if r['started_at'] else '—' }}</td>
@@ -216,6 +216,8 @@
                   <span class="badge badge-green">Завершён</span>
                 {% elif r['status'] == 'running' %}
                   <span class="badge badge-yellow">Выполняется</span>
+                {% elif r['status'] == 'interrupted' %}
+                  <span class="badge badge-grey">Прервано</span>
                 {% else %}
                   <span class="badge badge-red">{{ r['status'] }}</span>
                 {% endif %}
@@ -360,6 +362,15 @@ function pollStatus() {
         const btn         = document.getElementById('start-btn');
         btn.disabled      = false;
         btn.textContent   = '▶ Запустить поиск';
+      } else if (d.status === 'interrupted') {
+        clearInterval(pollInterval);
+        badge.textContent = '⚠️ Прервано';
+        badge.style.color = '#b45309';
+        const btn         = document.getElementById('start-btn');
+        btn.disabled      = false;
+        btn.textContent   = '▶ Запустить поиск';
+        updateRunHistoryRow(currentRunId, d.found_count, d.target_count, 'interrupted');
+        if (_openRows.has(String(currentRunId))) fetchRunContacts(String(currentRunId));
       }
     });
 }
@@ -411,11 +422,13 @@ function updateRunHistoryRow(runId, found, target, status) {
   } else if (status === 'done') {
     foundCell.innerHTML  = `<strong>${found}</strong>`;
     statusCell.innerHTML = '<span class="badge badge-green">Завершён</span>';
-    // Если строка открыта — делаем финальный рефреш и кешируем
     _loadedRuns.delete(String(runId));
-    if (_openRows.has(String(runId))) {
-      fetchRunContacts(String(runId));
-    }
+    if (_openRows.has(String(runId))) fetchRunContacts(String(runId));
+  } else if (status === 'interrupted') {
+    foundCell.innerHTML  = `<strong>${found}</strong>`;
+    statusCell.innerHTML = '<span class="badge badge-grey">Прервано</span>';
+    _loadedRuns.delete(String(runId));
+    if (_openRows.has(String(runId))) fetchRunContacts(String(runId));
   }
 }
 
@@ -431,6 +444,11 @@ const _openRows   = new Set(); // runId открытых строк
 function isRowRunning(runId) {
   const row = document.querySelector(`.run-row[data-run-id="${runId}"]`);
   return row ? !!row.querySelector('.badge-yellow') : false;
+}
+
+function isRowInterrupted(runId) {
+  const row = document.querySelector(`.run-row[data-run-id="${runId}"]`);
+  return row ? !!row.querySelector('.badge-grey') : false;
 }
 
 function toggleRunDetails(row) {
@@ -472,11 +490,18 @@ function fetchRunContacts(runId) {
     .then(r => r.json())
     .then(contacts => {
       if (!contacts.length) {
-        if (!running) {
-          el.innerHTML = '<div class="run-detail-empty">Контактов для этого запуска нет</div>';
-          _loadedRuns.add(runId);
+        if (running) {
+          // Ещё выполняется — оставляем "Ищем..."
+          return;
         }
-        // Если ещё выполняется и 0 контактов — оставляем "Ищем..."
+        const mainRow  = document.querySelector(`.run-row[data-run-id="${runId}"]`);
+        const savedCnt = mainRow ? parseInt(mainRow.dataset.found || '0', 10) : 0;
+        if (isRowInterrupted(runId) && savedCnt > 0) {
+          el.innerHTML = `<div class="run-detail-empty" style="color:#b45309">⚠️ Поиск был прерван перезапуском сервера — ${savedCnt} контактов найдено, но не сохранено в базу</div>`;
+        } else {
+          el.innerHTML = '<div class="run-detail-empty">Контактов для этого запуска нет</div>';
+        }
+        _loadedRuns.add(runId);
         return;
       }
 
@@ -528,6 +553,7 @@ function deleteRun(runId, btn) {
 </script>
 
 <style>
+.badge-grey { background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; }
 .run-row { cursor: pointer; }
 .run-row:hover { background: #f8fafc; }
 .run-chevron { font-size: 10px; color: #94a3b8; transition: transform .15s; display:inline-block; }
