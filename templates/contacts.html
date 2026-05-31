@@ -55,6 +55,7 @@
         <th>ФИО / Должность</th>
         <th>Email</th>
         <th>Телефон</th>
+        <th>ИНН</th>
         <th>Сегмент</th>
         <th>Статус</th>
         <th>Дата</th>
@@ -75,8 +76,9 @@
           <div class="cell-main">{{ c['person_name'] or '—' }}</div>
           <div class="cell-sub">{{ c['title'] or '' }}</div>
         </td>
-        <td><a href="mailto:{{ c['email'] }}" class="link">{{ c['email'] }}</a></td>
+        <td>{% if c['email'] %}<a href="mailto:{{ c['email'] }}" class="link">{{ c['email'] }}</a>{% else %}—{% endif %}</td>
         <td>{{ c['phone'] or '—' }}</td>
+        <td>{{ c['inn'] or '—' }}</td>
         <td><span class="badge badge-gray">{{ c['segment'] or '—' }}</span></td>
         <td>
           {% if c['status'] == 'new' %}
@@ -93,7 +95,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="9" class="empty-state">Контакты не найдены</td></tr>
+      <tr><td colspan="10" class="empty-state">Контакты не найдены</td></tr>
       {% endfor %}
     </tbody>
   </table>

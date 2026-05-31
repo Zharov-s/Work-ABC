@@ -84,6 +84,18 @@ SCALE_SUFFIX = {
     'large':  'крупный бизнес',
 }
 
+CONTACT_REQUIREMENT_LABELS = {
+    'company_name':    'Наименование компании',
+    'website':         'Сайт',
+    'generic_email':   'Email общий',
+    'personal_email':  'Email личный',
+    'generic_phone':   'Телефон общий',
+    'mobile_phone':    'Телефон мобильный',
+    'inn':             'ИНН',
+}
+
+DEFAULT_CONTACT_REQUIREMENTS = ['company_name', 'website', 'personal_email', 'mobile_phone']
+
 # ── Поисковые запросы ───────────────────────────────────────────────────────
 
 # Основные запросы через Tavily (широкий поиск)
@@ -198,6 +210,8 @@ _DIRECTOR_PATTERNS = [
 
 # Regex для извлечения email из текста
 _EMAIL_RE = re.compile(r'[\w.+\-]+@[\w\-]+\.[a-zA-Z]{2,}')
+_PHONE_RE = re.compile(r'(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}')
+_INN_RE = re.compile(r'(?:ИНН|инн)?\s*[:№#-]?\s*\b(\d{10}|\d{12})\b')
 
 
 # ── Вспомогательные функции ────────────────────────────────────────────────
@@ -245,10 +259,52 @@ def extract_director_name(text: str) -> str | None:
     return None
 
 
-def extract_emails_from_text(text: str) -> list[str]:
-    """Извлекает все email-адреса из текста, фильтруя общие."""
+def extract_all_emails_from_text(text: str) -> list[str]:
     found = _EMAIL_RE.findall(text)
-    return [e.lower() for e in found if is_valid_email_format(e) and not is_generic_email(e)]
+    emails = []
+    seen = set()
+    for email in found:
+        email = email.lower()
+        if is_valid_email_format(email) and email not in seen:
+            emails.append(email)
+            seen.add(email)
+    return emails
+
+
+def extract_emails_from_text(text: str) -> list[str]:
+    """Извлекает личные email-адреса из текста, фильтруя общие."""
+    return [e for e in extract_all_emails_from_text(text) if not is_generic_email(e)]
+
+
+def extract_generic_emails_from_text(text: str) -> list[str]:
+    return [e for e in extract_all_emails_from_text(text) if is_generic_email(e)]
+
+
+def extract_phones_from_text(text: str) -> list[str]:
+    phones = []
+    seen = set()
+    for phone in _PHONE_RE.findall(text or ''):
+        normalized = re.sub(r'\s+', ' ', phone).strip()
+        key = re.sub(r'\D', '', normalized)
+        if key and key not in seen:
+            phones.append(normalized)
+            seen.add(key)
+    return phones
+
+
+def is_mobile_phone(phone: str) -> bool:
+    digits = re.sub(r'\D', '', str(phone or ''))
+    return (
+        len(digits) == 11 and (digits.startswith('79') or digits.startswith('89'))
+    ) or (
+        len(digits) == 10 and digits.startswith('9')
+    )
+
+
+def extract_inn_from_text(text: str) -> str | None:
+    for m in _INN_RE.finditer(text or ''):
+        return m.group(1)
+    return None
 
 
 def get_run_status(run_id: int):
@@ -426,11 +482,14 @@ def _extract_lpr_from_combined(client, company: dict, combined_text: str,
         'Заместитель генерального директора > HR-директор > Технический директор > '
         'Финансовый директор > Генеральный директор. '
         f'{director_hint}'
-        'Email должен быть ЛИЧНЫМ (имя.фамилия@, i.ivanov@ и т.п.) — '
-        'НЕ общим (info@, sales@, office@, support@ и т.п.). '
+        'Разделяй личные и общие контакты. Личный email: имя.фамилия@, i.ivanov@ и т.п. '
+        'Общий email: info@, sales@, office@, support@ и т.п. '
+        'Мобильный телефон — номер конкретного человека, общий телефон — номер компании/офиса. '
         'Извлекай ТОЛЬКО то, что есть в тексте. Не придумывай. '
         'Верни ТОЛЬКО JSON: {"person_name": "ФИО или null", "title": "должность или null", '
-        '"email": "личный email или null", "phone": "телефон или null", "source_url": "URL или null"}'
+        '"personal_email": "личный email или null", "generic_email": "общий email или null", '
+        '"mobile_phone": "мобильный телефон или null", "generic_phone": "общий телефон или null", '
+        '"inn": "ИНН или null", "source_url": "URL или null"}'
     )
     try:
         raw  = _ollama_chat(client, [
@@ -443,15 +502,27 @@ def _extract_lpr_from_combined(client, company: dict, combined_text: str,
         ], expect_json=True)
         data = json.loads(_extract_json(raw))
         # Чистим "null"-строки от модели
-        for field in ('person_name', 'title', 'email', 'phone', 'source_url'):
+        for field in (
+            'person_name', 'title', 'email', 'phone', 'personal_email', 'generic_email',
+            'mobile_phone', 'generic_phone', 'inn', 'source_url'
+        ):
             if str(data.get(field, '') or '').lower() in ('null', 'none', ''):
                 data[field] = None
 
-        email = (data.get('email') or '').lower().strip()
-        if email and is_generic_email(email):
-            data['email'] = None
-            email = ''
-        data['email'] = email or None
+        personal_email = (data.get('personal_email') or data.get('email') or '').lower().strip()
+        generic_email = (data.get('generic_email') or '').lower().strip()
+        if personal_email and (not is_valid_email_format(personal_email) or is_generic_email(personal_email)):
+            if is_valid_email_format(personal_email) and is_generic_email(personal_email) and not generic_email:
+                generic_email = personal_email
+            personal_email = ''
+        if generic_email and not is_valid_email_format(generic_email):
+            generic_email = ''
+        if generic_email and not is_generic_email(generic_email):
+            if not personal_email:
+                personal_email = generic_email
+            generic_email = ''
+        data['personal_email'] = personal_email or None
+        data['generic_email'] = generic_email or None
 
         # ФИО: директор из реестра если модель не нашла
         if known_director and not data.get('person_name'):
@@ -459,22 +530,41 @@ def _extract_lpr_from_combined(client, company: dict, combined_text: str,
             data['title']       = data.get('title') or 'Генеральный директор'
 
         # Email: regex-фолбэк если модель не нашла
-        if not data.get('email'):
+        if not data.get('personal_email'):
             regex_emails = extract_emails_from_text(combined_text)
             if regex_emails:
-                data['email'] = regex_emails[0]
+                data['personal_email'] = regex_emails[0]
+        if not data.get('generic_email'):
+            generic_emails = extract_generic_emails_from_text(combined_text)
+            if generic_emails:
+                data['generic_email'] = generic_emails[0]
 
         # Телефон: regex-фолбэк если модель не нашла
-        if not is_valid_phone(data.get('phone', '')):
-            phones = re.findall(
-                r'(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',
-                combined_text
-            )
-            if phones:
-                data['phone'] = phones[0]
+        phone = data.get('phone')
+        mobile_phone = data.get('mobile_phone')
+        generic_phone = data.get('generic_phone')
+        if phone and not mobile_phone and is_mobile_phone(phone):
+            mobile_phone = phone
+        elif phone and not generic_phone:
+            generic_phone = phone
+        phones = extract_phones_from_text(combined_text)
+        if not is_valid_phone(mobile_phone):
+            mobile_phone = next((p for p in phones if is_mobile_phone(p)), None)
+        if not is_valid_phone(generic_phone):
+            generic_phone = next((p for p in phones if not is_mobile_phone(p)), None) or (phones[0] if phones else None)
+        data['mobile_phone'] = mobile_phone if is_valid_phone(mobile_phone) else None
+        data['generic_phone'] = generic_phone if is_valid_phone(generic_phone) else None
+
+        inn = re.sub(r'\D', '', str(data.get('inn') or ''))
+        if len(inn) not in (10, 12):
+            inn = extract_inn_from_text(combined_text) or ''
+        data['inn'] = inn or None
+
+        data['email'] = data.get('personal_email') or data.get('generic_email')
+        data['phone'] = data.get('mobile_phone') or data.get('generic_phone')
 
         # Возвращаем если есть хотя бы имя ЛПР
-        if data.get('person_name') or data.get('email') or data.get('phone'):
+        if data.get('person_name') or data.get('email') or data.get('phone') or data.get('inn'):
             data['company_name'] = company.get('name', '')
             data['website']      = company.get('website', '')
             return data
@@ -501,7 +591,7 @@ def is_valid_phone(phone: str) -> bool:
 
 # ── Многопроходный поиск ЛПР ──────────────────────────────────────────────
 
-def _multi_pass_lpr_search(tavily, company: dict, log_fn) -> tuple[str | None, str]:
+def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str] | None = None) -> tuple[str | None, str]:
     """
     4-проходный поиск полного комплекта ЛПР (ФИО + email + телефон):
     1. Rusprofile/Zachestnyibiznes → директор (regex из сниппета)
@@ -529,10 +619,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn) -> tuple[str | None, s
             if emails:
                 found_email = emails[0]
         if not found_phone:
-            phones = re.findall(
-                r'(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',
-                text
-            )
+            phones = extract_phones_from_text(text)
             if phones:
                 found_phone = phones[0]
 
@@ -588,6 +675,24 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn) -> tuple[str | None, s
         except Exception:
             pass
 
+    requirements = requirements or set()
+    if 'inn' in requirements:
+        q5 = f'"{name}" ИНН реквизиты'
+        try:
+            r5 = tavily.search(q5, max_results=3)
+            combined_parts.append(_results_to_text(r5, 500))
+        except Exception:
+            pass
+
+    if 'generic_email' in requirements or 'generic_phone' in requirements:
+        q6 = (f'site:{domain} реквизиты контакты email телефон' if domain
+              else f'"{name}" реквизиты контакты email телефон')
+        try:
+            r6 = tavily.search(q6, max_results=3)
+            combined_parts.append(_results_to_text(r6, 500))
+        except Exception:
+            pass
+
     return director_name, '\n\n===\n\n'.join(combined_parts)
 
 
@@ -623,17 +728,23 @@ def _research_worker(run_id: int, config: dict):
         raw_industries = [raw_industries]
     industries_list = [i for i in raw_industries if i in INDUSTRY_LABELS]
 
+    raw_requirements = config.get('contact_requirements', DEFAULT_CONTACT_REQUIREMENTS)
+    if isinstance(raw_requirements, str):
+        raw_requirements = [raw_requirements]
+    requirements = {r for r in raw_requirements if r in CONTACT_REQUIREMENT_LABELS} or set(DEFAULT_CONTACT_REQUIREMENTS)
+
     target_count = int(config.get('count', 10))
     keywords     = config.get('keywords', '').strip()
-    # ФИО + email + телефон всегда обязательны — это жёсткое требование, не настройка
 
     seg_labels = [SEGMENT_LABELS.get(s, s) for s in segments_list]
     region_labels = [REGION_SUFFIX.get(r, r) for r in regions_list]
     scale_labels = [SCALE_LABELS.get(s, s) for s in scales_list]
     industry_labels = [INDUSTRY_LABELS.get(i, i) for i in industries_list]
+    requirement_labels = [CONTACT_REQUIREMENT_LABELS.get(r, r) for r in requirements]
     _log(run_id, f'🚀 Старт: {", ".join(seg_labels)} | {", ".join(region_labels)} | цель={target_count}')
     _log(run_id, f'🏷 Отрасли: {", ".join(industry_labels) if industry_labels else "все подходящие"}')
     _log(run_id, f'📏 Масштаб: {", ".join(scale_labels)}')
+    _log(run_id, f'📌 Обязательные поля: {", ".join(requirement_labels)}')
     _log(run_id, f'🤖 Модель: {OLLAMA_MODEL} (Ollama)')
 
     if not _check_ollama(client):
@@ -671,12 +782,26 @@ def _research_worker(run_id: int, config: dict):
                     industry_label = INDUSTRY_LABELS.get(industry_key, '') if industry_key else ''
                     industry_terms = INDUSTRY_QUERY_TERMS.get(industry_key, ['']) if industry_key else ['']
                     industry_suffix = ' '.join(industry_terms[:2])
+                    requirement_terms = []
+                    if 'website' in requirements:
+                        requirement_terms.append('официальный сайт')
+                    if 'inn' in requirements:
+                        requirement_terms.append('ИНН реквизиты')
+                    if 'personal_email' in requirements:
+                        requirement_terms.append('личный email руководитель')
+                    if 'generic_email' in requirements:
+                        requirement_terms.append('общий email контакты')
+                    if 'mobile_phone' in requirements:
+                        requirement_terms.append('мобильный телефон руководитель')
+                    if 'generic_phone' in requirements:
+                        requirement_terms.append('городской телефон контакты')
+                    requirement_suffix = ' '.join(requirement_terms)
                     for q in SEGMENT_QUERIES.get(seg, []):
-                        full_q = ' '.join(filter(None, [q, industry_suffix, region_label, scale_suffix, keywords]))
+                        full_q = ' '.join(filter(None, [q, industry_suffix, requirement_suffix, region_label, scale_suffix, keywords]))
                         all_queries.append((full_q, segment_label, industry_label, region_label, 'tavily'))
                     # Дополнительные каналы: технопарки, выставки, импортозамещение
                     for q in EXTRA_DISCOVERY_QUERIES.get(seg, []):
-                        full_q = ' '.join(filter(None, [q, industry_suffix, region_label, scale_suffix, keywords]))
+                        full_q = ' '.join(filter(None, [q, industry_suffix, requirement_suffix, region_label, scale_suffix, keywords]))
                         all_queries.append((full_q, segment_label, industry_label, region_label, 'extra'))
 
     found_contacts = []
@@ -720,7 +845,7 @@ def _research_worker(run_id: int, config: dict):
 
             # Многопроходный поиск ЛПР
             director_name, combined_text = _multi_pass_lpr_search(
-                tavily, company, lambda m: _log(run_id, m)
+                tavily, company, lambda m: _log(run_id, m), requirements
             )
 
             if not combined_text.strip():
@@ -730,46 +855,90 @@ def _research_worker(run_id: int, config: dict):
             lpr = _extract_lpr_from_combined(client, company, combined_text, director_name)
 
             if not lpr:
-                _log(run_id, '   ⚠️  ЛПР не определён, пропускаем')
-                continue
+                if requirements.issubset({'company_name', 'website'}):
+                    lpr = {
+                        'company_name': company.get('name', ''),
+                        'website': company.get('website', ''),
+                    }
+                else:
+                    _log(run_id, '   ⚠️  ЛПР/контакты не определены, пропускаем')
+                    continue
 
-            # ── Строгая валидация: нужны ФИО + email + телефон ──────────────
+            # ── Гибкая валидация по выбранным требованиям ───────────────────
             person = (lpr.get('person_name') or '').strip()
-            email  = (lpr.get('email') or '').lower().strip()
-            phone  = (lpr.get('phone') or '').strip()
+            personal_email = (lpr.get('personal_email') or '').lower().strip()
+            generic_email = (lpr.get('generic_email') or '').lower().strip()
+            mobile_phone = (lpr.get('mobile_phone') or '').strip()
+            generic_phone = (lpr.get('generic_phone') or '').strip()
+            inn = (lpr.get('inn') or '').strip()
+            website = (lpr.get('website') or company.get('website') or '').strip()
 
             # Чистим "null" строки от модели
-            email = '' if email  in ('null', 'none') else email
-            phone = '' if phone  in ('null', 'none') else phone
+            personal_email = '' if personal_email in ('null', 'none') else personal_email
+            generic_email = '' if generic_email in ('null', 'none') else generic_email
+            mobile_phone = '' if mobile_phone in ('null', 'none') else mobile_phone
+            generic_phone = '' if generic_phone in ('null', 'none') else generic_phone
+            inn = '' if inn in ('null', 'none') else inn
             person = '' if person in ('null', 'none') else person
 
-            # ФИО: минимум 2 слова
-            if not person or len(person.split()) < 2:
-                _log(run_id, f'   ⛔  нет ФИО ЛПР — компания не засчитывается, ищем дальше')
+            if 'company_name' in requirements and not name:
+                _log(run_id, '   ⛔  нет наименования компании — компания не засчитывается')
                 continue
 
-            # Email: валидный формат + личный, не общий
-            if not email or not is_valid_email_format(email) or is_generic_email(email):
+            if 'website' in requirements and not website:
+                _log(run_id, '   ⛔  нет сайта — компания не засчитывается')
+                continue
+
+            if requirements.intersection({'personal_email', 'mobile_phone'}) and (not person or len(person.split()) < 2):
+                _log(run_id, f'   ⛔  нет ФИО ЛПР для личного контакта — компания не засчитывается, ищем дальше')
+                continue
+
+            if 'personal_email' in requirements and (
+                not personal_email or not is_valid_email_format(personal_email) or is_generic_email(personal_email)
+            ):
                 _log(run_id, f'   ⛔  нет личного email — компания не засчитывается, ищем дальше')
                 continue
 
-            # Телефон: минимум 7 цифр
-            if not is_valid_phone(phone):
-                _log(run_id, f'   ⛔  нет телефона — компания не засчитывается, ищем дальше')
+            if 'generic_email' in requirements and (
+                not generic_email or not is_valid_email_format(generic_email) or not is_generic_email(generic_email)
+            ):
+                _log(run_id, f'   ⛔  нет общего email — компания не засчитывается, ищем дальше')
                 continue
+
+            if 'mobile_phone' in requirements and (not is_valid_phone(mobile_phone) or not is_mobile_phone(mobile_phone)):
+                _log(run_id, f'   ⛔  нет мобильного телефона — компания не засчитывается, ищем дальше')
+                continue
+
+            if 'generic_phone' in requirements and not is_valid_phone(generic_phone):
+                _log(run_id, f'   ⛔  нет общего телефона — компания не засчитывается, ищем дальше')
+                continue
+
+            if 'inn' in requirements and not inn:
+                _log(run_id, f'   ⛔  нет ИНН — компания не засчитывается, ищем дальше')
+                continue
+
+            primary_email = personal_email or generic_email or None
+            primary_phone = mobile_phone or generic_phone or None
 
             # Email уже в базе
-            if email in existing_emails:
-                _log(run_id, f'   ⏭  {email} — уже в базе')
+            if primary_email and primary_email in existing_emails:
+                _log(run_id, f'   ⏭  {primary_email} — уже в базе')
                 continue
 
-            if email:
-                existing_emails.add(email)
+            if primary_email:
+                existing_emails.add(primary_email)
             existing_companies.add(norm)
 
             lpr['segment'] = segment_label
             lpr['region']  = region_label
-            lpr['email']   = email or None
+            lpr['website'] = website or None
+            lpr['email'] = primary_email
+            lpr['phone'] = primary_phone
+            lpr['personal_email'] = personal_email or None
+            lpr['generic_email'] = generic_email or None
+            lpr['mobile_phone'] = mobile_phone or None
+            lpr['generic_phone'] = generic_phone or None
+            lpr['inn'] = inn or None
             found_contacts.append(lpr)
             _update_found_count(run_id, len(found_contacts))
 
@@ -779,12 +948,15 @@ def _research_worker(run_id: int, config: dict):
                 conn_now = get_db()
                 conn_now.execute(
                     """INSERT OR IGNORE INTO contacts
-                       (company_name, website, person_name, title, email, phone,
-                        source_url, segment, region, date_found, status, run_id)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,'new',?)""",
+                       (company_name, website, person_name, title, email, personal_email, generic_email,
+                        phone, mobile_phone, generic_phone, inn, source_url, segment, region,
+                        date_found, status, run_id)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?)""",
                     (lpr.get('company_name'), lpr.get('website'), lpr.get('person_name'),
-                     lpr.get('title'), lpr.get('email') or None, lpr.get('phone') or None,
-                     lpr.get('source_url'), lpr.get('segment'), lpr.get('region'),
+                     lpr.get('title'), lpr.get('email') or None, lpr.get('personal_email') or None,
+                     lpr.get('generic_email') or None, lpr.get('phone') or None,
+                     lpr.get('mobile_phone') or None, lpr.get('generic_phone') or None,
+                     lpr.get('inn') or None, lpr.get('source_url'), lpr.get('segment'), lpr.get('region'),
                      today_str, run_id)
                 )
                 conn_now.commit()
@@ -793,7 +965,7 @@ def _research_worker(run_id: int, config: dict):
                 _log(run_id, f'⚠️ Ошибка записи: {e}')
 
             person = lpr.get('person_name') or director_name or '???'
-            detail = ' | '.join(filter(None, [email, phone]))
+            detail = ' | '.join(filter(None, [primary_email, primary_phone, f'ИНН {inn}' if inn else '']))
             remaining = target_count - len(found_contacts)
             _log(run_id, f'   ✅ {person} — {detail} | найдено {len(found_contacts)}/{target_count}, осталось {remaining}')
 

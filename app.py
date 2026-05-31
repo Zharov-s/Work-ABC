@@ -16,6 +16,7 @@ from mailer import send_campaign, test_smtp, parse_addresses, TEMPLATE_META
 from researcher import (
     start_research, get_run_status, pause_research, resume_research,
     SEGMENT_LABELS, REGION_SUFFIX, INDUSTRY_LABELS, SCALE_LABELS,
+    CONTACT_REQUIREMENT_LABELS,
 )
 
 app = Flask(__name__)
@@ -216,11 +217,14 @@ def export_contacts():
     ws = wb.active
     ws.title = 'Контакты'
     headers = ['Компания', 'Сайт', 'ФИО', 'Должность', 'Email', 'Телефон',
-               'Сегмент', 'Регион', 'Статус', 'Дата']
+               'Email личный', 'Email общий', 'Телефон мобильный',
+               'Телефон общий', 'ИНН', 'Сегмент', 'Регион', 'Статус', 'Дата']
     ws.append(headers)
     for r in rows:
         ws.append([r['company_name'], r['website'], r['person_name'], r['title'],
-                   r['email'], r['phone'], r['segment'], r['region'],
+                   r['email'], r['phone'], r['personal_email'], r['generic_email'],
+                   r['mobile_phone'], r['generic_phone'], r['inn'],
+                   r['segment'], r['region'],
                    r['status'], r['date_found']])
     for col in ws.columns:
         ws.column_dimensions[col[0].column_letter].width = 25
@@ -249,6 +253,7 @@ def research():
         industries=INDUSTRY_LABELS,
         regions=REGION_SUFFIX,
         scales=SCALE_LABELS,
+        contact_requirements=CONTACT_REQUIREMENT_LABELS,
     )
 
 
@@ -260,6 +265,9 @@ def research_start():
         return jsonify({'ok': False, 'error': 'Выберите хотя бы один сегмент'})
     regions = request.form.getlist('regions') or [request.form.get('region', 'moscow')]
     company_scales = request.form.getlist('company_scales') or [request.form.get('company_scale', 'any')]
+    contact_requirements = request.form.getlist('contact_requirements')
+    if not contact_requirements:
+        return jsonify({'ok': False, 'error': 'Выберите хотя бы одно требование к контакту'})
     config = {
         'segments':      segments,
         'industries':    request.form.getlist('industries'),
@@ -269,6 +277,7 @@ def research_start():
         'keywords':      request.form.get('keywords', ''),
         'company_scales': company_scales,
         'company_scale': company_scales[0],
+        'contact_requirements': contact_requirements,
         'require_email': bool(request.form.get('require_email')),
         'require_phone': bool(request.form.get('require_phone')),
         'active_only':   True,
@@ -294,7 +303,9 @@ def research_run_resume(run_id):
 def research_run_contacts(run_id):
     conn = get_db()
     rows = conn.execute(
-        'SELECT id, company_name, person_name, title, email, phone, segment FROM contacts WHERE run_id=? ORDER BY id',
+        """SELECT id, company_name, website, person_name, title, email, phone,
+                  personal_email, generic_email, mobile_phone, generic_phone, inn, segment
+           FROM contacts WHERE run_id=? ORDER BY id""",
         (run_id,)
     ).fetchall()
     conn.close()
@@ -350,7 +361,7 @@ def campaigns():
         rows = conn.execute(
             f"SELECT email FROM contacts WHERE id IN ({','.join('?'*len(ids))})", ids
         ).fetchall()
-        preselect_addrs = '\n'.join(r['email'] for r in rows)
+        preselect_addrs = '\n'.join(r['email'] for r in rows if r['email'])
 
     conn.close()
     return render_template('campaigns.html',

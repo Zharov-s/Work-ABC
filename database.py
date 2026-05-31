@@ -11,7 +11,12 @@ CREATE TABLE IF NOT EXISTS contacts (
     person_name  TEXT,
     title        TEXT,
     email        TEXT,
+    personal_email TEXT,
+    generic_email  TEXT,
     phone        TEXT,
+    mobile_phone  TEXT,
+    generic_phone TEXT,
+    inn          TEXT,
     source_url   TEXT,
     segment      TEXT,
     region       TEXT,
@@ -87,11 +92,14 @@ def init_db():
     conn = get_db()
     conn.executescript(SCHEMA)
 
-    # Миграция: добавить run_id если колонки ещё нет
+    # Миграции: добавить новые колонки если их ещё нет
     cols = [r[1] for r in conn.execute('PRAGMA table_info(contacts)').fetchall()]
     if 'run_id' not in cols:
         conn.execute('ALTER TABLE contacts ADD COLUMN run_id INTEGER REFERENCES research_runs(id)')
-        conn.commit()
+    for col_name in ('personal_email', 'generic_email', 'mobile_phone', 'generic_phone', 'inn'):
+        if col_name not in cols:
+            conn.execute(f'ALTER TABLE contacts ADD COLUMN {col_name} TEXT')
+    conn.commit()
 
     # Заполняем настройки по умолчанию (только если ключа ещё нет)
     import bcrypt
