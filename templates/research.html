@@ -3,6 +3,27 @@
 {% block heading %}Research — поиск ЛПР{% endblock %}
 
 {% block content %}
+{% set industry_options = industries|default({
+  'construction': 'Строительство',
+  'transport': 'Транспорт',
+  'media': 'Медиа',
+  'it_telecom': 'ИТ и связь',
+  'finance': 'Финансы',
+  'healthcare': 'Здравоохранение',
+  'education': 'Образование',
+  'culture': 'Культура',
+  'government': 'Госуправление',
+  'associations': 'Объединения',
+  'trade': 'Торговля',
+  'services': 'Услуги',
+  'production': 'Производство',
+}, true) %}
+{% set scale_options = scales|default({
+  'any': 'Любой',
+  'small': 'Малый',
+  'medium': 'Средний',
+  'large': 'Крупный',
+}, true) %}
 <div class="research-layout">
   <div class="research-columns">
 
@@ -25,7 +46,7 @@
           </div>
           <div class="accordion-body filter-menu" style="display:none">
             <div class="filter-menu-list" data-filter-list="industries">
-              {% for key, label in industries.items() %}
+              {% for key, label in industry_options.items() %}
               <label class="filter-menu-row {% if key in ['trade','services','production'] %}filter-menu-row--nested{% endif %}">
                 <span class="filter-menu-marker">
                   {% if key in ['trade','services','production'] %}<span class="filter-menu-arrow">›</span>{% else %}<span class="filter-menu-dot"></span>{% endif %}
@@ -139,7 +160,7 @@
           </div>
           <div class="accordion-body filter-menu" style="display:none">
             <div class="filter-menu-list" data-filter-list="company_scales">
-            {% for val, label in scales.items() %}
+            {% for val, label in scale_options.items() %}
             <label class="filter-menu-row">
               <span class="filter-menu-marker"><span class="filter-menu-dot"></span></span>
               <span class="filter-menu-label">{{ label }}</span>
@@ -281,9 +302,9 @@
                       {% endif %}
                     </span>
                     <span class="cell-sub">
-                      {% if inds %}{% for i in inds %}{{ industries.get(i, i) }}{% if not loop.last %}, {% endif %}{% endfor %} · {% endif %}
+                      {% if inds %}{% for i in inds %}{{ industry_options.get(i, i) }}{% if not loop.last %}, {% endif %}{% endfor %} · {% endif %}
                       {% if regs is string %}{{ regions.get(regs, regs) }}{% else %}{% for rkey in regs %}{{ regions.get(rkey, rkey) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
-                      · {% if scs is string %}{{ scales.get(scs, scs) }}{% else %}{% for skey in scs %}{{ scales.get(skey, skey) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+                      · {% if scs is string %}{{ scale_options.get(scs, scs) }}{% else %}{% for skey in scs %}{{ scale_options.get(skey, skey) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
                       · цель={{ cfg.get('count','?') }}
                     </span>
                   {% endif %}
