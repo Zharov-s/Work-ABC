@@ -560,3 +560,133 @@ body.login-page {
 .login-logo { font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 4px; }
 .login-subtitle { text-align: center; color: #9ca3af; font-size: 13px; margin-bottom: 24px; }
 .login-box .form-group { margin-bottom: 14px; }
+
+/* ── ОКВЭД type tabs ── */
+.okved-type-bar { display: flex; gap: 0; margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 6px; overflow: hidden; }
+.okved-type-btn {
+  flex: 1;
+  text-align: center;
+  padding: 5px 0;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: #6b7280;
+  background: #fff;
+  transition: background 0.15s, color 0.15s;
+}
+.okved-type-btn input { display: none; }
+.okved-type-btn + .okved-type-btn { border-left: 1px solid #d1d5db; }
+.okved-type-btn--active { background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+
+/* ── Picker row (clickable) ── */
+.picker-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #e5e7eb;
+  cursor: pointer;
+  font-size: 13px;
+  color: #374151;
+}
+.picker-row:hover .picker-row-label { color: #2563eb; }
+.picker-row-label { flex: 1; }
+.picker-row-arrow { color: #9ca3af; font-size: 16px; }
+.picker-row-static {
+  padding: 8px 0 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #374151;
+  margin-top: 8px;
+}
+
+/* ── Picker tags ── */
+.picker-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; min-height: 0; }
+.picker-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  border-radius: 99px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.picker-tag button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #93c5fd;
+  font-size: 13px;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.picker-tag button:hover { color: #dc2626; }
+
+/* ── Industry grid ── */
+.industry-grid { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+
+/* ── ОКВЭД Modal ── */
+.modal-box--okved {
+  width: 520px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.okved-tree-wrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+  min-height: 0;
+}
+.okved-search-bar {
+  padding: 10px 20px;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+.okved-search-bar input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.okved-modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid #e5e7eb;
+  text-align: right;
+}
+
+/* ── ОКВЭД tree items ── */
+.okved-item { border-bottom: 1px solid #f3f4f6; }
+.okved-item:last-child { border-bottom: none; }
+.okved-item-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #374151;
+}
+.okved-item-row:hover { background: #f9fafb; }
+.okved-item-row--child { padding-left: 36px; background: #fafafa; font-size: 12.5px; }
+.okved-item-row--child:hover { background: #f3f4f6; }
+.okved-expand {
+  width: 16px;
+  flex-shrink: 0;
+  color: #9ca3af;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: center;
+}
+.okved-expand:hover { color: #2563eb; }
+.okved-expand-placeholder { width: 16px; flex-shrink: 0; }
+.okved-cb { accent-color: #2563eb; flex-shrink: 0; }
+.okved-item-label { flex: 1; line-height: 1.4; }
+.okved-children { background: #fafafa; }

@@ -62,6 +62,79 @@ REGION_SUFFIX = {
     'russia':  'Россия',
 }
 
+INDUSTRIES_LIST = [
+    {'code': 'manufacturing', 'label': 'Производство'},
+    {'code': 'it',            'label': 'ИТ и связь'},
+    {'code': 'healthcare',    'label': 'Здравоохранение'},
+    {'code': 'construction',  'label': 'Строительство'},
+    {'code': 'transport',     'label': 'Транспорт'},
+    {'code': 'media',         'label': 'Медиа'},
+    {'code': 'finance',       'label': 'Финансы'},
+    {'code': 'education',     'label': 'Образование'},
+    {'code': 'culture',       'label': 'Культура'},
+    {'code': 'gov',           'label': 'Госуправление'},
+    {'code': 'unions',        'label': 'Объединения'},
+    {'code': 'trade',         'label': 'Торговля'},
+    {'code': 'services',      'label': 'Услуги'},
+]
+
+OKVED_SEARCH_TERMS = {
+    'A':    'сельское хозяйство агропромышленный',
+    'B':    'горнодобывающая добыча ископаемых',
+    'C':    'обрабатывающее производство промышленность',
+    'C10':  'пищевое производство продукты питания',
+    'C13':  'текстильное производство',
+    'C20':  'химическое производство реагенты',
+    'C21':  'фармацевтика лекарства производство',
+    'C22':  'пластмассы полимеры резина производство',
+    'C25':  'металлоизделия металлообработка',
+    'C26':  'электроника производство оптика компьютеры',
+    'C27':  'электрооборудование производство',
+    'C28':  'машиностроение оборудование',
+    'C29':  'автомобилестроение автокомпоненты',
+    'C32':  'производство готовых изделий',
+    'C32.5':'медицинские инструменты оборудование производство',
+    'C33':  'ремонт сервис техническое обслуживание',
+    'D':    'энергетика электроснабжение',
+    'E':    'водоснабжение утилизация',
+    'F':    'строительство застройщик',
+    'G':    'торговля дистрибуция',
+    'H':    'транспорт логистика',
+    'I':    'общественное питание гостиницы',
+    'J':    'IT информационные технологии software',
+    'J62':  'разработка программного обеспечения',
+    'J63':  'IT услуги технологии',
+    'K':    'финансы банки страхование',
+    'L':    'недвижимость аренда',
+    'M':    'научно-техническая деятельность R&D',
+    'M71':  'проектирование инжиниринг',
+    'M72':  'научные исследования разработки R&D лаборатория',
+    'M73':  'маркетинговые исследования',
+    'M74':  'консалтинг техническая деятельность',
+    'N':    'административные услуги',
+    'O':    'государственное управление',
+    'P':    'образование обучение',
+    'Q':    'здравоохранение медицина клиника',
+    'R':    'культура спорт',
+    'S':    'прочие услуги',
+}
+
+INDUSTRY_SEARCH_TERMS = {
+    'manufacturing': 'производство промышленность завод',
+    'it':            'IT информационные технологии',
+    'healthcare':    'здравоохранение медицина',
+    'construction':  'строительство',
+    'transport':     'транспорт логистика',
+    'media':         'медиа СМИ',
+    'finance':       'финансы банки',
+    'education':     'образование',
+    'culture':       'культура спорт',
+    'gov':           'государственное управление',
+    'unions':        'объединения ассоциации',
+    'trade':         'торговля',
+    'services':      'сервисные услуги',
+}
+
 
 def _log(run_id: int, msg: str):
     ts    = datetime.now().strftime('%H:%M:%S')
@@ -101,11 +174,16 @@ def _ollama_chat(client, messages: list, expect_json: bool = True) -> str:
     return resp.choices[0].message.content or ''
 
 
-def _extract_companies(client, results_text: str, segment_label: str) -> list:
+def _extract_companies(client, results_text: str, segment_label: str,
+                       exclude_hint: str = '') -> list:
+    exclude_clause = (
+        f'Исключай компании из сфер: {exclude_hint}. ' if exclude_hint else ''
+    )
     prompt = (
         'Ты помогаешь находить компании для аренды в промышленном технопарке класса A+ в Москве. '
         'Объект подходит для: производства, R&D, лабораторий, шоурума, light industrial. '
         'НЕ подходит: склады, ритейл, офисы без производства. '
+        f'{exclude_clause}'
         'Из результатов поиска извлеки список реальных российских компаний. '
         'Верни ТОЛЬКО валидный JSON без лишнего текста: '
         '{"companies": [{"name": "...", "website": "...", "description": "..."}]}'
@@ -208,6 +286,29 @@ def _research_worker(run_id: int, config: dict):
     require_email = bool(config.get('require_email'))
     require_phone = bool(config.get('require_phone'))
     active_only   = bool(config.get('active_only'))
+    okved_type    = config.get('okved_type', 'main')
+
+    # ОКВЭД и отрасль
+    okved_include_raw = config.get('okved_include', '') or ''
+    okved_exclude_raw = config.get('okved_exclude', '') or ''
+    industries_raw    = config.get('industries', [])
+
+    okved_include = [c.strip() for c in okved_include_raw.split(',') if c.strip()]
+    okved_exclude = [c.strip() for c in okved_exclude_raw.split(',') if c.strip()]
+    industries    = industries_raw if isinstance(industries_raw, list) else [industries_raw]
+
+    # Строим доп. термины из ОКВЭД include
+    okved_terms = ' '.join(
+        OKVED_SEARCH_TERMS.get(c, '') for c in okved_include if c in OKVED_SEARCH_TERMS
+    ).strip()
+    # Строим доп. термины из отрасли
+    industry_terms = ' '.join(
+        INDUSTRY_SEARCH_TERMS.get(i, '') for i in industries if i in INDUSTRY_SEARCH_TERMS
+    ).strip()
+    # Строим термины для исключения (используем в промпте ИИ)
+    okved_exclude_terms = ' '.join(
+        OKVED_SEARCH_TERMS.get(c, '') for c in okved_exclude if c in OKVED_SEARCH_TERMS
+    ).strip()
 
     region_label = REGION_SUFFIX.get(region_key, 'Москва')
     scale_suffix = SCALE_SUFFIX.get(company_scale, '')
@@ -216,6 +317,12 @@ def _research_worker(run_id: int, config: dict):
     seg_labels = [SEGMENT_LABELS.get(s, s) for s in segments_list]
     _log(run_id, f'🚀 Старт поиска: {", ".join(seg_labels)}')
     _log(run_id, f'   Регион: {region_label} | Цель: {target_count} | Масштаб: {company_scale or "любой"}')
+    if okved_include:
+        _log(run_id, f'   ОКВЭД включить: {", ".join(okved_include)} ({okved_type})')
+    if okved_exclude:
+        _log(run_id, f'   ОКВЭД исключить: {", ".join(okved_exclude)}')
+    if industries:
+        _log(run_id, f'   Отрасли: {", ".join(industries)}')
     _log(run_id, f'🤖 Модель: {OLLAMA_MODEL} (Ollama)')
 
     # Проверить Ollama
@@ -243,7 +350,10 @@ def _research_worker(run_id: int, config: dict):
     for seg in segments_list:
         seg_queries = SEGMENT_QUERIES.get(seg, SEGMENT_QUERIES['electronics'])
         for q in seg_queries:
-            full_q = ' '.join(filter(None, [q, region_label, scale_suffix, active_str, keywords]))
+            full_q = ' '.join(filter(None, [
+                q, region_label, scale_suffix, active_str,
+                okved_terms, industry_terms, keywords
+            ]))
             all_queries.append((full_q, SEGMENT_LABELS.get(seg, seg)))
 
     found_contacts = []
@@ -267,7 +377,10 @@ def _research_worker(run_id: int, config: dict):
             continue
 
         results_text = _results_to_text(search_res)
-        companies    = _extract_companies(client, results_text, segment_label)
+        companies    = _extract_companies(
+            client, results_text, segment_label,
+            exclude_hint=okved_exclude_terms
+        )
         _log(run_id, f'   Компаний в выдаче: {len(companies)}')
 
         for company in companies:

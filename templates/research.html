@@ -130,6 +130,56 @@
           </div>
         </div>
 
+        <!-- Сфера деятельности -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Сфера деятельности</div>
+              <div class="accordion-desc">ОКВЭД и отрасль компании</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body" style="display:none">
+
+            <div class="okved-type-bar">
+              <label class="okved-type-btn okved-type-btn--active" id="okved-type-main-lbl">
+                <input type="radio" name="okved_type" value="main" checked onchange="setOkvedTypeLabel(this)"> Основной
+              </label>
+              <label class="okved-type-btn" id="okved-type-all-lbl">
+                <input type="radio" name="okved_type" value="all" onchange="setOkvedTypeLabel(this)"> Все
+              </label>
+            </div>
+
+            <!-- ОКВЭД включить -->
+            <div class="picker-row" onclick="openOkvedModal('include')">
+              <span class="picker-row-label">Виды деятельности (ОКВЭД)</span>
+              <span class="picker-row-arrow">›</span>
+            </div>
+            <div class="picker-tags" id="tags-include"></div>
+            <input type="hidden" name="okved_include" id="val-include">
+
+            <!-- ОКВЭД исключить -->
+            <div class="picker-row" onclick="openOkvedModal('exclude')">
+              <span class="picker-row-label">Исключать виды деятельности (ОКВЭД)</span>
+              <span class="picker-row-arrow">›</span>
+            </div>
+            <div class="picker-tags" id="tags-exclude"></div>
+            <input type="hidden" name="okved_exclude" id="val-exclude">
+
+            <!-- Отрасль -->
+            <div class="picker-row-static">Отрасль</div>
+            <div class="industry-grid">
+              {% for ind in industries_list %}
+              <label class="filter-checkbox">
+                <input type="checkbox" name="industries" value="{{ ind.code }}">
+                <span>{{ ind.label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+
+          </div>
+        </div>
+
         <!-- Дополнительно -->
         <div class="accordion">
           <div class="accordion-header" onclick="toggleAccordion(this)">
@@ -223,6 +273,23 @@
 
     </div>
   </div>
+
+<!-- ОКВЭД Modal -->
+<div class="modal" id="okved-modal">
+  <div class="modal-box modal-box--okved">
+    <div class="modal-header">
+      <h2 id="okved-modal-title">Виды деятельности (ОКВЭД)</h2>
+      <button class="btn-icon" onclick="closeOkvedModal()">✕</button>
+    </div>
+    <div class="okved-tree-wrap" id="okved-tree"></div>
+    <div class="okved-search-bar">
+      <input type="text" id="okved-search" placeholder="Название или код" oninput="filterOkvedTree(this.value)">
+    </div>
+    <div class="okved-modal-footer">
+      <button type="button" class="btn btn-primary" onclick="closeOkvedModal()">Готово</button>
+    </div>
+  </div>
+</div>
 
 </div>
 {% endblock %}
@@ -322,6 +389,178 @@ function pollStatus() {
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── ОКВЭД данные ───────────────────────────────────────────────────────────
+const OKVED_TREE = [
+  { code:'A', label:'A. Сельское, лесное хозяйство, охота, рыболовство', children:[] },
+  { code:'B', label:'B. Добыча полезных ископаемых', children:[] },
+  { code:'C', label:'C. Обрабатывающие производства', children:[
+    { code:'C10', label:'10. Производство пищевых продуктов' },
+    { code:'C13', label:'13. Производство текстильных изделий' },
+    { code:'C20', label:'20. Производство химических веществ и продуктов' },
+    { code:'C21', label:'21. Производство лекарственных средств' },
+    { code:'C22', label:'22. Производство резиновых и пластмассовых изделий' },
+    { code:'C25', label:'25. Производство готовых металлических изделий' },
+    { code:'C26', label:'26. Производство компьютеров, электронных и оптических изделий' },
+    { code:'C27', label:'27. Производство электрического оборудования' },
+    { code:'C28', label:'28. Производство машин и оборудования' },
+    { code:'C29', label:'29. Производство автотранспортных средств' },
+    { code:'C32', label:'32. Производство прочих готовых изделий' },
+    { code:'C32.5', label:'32.50. Производство медицинских инструментов и оборудования' },
+    { code:'C33', label:'33. Ремонт и монтаж машин и оборудования' },
+  ]},
+  { code:'D', label:'D. Обеспечение электрической энергией, газом и паром', children:[] },
+  { code:'E', label:'E. Водоснабжение; утилизация отходов', children:[] },
+  { code:'F', label:'F. Строительство', children:[] },
+  { code:'G', label:'G. Торговля оптовая и розничная', children:[] },
+  { code:'H', label:'H. Транспортировка и хранение', children:[] },
+  { code:'I', label:'I. Деятельность гостиниц и общественного питания', children:[] },
+  { code:'J', label:'J. Деятельность в области информации и связи', children:[
+    { code:'J62', label:'62. Разработка программного обеспечения' },
+    { code:'J63', label:'63. Деятельность в области информационных технологий' },
+  ]},
+  { code:'K', label:'K. Деятельность финансовая и страховая', children:[] },
+  { code:'L', label:'L. Деятельность по операциям с недвижимостью', children:[] },
+  { code:'M', label:'M. Деятельность профессиональная, научная и техническая', children:[
+    { code:'M71', label:'71. Архитектурное проектирование и инженерные изыскания' },
+    { code:'M72', label:'72. Научные исследования и разработки (R&D)' },
+    { code:'M73', label:'73. Реклама и исследование рынка' },
+    { code:'M74', label:'74. Прочая профессиональная, научная и техническая деятельность' },
+  ]},
+  { code:'N', label:'N. Деятельность административная и вспомогательная', children:[] },
+  { code:'O', label:'O. Государственное управление', children:[] },
+  { code:'P', label:'P. Образование', children:[] },
+  { code:'Q', label:'Q. Деятельность в области здравоохранения', children:[] },
+  { code:'R', label:'R. Культура, спорт, досуг и развлечения', children:[] },
+  { code:'S', label:'S. Предоставление прочих видов услуг', children:[] },
+];
+
+// ── Состояние ОКВЭД-пикера ─────────────────────────────────────────────────
+const okvedState = { include: new Set(), exclude: new Set() };
+let currentOkvedMode = 'include';
+let expandedCodes    = new Set();
+
+// ── ОКВЭД-модал ───────────────────────────────────────────────────────────
+function openOkvedModal(mode) {
+  currentOkvedMode = mode;
+  document.getElementById('okved-modal-title').textContent =
+    mode === 'include' ? 'Виды деятельности (ОКВЭД)' : 'Исключать виды деятельности (ОКВЭД)';
+  document.getElementById('okved-search').value = '';
+  renderOkvedTree('');
+  document.getElementById('okved-modal').classList.add('open');
+}
+
+function closeOkvedModal() {
+  document.getElementById('okved-modal').classList.remove('open');
+  updateTags(currentOkvedMode);
+  syncHidden();
+}
+
+function setOkvedTypeLabel(radio) {
+  document.querySelectorAll('.okved-type-btn').forEach(b => b.classList.remove('okved-type-btn--active'));
+  radio.closest('.okved-type-btn').classList.add('okved-type-btn--active');
+}
+
+function renderOkvedTree(query) {
+  const q   = query.toLowerCase().trim();
+  const sel = okvedState[currentOkvedMode];
+  const container = document.getElementById('okved-tree');
+  let html = '';
+
+  for (const item of OKVED_TREE) {
+    const parentMatch = !q || item.label.toLowerCase().includes(q) || item.code.toLowerCase().includes(q);
+    const childMatches = item.children.filter(c =>
+      !q || c.label.toLowerCase().includes(q) || c.code.toLowerCase().includes(q)
+    );
+
+    if (!parentMatch && childMatches.length === 0) continue;
+
+    const hasChildren  = item.children.length > 0;
+    const isExpanded   = expandedCodes.has(item.code) || (q && childMatches.length > 0);
+    const parentChecked = sel.has(item.code);
+
+    html += `<div class="okved-item">
+      <div class="okved-item-row" onclick="toggleOkvedCheck('${item.code}', false)">
+        ${hasChildren
+          ? `<span class="okved-expand" onclick="event.stopPropagation();toggleExpand('${item.code}')">${isExpanded ? '▾' : '›'}</span>`
+          : `<span class="okved-expand-placeholder"></span>`}
+        <input type="checkbox" class="okved-cb" ${parentChecked ? 'checked' : ''}
+               onchange="event.stopPropagation();toggleOkvedCheck('${item.code}', true)"
+               onclick="event.stopPropagation()">
+        <span class="okved-item-label">${item.label}</span>
+      </div>`;
+
+    if (hasChildren && isExpanded) {
+      const toShow = q ? childMatches : item.children;
+      html += `<div class="okved-children">`;
+      for (const child of toShow) {
+        const childChecked = sel.has(child.code);
+        html += `<div class="okved-item-row okved-item-row--child" onclick="toggleOkvedCheck('${child.code}', false)">
+          <span class="okved-expand-placeholder"></span>
+          <input type="checkbox" class="okved-cb" ${childChecked ? 'checked' : ''}
+                 onchange="event.stopPropagation();toggleOkvedCheck('${child.code}', true)"
+                 onclick="event.stopPropagation()">
+          <span class="okved-item-label">${child.label}</span>
+        </div>`;
+      }
+      html += `</div>`;
+    }
+    html += `</div>`;
+  }
+  container.innerHTML = html || '<div class="empty-state">Ничего не найдено</div>';
+}
+
+function toggleExpand(code) {
+  if (expandedCodes.has(code)) expandedCodes.delete(code);
+  else expandedCodes.add(code);
+  renderOkvedTree(document.getElementById('okved-search').value);
+}
+
+function toggleOkvedCheck(code, fromCheckbox) {
+  const sel = okvedState[currentOkvedMode];
+  if (sel.has(code)) sel.delete(code);
+  else sel.add(code);
+  renderOkvedTree(document.getElementById('okved-search').value);
+}
+
+function filterOkvedTree(q) {
+  renderOkvedTree(q);
+}
+
+function updateTags(mode) {
+  const sel = okvedState[mode];
+  const container = document.getElementById(`tags-${mode}`);
+  if (!container) return;
+  if (sel.size === 0) { container.innerHTML = ''; return; }
+  container.innerHTML = [...sel].map(code => {
+    const item = findOkvedItem(code);
+    const label = item ? item.label.replace(/^\w+\.\s*/, '').substring(0, 30) : code;
+    return `<span class="picker-tag">${label}
+      <button type="button" onclick="removeTag('${code}','${mode}')">×</button>
+    </span>`;
+  }).join('');
+}
+
+function removeTag(code, mode) {
+  okvedState[mode].delete(code);
+  updateTags(mode);
+  syncHidden();
+}
+
+function findOkvedItem(code) {
+  for (const item of OKVED_TREE) {
+    if (item.code === code) return item;
+    for (const child of item.children) {
+      if (child.code === code) return child;
+    }
+  }
+  return null;
+}
+
+function syncHidden() {
+  document.getElementById('val-include').value = [...okvedState.include].join(',');
+  document.getElementById('val-exclude').value = [...okvedState.exclude].join(',');
 }
 </script>
 {% endblock %}
