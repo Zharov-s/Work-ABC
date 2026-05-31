@@ -296,6 +296,9 @@ function pollStatus() {
       logEl.innerHTML  = log.map(l => `<div class="log-line">${escapeHtml(l)}</div>`).join('');
       logEl.scrollTop  = logEl.scrollHeight;
 
+      // Обновляем ячейку "Найдено" в строке истории в реальном времени
+      updateRunHistoryRow(currentRunId, d.found_count, d.target_count, d.status);
+
       if (d.status === 'done') {
         clearInterval(pollInterval);
         badge.textContent     = '✅ Завершено';
@@ -316,6 +319,27 @@ function pollStatus() {
         btn.textContent   = '▶ Запустить поиск';
       }
     });
+}
+
+function updateRunHistoryRow(runId, found, target, status) {
+  const row = document.querySelector(`.run-row[data-run-id="${runId}"]`);
+  if (!row) return;
+  const cells    = row.querySelectorAll('td');
+  const foundCell  = cells[4]; // 0=chevron,1=#,2=date,3=params,4=found,5=status
+  const statusCell = cells[5];
+
+  if (status === 'running') {
+    const remaining = Math.max(0, (target || 0) - found);
+    foundCell.innerHTML =
+      `<strong>${found}</strong>` +
+      (target ? `<span class="cell-sub" style="display:block">цель ${target}, осталось ${remaining}</span>` : '');
+    statusCell.innerHTML = '<span class="badge badge-yellow">Выполняется</span>';
+  } else if (status === 'done') {
+    foundCell.innerHTML  = `<strong>${found}</strong>`;
+    statusCell.innerHTML = '<span class="badge badge-green">Завершён</span>';
+    // сбрасываем кеш деталей, чтобы при следующем открытии загрузились контакты
+    delete _loadedRuns[runId];
+  }
 }
 
 function escapeHtml(s) {

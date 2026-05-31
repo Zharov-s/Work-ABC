@@ -298,10 +298,15 @@ def research_status(run_id):
         row = conn.execute('SELECT * FROM research_runs WHERE id=?', (run_id,)).fetchone()
         conn.close()
         if row:
+            import json as _json
+            cfg = _json.loads(row['config_json']) if row['config_json'] else {}
             return jsonify({'status': row['status'], 'log': row['log_text'].split('\n'),
-                            'found_count': row['found_count']})
-        return jsonify({'status': 'not_found', 'log': [], 'found_count': 0})
-    return jsonify({'status': run['status'], 'log': run['log'], 'found_count': run['found_count']})
+                            'found_count': row['found_count'],
+                            'target_count': int(cfg.get('count', 0))})
+        return jsonify({'status': 'not_found', 'log': [], 'found_count': 0, 'target_count': 0})
+    return jsonify({'status': run['status'], 'log': run['log'],
+                    'found_count': run['found_count'],
+                    'target_count': run.get('target_count', 0)})
 
 
 # ── Campaigns ─────────────────────────────────────────────────────────────────

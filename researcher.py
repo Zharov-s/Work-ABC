@@ -234,6 +234,19 @@ def _set_run_status(run_id: int, status: str, found_count: int = 0):
         pass
 
 
+def _update_found_count(run_id: int, count: int):
+    with _lock:
+        if run_id in _runs:
+            _runs[run_id]['found_count'] = count
+    try:
+        conn = get_db()
+        conn.execute('UPDATE research_runs SET found_count=? WHERE id=?', (count, run_id))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 # ── Ollama ─────────────────────────────────────────────────────────────────
 
 def _ollama_chat(client, messages: list, expect_json: bool = False) -> str:
@@ -630,10 +643,12 @@ def _research_worker(run_id: int, config: dict):
             lpr['region']  = region_label
             lpr['email']   = email or None
             found_contacts.append(lpr)
+            _update_found_count(run_id, len(found_contacts))
 
             person = lpr.get('person_name') or director_name or '???'
             detail = ' | '.join(filter(None, [email, phone]))
-            _log(run_id, f'   ✅ {person} — {detail or "имя найдено, email в поиске"}')
+            remaining = target_count - len(found_contacts)
+            _log(run_id, f'   ✅ {person} — {detail} | найдено {len(found_contacts)}/{target_count}, осталось {remaining}')
 
             time.sleep(0.3)
 
@@ -686,7 +701,8 @@ def start_research(config: dict) -> int:
     conn.close()
 
     with _lock:
-        _runs[run_id] = {'status': 'running', 'log': [], 'found_count': 0}
+        _runs[run_id] = {'status': 'running', 'log': [], 'found_count': 0,
+                         'target_count': int(config.get('count', 10))}
 
     t = threading.Thread(target=_research_worker, args=(run_id, config), daemon=True)
     t.start()
