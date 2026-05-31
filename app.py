@@ -251,10 +251,14 @@ def research():
 @login_required
 def research_start():
     config = {
-        'segment':  request.form.get('segment', 'electronics'),
-        'region':   request.form.get('region', 'moscow'),
-        'count':    int(request.form.get('count', 10)),
-        'keywords': request.form.get('keywords', ''),
+        'segments':      request.form.getlist('segments') or ['electronics'],
+        'region':        request.form.get('region', 'moscow'),
+        'count':         int(request.form.get('count', 10)),
+        'keywords':      request.form.get('keywords', ''),
+        'company_scale': request.form.get('company_scale', 'any'),
+        'require_email': bool(request.form.get('require_email')),
+        'require_phone': bool(request.form.get('require_phone')),
+        'active_only':   bool(request.form.get('active_only')),
     }
     run_id = start_research(config)
     return jsonify({'ok': True, 'run_id': run_id})

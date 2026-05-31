@@ -178,6 +178,14 @@ def _check_ollama(client) -> bool:
         return False
 
 
+SCALE_SUFFIX = {
+    'any':    '',
+    'small':  'малый бизнес выручка до 800 млн',
+    'medium': 'средний бизнес выручка 800 млн – 2 млрд',
+    'large':  'крупный бизнес выручка от 2 млрд',
+}
+
+
 def _research_worker(run_id: int, config: dict):
     from openai import OpenAI
     from tavily import TavilyClient
@@ -185,15 +193,29 @@ def _research_worker(run_id: int, config: dict):
     client = OpenAI(base_url=OLLAMA_BASE_URL, api_key='ollama')
     tavily = TavilyClient(api_key=TAVILY_API_KEY)
 
-    segment      = config.get('segment', 'electronics')
-    region_key   = config.get('region', 'moscow')
-    target_count = int(config.get('count', 10))
-    keywords     = config.get('keywords', '').strip()
+    # Поддержка нескольких сегментов
+    raw_segments = config.get('segments', config.get('segment', 'electronics'))
+    if isinstance(raw_segments, str):
+        raw_segments = [raw_segments]
+    segments_list = [s for s in raw_segments if s in SEGMENT_LABELS]
+    if not segments_list:
+        segments_list = ['electronics']
 
-    segment_label = SEGMENT_LABELS.get(segment, segment)
-    region_label  = REGION_SUFFIX.get(region_key, 'Москва')
+    region_key    = config.get('region', 'moscow')
+    target_count  = int(config.get('count', 10))
+    keywords      = config.get('keywords', '').strip()
+    company_scale = config.get('company_scale', 'any')
+    require_email = bool(config.get('require_email'))
+    require_phone = bool(config.get('require_phone'))
+    active_only   = bool(config.get('active_only'))
 
-    _log(run_id, f'🚀 Старт поиска: {segment_label}, {region_label}, цель={target_count}')
+    region_label = REGION_SUFFIX.get(region_key, 'Москва')
+    scale_suffix = SCALE_SUFFIX.get(company_scale, '')
+    active_str   = 'активная компания' if active_only else ''
+
+    seg_labels = [SEGMENT_LABELS.get(s, s) for s in segments_list]
+    _log(run_id, f'🚀 Старт поиска: {", ".join(seg_labels)}')
+    _log(run_id, f'   Регион: {region_label} | Цель: {target_count} | Масштаб: {company_scale or "любой"}')
     _log(run_id, f'🤖 Модель: {OLLAMA_MODEL} (Ollama)')
 
     # Проверить Ollama
@@ -216,8 +238,13 @@ def _research_worker(run_id: int, config: dict):
     if keywords:
         _log(run_id, f'🔑 Доп. слова: {keywords}')
 
-    queries = SEGMENT_QUERIES.get(segment, SEGMENT_QUERIES['electronics'])
-    queries = [f'{q} {region_label} {keywords}'.strip() for q in queries]
+    # Собираем запросы для всех выбранных сегментов
+    all_queries = []
+    for seg in segments_list:
+        seg_queries = SEGMENT_QUERIES.get(seg, SEGMENT_QUERIES['electronics'])
+        for q in seg_queries:
+            full_q = ' '.join(filter(None, [q, region_label, scale_suffix, active_str, keywords]))
+            all_queries.append((full_q, SEGMENT_LABELS.get(seg, seg)))
 
     found_contacts = []
     searched_names: set = set()
@@ -228,11 +255,11 @@ def _research_worker(run_id: int, config: dict):
     }
     conn_main.close()
 
-    for query in queries:
+    for query, segment_label in all_queries:
         if len(found_contacts) >= target_count:
             break
 
-        _log(run_id, f'🔍 Поиск: {query}')
+        _log(run_id, f'🔍 [{segment_label}] {query}')
         try:
             search_res = tavily.search(query, max_results=8)
         except Exception as e:
@@ -264,16 +291,32 @@ def _research_worker(run_id: int, config: dict):
             contact_text = _results_to_text(contact_res, 800)
             lpr          = _extract_lpr(client, company, contact_text)
 
-            if lpr and lpr.get('email') and lpr['email'] not in existing_emails:
-                existing_emails.add(lpr['email'])
-                lpr['segment'] = segment_label
-                lpr['region']  = region_label
-                found_contacts.append(lpr)
-                _log(run_id, f'   ✅ {lpr.get("person_name", "???")} — {lpr["email"]}')
-            elif lpr and lpr.get('email') in existing_emails:
-                _log(run_id, f'   ⏭  {lpr["email"]} уже в базе')
-            else:
-                _log(run_id, f'   ⚠️  email не найден')
+            if not lpr:
+                _log(run_id, f'   ⚠️  контакт не найден')
+                continue
+
+            email = lpr.get('email')
+            phone = lpr.get('phone')
+
+            # Применяем фильтры контактных данных
+            if require_email and not email:
+                _log(run_id, f'   ⏭  пропущен (нет email)')
+                continue
+            if require_phone and not phone:
+                _log(run_id, f'   ⏭  пропущен (нет телефона)')
+                continue
+            if email and email in existing_emails:
+                _log(run_id, f'   ⏭  {email} уже в базе')
+                continue
+
+            if email:
+                existing_emails.add(email)
+            lpr['segment'] = segment_label
+            lpr['region']  = region_label
+            found_contacts.append(lpr)
+            _log(run_id, f'   ✅ {lpr.get("person_name", "???")}'
+                         + (f' — {email}' if email else '')
+                         + (f' | {phone}' if phone else ''))
 
             time.sleep(0.2)
 

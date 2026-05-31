@@ -5,115 +5,223 @@
 {% block content %}
 <div class="research-layout">
 
-  <!-- Форма запуска -->
-  <div class="panel">
-    <div class="panel-header">Параметры поиска</div>
-    <form id="research-form">
-      <div class="form-grid">
+  <div class="research-columns">
 
-        <div class="form-group form-group--full">
-          <label>Сегмент компаний</label>
-          <div class="segment-grid">
+    <!-- ── Левая колонка: фильтры ── -->
+    <div class="filters-panel">
+      <form id="research-form">
+
+        <!-- Сегменты компаний -->
+        <div class="accordion accordion--open">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Сегменты компаний</div>
+              <div class="accordion-desc">Можно выбрать несколько</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body">
             {% for key, label in segments.items() %}
-            <label class="segment-option">
-              <input type="radio" name="segment" value="{{ key }}" {% if loop.first %}checked{% endif %}>
+            <label class="filter-checkbox">
+              <input type="checkbox" name="segments" value="{{ key }}" checked>
               <span>{{ label }}</span>
             </label>
             {% endfor %}
           </div>
         </div>
 
-        <div class="form-group">
-          <label>Регион</label>
-          <select name="region">
+        <!-- Регион -->
+        <div class="accordion accordion--open">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Регион</div>
+              <div class="accordion-desc">География поиска</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body">
             {% for key, label in regions.items() %}
-            <option value="{{ key }}">{{ label }}</option>
+            <label class="filter-radio">
+              <input type="radio" name="region" value="{{ key }}" {% if loop.first %}checked{% endif %}>
+              <span>{{ label }}</span>
+            </label>
             {% endfor %}
-          </select>
+          </div>
         </div>
 
-        <div class="form-group">
-          <label>Количество компаний</label>
-          <select name="count">
-            <option value="5">5</option>
-            <option value="10" selected>10</option>
-            <option value="15">15</option>
-            <option value="20">20</option>
-            <option value="25">25</option>
-          </select>
+        <!-- Количество компаний -->
+        <div class="accordion accordion--open">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Количество компаний</div>
+              <div class="accordion-desc">Цель за один запуск</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body">
+            <div class="count-buttons">
+              {% for n in [5, 10, 15, 20, 25] %}
+              <label class="count-btn {% if n == 10 %}count-btn--active{% endif %}">
+                <input type="radio" name="count" value="{{ n }}" {% if n == 10 %}checked{% endif %} onchange="markCountBtn(this)">
+                {{ n }}
+              </label>
+              {% endfor %}
+            </div>
+          </div>
         </div>
 
-        <div class="form-group form-group--full">
-          <label>Дополнительные ключевые слова <span class="label-hint">(необязательно)</span></label>
-          <input type="text" name="keywords" placeholder="Например: импортозамещение, робототехника, экспорт...">
+        <!-- Масштаб бизнеса -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Масштаб бизнеса</div>
+              <div class="accordion-desc">Влияет на поисковые запросы</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body" style="display:none">
+            {% for val, label in [('any','Любой'),('small','Малый бизнес'),('medium','Средний бизнес'),('large','Крупный бизнес')] %}
+            <label class="filter-radio">
+              <input type="radio" name="company_scale" value="{{ val }}" {% if val == 'any' %}checked{% endif %}>
+              <span>{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
         </div>
 
+        <!-- Контактные данные -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Контактные данные</div>
+              <div class="accordion-desc">Требования к найденным контактам</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body" style="display:none">
+            <label class="filter-toggle">
+              <input type="checkbox" name="require_email" value="1" checked>
+              <span class="toggle-switch"></span>
+              <span>Только с email</span>
+            </label>
+            <label class="filter-toggle">
+              <input type="checkbox" name="require_phone" value="1">
+              <span class="toggle-switch"></span>
+              <span>Только с телефоном</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Активность -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Активность компании</div>
+              <div class="accordion-desc">Фильтр по признаку активной деятельности</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body" style="display:none">
+            <label class="filter-toggle">
+              <input type="checkbox" name="active_only" value="1" checked>
+              <span class="toggle-switch"></span>
+              <span>Активные компании</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Дополнительно -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Дополнительные слова</div>
+              <div class="accordion-desc">Уточнение запроса (необязательно)</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body" style="display:none">
+            <input type="text" name="keywords" placeholder="импортозамещение, экспорт, стартап..." style="width:100%">
+          </div>
+        </div>
+
+        <!-- Кнопка запуска -->
+        <div class="filters-action">
+          <button type="submit" class="btn btn-primary btn-full btn-large" id="start-btn">
+            ▶ Запустить поиск
+          </button>
+          <div class="hint-text" style="text-align:center;margin-top:6px">Поиск идёт в фоне</div>
+        </div>
+
+      </form>
+    </div>
+
+    <!-- ── Правая колонка: результаты ── -->
+    <div class="results-panel">
+
+      <!-- Блок выполнения -->
+      <div class="panel" id="run-panel" style="display:none">
+        <div class="panel-header">
+          Выполнение
+          <span class="status-badge" id="run-status-badge">Запускаем...</span>
+        </div>
+        <div class="log-console" id="log-console"></div>
+        <div class="run-summary" id="run-summary" style="display:none">
+          <strong id="run-found-text"></strong>
+          <a href="{{ url_for('contacts') }}" class="btn btn-primary" style="margin-left:16px">Перейти к контактам →</a>
+        </div>
       </div>
 
-      <div class="form-actions">
-        <button type="submit" class="btn btn-primary" id="start-btn">▶ Запустить поиск</button>
-        <span class="hint-text">Поиск идёт в фоне. Страницу можно не закрывать.</span>
+      <!-- История запусков -->
+      <div class="panel">
+        <div class="panel-header">История запусков</div>
+        {% if runs %}
+        <table class="table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Запущен</th>
+              <th>Параметры</th>
+              <th>Найдено</th>
+              <th>Статус</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in runs %}
+            <tr>
+              <td>{{ r['id'] }}</td>
+              <td>{{ r['started_at'][:16] if r['started_at'] else '—' }}</td>
+              <td>
+                {% if r['config_json'] %}
+                  {% set cfg = r['config_json'] | from_json %}
+                  {% if cfg %}
+                    <span class="cell-main">
+                      {% set segs = cfg.get('segments', [cfg.get('segment','?')]) %}
+                      {% if segs is string %}{{ segs }}{% else %}{{ segs | join(', ') }}{% endif %}
+                    </span>
+                    <span class="cell-sub">{{ cfg.get('region','?') }}, цель={{ cfg.get('count','?') }}</span>
+                  {% endif %}
+                {% else %}—{% endif %}
+              </td>
+              <td><strong>{{ r['found_count'] }}</strong></td>
+              <td>
+                {% if r['status'] == 'done' %}
+                  <span class="badge badge-green">Завершён</span>
+                {% elif r['status'] == 'running' %}
+                  <span class="badge badge-yellow">Выполняется</span>
+                {% else %}
+                  <span class="badge badge-red">{{ r['status'] }}</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+          <div class="empty-state">Запусков ещё не было</div>
+        {% endif %}
       </div>
-    </form>
-  </div>
 
-  <!-- Блок выполнения -->
-  <div class="panel" id="run-panel" style="display:none">
-    <div class="panel-header">
-      Выполнение
-      <span class="status-badge" id="run-status-badge">Запускаем...</span>
     </div>
-    <div class="log-console" id="log-console"></div>
-    <div class="run-summary" id="run-summary" style="display:none">
-      <strong id="run-found-text"></strong>
-      <a href="{{ url_for('contacts') }}" class="btn btn-primary" style="margin-left:16px">Перейти к контактам →</a>
-    </div>
-  </div>
-
-  <!-- История запусков -->
-  <div class="panel">
-    <div class="panel-header">История запусков</div>
-    {% if runs %}
-    <table class="table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Запущен</th>
-          <th>Завершён</th>
-          <th>Параметры</th>
-          <th>Найдено</th>
-          <th>Статус</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in runs %}
-        <tr>
-          <td>{{ r['id'] }}</td>
-          <td>{{ r['started_at'][:16] if r['started_at'] else '—' }}</td>
-          <td>{{ r['completed_at'][:16] if r['completed_at'] else '—' }}</td>
-          <td>
-            {% if r['config_json'] %}
-              {% set cfg = r['config_json'] | from_json %}
-              {% if cfg %}{{ cfg.get('segment','?') }}, {{ cfg.get('region','?') }}, цель={{ cfg.get('count','?') }}{% endif %}
-            {% else %}—{% endif %}
-          </td>
-          <td><strong>{{ r['found_count'] }}</strong></td>
-          <td>
-            {% if r['status'] == 'done' %}
-              <span class="badge badge-green">Завершён</span>
-            {% elif r['status'] == 'running' %}
-              <span class="badge badge-yellow">Выполняется</span>
-            {% else %}
-              <span class="badge badge-red">{{ r['status'] }}</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-      <div class="empty-state">Запусков ещё не было</div>
-    {% endif %}
   </div>
 
 </div>
@@ -121,19 +229,42 @@
 
 {% block scripts %}
 <script>
-let pollInterval = null;
-let currentRunId = null;
+// ── Аккордеон ──────────────────────────────────────────────────────────────
+function toggleAccordion(header) {
+  const body    = header.nextElementSibling;
+  const chevron = header.querySelector('.accordion-chevron');
+  const isOpen  = body.style.display !== 'none';
+  body.style.display    = isOpen ? 'none' : 'block';
+  chevron.style.transform = isOpen ? 'rotate(-90deg)' : 'rotate(0deg)';
+  header.parentElement.classList.toggle('accordion--open', !isOpen);
+}
 
+// ── Кнопки количества ──────────────────────────────────────────────────────
+function markCountBtn(radio) {
+  document.querySelectorAll('.count-btn').forEach(l => l.classList.remove('count-btn--active'));
+  radio.closest('.count-btn').classList.add('count-btn--active');
+}
+
+// ── Отправка формы ─────────────────────────────────────────────────────────
 document.getElementById('research-form').addEventListener('submit', function(e) {
   e.preventDefault();
   const form     = e.target;
   const data     = new FormData(form);
   const startBtn = document.getElementById('start-btn');
+
+  // Проверить что выбран хотя бы один сегмент
+  const segs = form.querySelectorAll('input[name="segments"]:checked');
+  if (segs.length === 0) {
+    alert('Выберите хотя бы один сегмент компаний');
+    return;
+  }
+
   startBtn.disabled    = true;
   startBtn.textContent = '⏳ Выполняется...';
 
   document.getElementById('run-panel').style.display = 'block';
   document.getElementById('run-status-badge').textContent = 'Запускаем...';
+  document.getElementById('run-status-badge').style.color = '';
   document.getElementById('log-console').innerHTML = '';
   document.getElementById('run-summary').style.display = 'none';
 
@@ -151,6 +282,9 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
     });
 });
 
+let pollInterval = null;
+let currentRunId = null;
+
 function pollStatus() {
   if (!currentRunId) return;
   fetch(`/research/status/${currentRunId}`)
@@ -165,16 +299,22 @@ function pollStatus() {
 
       if (d.status === 'done') {
         clearInterval(pollInterval);
-        badge.textContent     = '✅ Завершено';
-        badge.style.color     = '#16a34a';
-        const summary         = document.getElementById('run-summary');
-        summary.style.display = 'flex';
-        document.getElementById('run-found-text').textContent = `Найдено и сохранено: ${d.found_count} контактов`;
-        const startBtn                 = document.getElementById('start-btn');
-        startBtn.disabled              = false;
-        startBtn.textContent           = '▶ Запустить поиск';
-      } else if (d.status === 'running') {
-        badge.textContent = '⏳ Выполняется...';
+        badge.textContent       = '✅ Завершено';
+        badge.style.color       = '#16a34a';
+        const summary           = document.getElementById('run-summary');
+        summary.style.display   = 'flex';
+        document.getElementById('run-found-text').textContent =
+          `Найдено и сохранено: ${d.found_count} контактов`;
+        const startBtn          = document.getElementById('start-btn');
+        startBtn.disabled       = false;
+        startBtn.textContent    = '▶ Запустить поиск';
+      } else if (d.status === 'failed') {
+        clearInterval(pollInterval);
+        badge.textContent    = '❌ Ошибка';
+        badge.style.color    = '#dc2626';
+        const startBtn       = document.getElementById('start-btn');
+        startBtn.disabled    = false;
+        startBtn.textContent = '▶ Запустить поиск';
       }
     });
 }
