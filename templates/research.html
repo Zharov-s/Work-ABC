@@ -153,13 +153,9 @@
             <span class="accordion-chevron">▾</span>
           </div>
           <div class="accordion-body" style="display:none">
-            <div class="count-buttons">
-              {% for n in [5, 10, 15, 20, 25] %}
-              <label class="count-btn {% if n == 10 %}count-btn--active{% endif %}">
-                <input type="radio" name="count" value="{{ n }}" {% if n == 10 %}checked{% endif %} onchange="markCountBtn(this)">
-                {{ n }}
-              </label>
-              {% endfor %}
+            <div class="count-input-wrap">
+              <label class="count-input-label" for="research-count">Сколько компаний найти</label>
+              <input class="count-input" id="research-count" type="number" name="count" value="10" min="1" step="1" inputmode="numeric" required>
             </div>
           </div>
         </div>
@@ -317,6 +313,7 @@
           Выполнение
           <div style="display:flex; align-items:center; gap:10px">
             <button id="pause-btn" style="display:none" class="btn-pause" onclick="clickPause()">⏸ Пауза</button>
+            <button id="finish-btn" style="display:none" class="btn-finish" onclick="clickFinish()">Завершить</button>
             <span class="status-badge" id="run-status-badge">Запускаем...</span>
           </div>
         </div>
@@ -399,6 +396,8 @@
                   <span class="badge badge-yellow">Выполняется</span>
                 {% elif r['status'] == 'paused' %}
                   <span class="badge badge-orange">На паузе</span>
+                {% elif r['status'] == 'finishing' %}
+                  <span class="badge badge-yellow">Завершается</span>
                 {% elif r['status'] == 'interrupted' %}
                   <span class="badge badge-grey">Прервано</span>
                 {% else %}
@@ -408,8 +407,12 @@
               <td onclick="event.stopPropagation()" class="run-actions" id="actions-{{ r['id'] }}">
                 {% if r['status'] == 'running' %}
                   <button class="btn-icon btn-icon-pause" title="Пауза" onclick="rowPause({{ r['id'] }}, this)">⏸</button>
+                  <button class="btn-icon btn-icon-finish" title="Завершить поиск" onclick="rowFinish({{ r['id'] }}, this)">✓</button>
                 {% elif r['status'] == 'paused' %}
                   <button class="btn-icon btn-icon-resume" title="Продолжить" onclick="rowResume({{ r['id'] }}, this)">▶</button>
+                  <button class="btn-icon btn-icon-finish" title="Завершить поиск" onclick="rowFinish({{ r['id'] }}, this)">✓</button>
+                {% elif r['status'] == 'finishing' %}
+                  <button class="btn-icon btn-icon-finish" title="Завершается" disabled>✓</button>
                 {% endif %}
                 <button class="btn-icon-danger" title="Удалить" onclick="deleteRun({{ r['id'] }}, this)">✕</button>
               </td>
@@ -507,10 +510,11 @@ function handleScaleChange(input) {
   updateFilterSummary('company_scales');
 }
 
-// ── Кнопки количества ──────────────────────────────────────────────────────
-function markCountBtn(radio) {
-  document.querySelectorAll('.count-btn').forEach(l => l.classList.remove('count-btn--active'));
-  radio.closest('.count-btn').classList.add('count-btn--active');
+// ── Количество компаний ───────────────────────────────────────────────────
+function getResearchCount(form) {
+  const raw = form.querySelector('input[name="count"]')?.value || '';
+  const value = parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 // ── Запуск поиска ──────────────────────────────────────────────────────────
@@ -571,6 +575,12 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
     return;
   }
 
+  const countValue = getResearchCount(this);
+  if (!countValue) {
+    alert('Введите количество компаний больше нуля');
+    return;
+  }
+
   const startBtn = document.getElementById('start-btn');
   startBtn.disabled    = true;
   startBtn.textContent = '⏳ Выполняется...';
@@ -585,7 +595,7 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
     regions:  checkedLabels('regions').join(', '),
     scales:   checkedLabels('company_scales').join(', '),
     requirements: checkedLabels('contact_requirements').join(', '),
-    count:    this.querySelector('input[name="count"]:checked')?.value  || '?',
+    count:    String(countValue),
   };
 
   fetch('/research/start', { method: 'POST', body: new FormData(this) })
@@ -653,6 +663,10 @@ function pollStatus() {
         badge.textContent = '⏸ На паузе';
         badge.style.color = '#b45309';
         document.getElementById('start-btn').textContent = '⏸ На паузе...';
+      } else if (d.status === 'finishing') {
+        badge.textContent = 'Завершаем...';
+        badge.style.color = '#2563eb';
+        document.getElementById('start-btn').textContent = 'Завершаем...';
       } else if (d.status === 'interrupted') {
         clearInterval(pollInterval);
         badge.textContent = '⚠️ Прервано';
@@ -669,21 +683,33 @@ function pollStatus() {
 // ── Кнопка паузы в панели ──────────────────────────────────────────────────
 function updatePauseBtn(status) {
   const btn = document.getElementById('pause-btn');
-  if (!btn) return;
+  const finishBtn = document.getElementById('finish-btn');
+  if (!btn || !finishBtn) return;
   if (status === 'running') {
     btn.style.display  = '';
     btn.textContent    = '⏸ Пауза';
     btn.dataset.state  = 'running';
     btn.disabled       = false;
     btn.classList.remove('btn-pause--resume');
+    finishBtn.style.display = '';
+    finishBtn.disabled = false;
   } else if (status === 'paused') {
     btn.style.display  = '';
     btn.textContent    = '▶ Продолжить';
     btn.dataset.state  = 'paused';
     btn.disabled       = false;
     btn.classList.add('btn-pause--resume');
+    finishBtn.style.display = '';
+    finishBtn.disabled = false;
+  } else if (status === 'finishing') {
+    btn.style.display = 'none';
+    finishBtn.style.display = '';
+    finishBtn.disabled = true;
+    finishBtn.textContent = 'Завершаем...';
   } else {
     btn.style.display = 'none';
+    finishBtn.style.display = 'none';
+    finishBtn.textContent = 'Завершить';
   }
 }
 
@@ -693,6 +719,16 @@ function clickPause() {
   btn.disabled   = true;
   fetch(`/research/run/${currentRunId}/${isPaused ? 'resume' : 'pause'}`, { method: 'POST' })
     .then(() => { /* pollStatus обновит состояние */ });
+}
+
+function clickFinish() {
+  if (!currentRunId) return;
+  if (!confirm('Завершить поиск сейчас? Уже найденные компании останутся в базе.')) return;
+  const btn = document.getElementById('finish-btn');
+  btn.disabled = true;
+  btn.textContent = 'Завершаем...';
+  fetch(`/research/run/${currentRunId}/finish`, { method: 'POST' })
+    .then(() => { pollStatus(); });
 }
 
 // ── Пауза/возобновление из строки истории ──────────────────────────────────
@@ -714,6 +750,16 @@ function rowResume(runId, btnEl) {
     });
 }
 
+function rowFinish(runId, btnEl) {
+  if (!confirm('Завершить этот поиск сейчас? Уже найденные компании останутся в базе.')) return;
+  btnEl.disabled = true;
+  fetch(`/research/run/${runId}/finish`, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) _updateRowActions(runId, 'finishing');
+    });
+}
+
 function _updateRowActions(runId, status) {
   const cell = document.getElementById(`actions-${runId}`);
   if (!cell) return;
@@ -721,16 +767,20 @@ function _updateRowActions(runId, status) {
   const dangerBtn = cell.querySelector('.btn-icon-danger');
   let newBtn = '';
   if (status === 'running') {
-    newBtn = `<button class="btn-icon btn-icon-pause" title="Пауза" onclick="rowPause(${runId}, this)">⏸</button>`;
+    newBtn = `<button class="btn-icon btn-icon-pause" title="Пауза" onclick="rowPause(${runId}, this)">⏸</button>` +
+      `<button class="btn-icon btn-icon-finish" title="Завершить поиск" onclick="rowFinish(${runId}, this)">✓</button>`;
   } else if (status === 'paused') {
-    newBtn = `<button class="btn-icon btn-icon-resume" title="Продолжить" onclick="rowResume(${runId}, this)">▶</button>`;
+    newBtn = `<button class="btn-icon btn-icon-resume" title="Продолжить" onclick="rowResume(${runId}, this)">▶</button>` +
+      `<button class="btn-icon btn-icon-finish" title="Завершить поиск" onclick="rowFinish(${runId}, this)">✓</button>`;
+  } else if (status === 'finishing') {
+    newBtn = `<button class="btn-icon btn-icon-finish" title="Завершается" disabled>✓</button>`;
   }
   cell.innerHTML = newBtn + (dangerBtn ? dangerBtn.outerHTML : '');
 }
 
 function updateProgressStrip(found, target, status) {
   const strip = document.getElementById('run-progress-strip');
-  if (status !== 'running' && status !== 'done') return;
+  if (!['running', 'paused', 'finishing', 'done'].includes(status)) return;
   strip.style.display = 'block';
 
   const pct       = target ? Math.min(100, Math.round(found / target * 100)) : 0;
@@ -750,6 +800,10 @@ function updateProgressStrip(found, target, status) {
     document.getElementById('progress-bar-fill').style.background = '#f59e0b';
     document.getElementById('progress-sub').textContent =
       `На паузе — найдено ${found} из ${target || '?'}, осталось ${remaining}`;
+  } else if (status === 'finishing') {
+    document.getElementById('progress-bar-fill').style.background = '#2563eb';
+    document.getElementById('progress-sub').textContent =
+      `Завершаем поиск — найдено ${found}, сохраняем результат`;
   } else {
     document.getElementById('progress-bar-fill').style.background = '#16a34a';
     document.getElementById('progress-sub').textContent =
@@ -784,6 +838,13 @@ function updateRunHistoryRow(runId, found, target, status) {
       (target ? `<span class="cell-sub" style="display:block">цель ${target}, осталось ${remaining}</span>` : '');
     statusCell.innerHTML = '<span class="badge badge-orange">На паузе</span>';
     _updateRowActions(runId, 'paused');
+  } else if (status === 'finishing') {
+    const remaining = Math.max(0, (target || 0) - found);
+    foundCell.innerHTML =
+      `<strong>${found}</strong>` +
+      (target ? `<span class="cell-sub" style="display:block">цель ${target}, осталось ${remaining}</span>` : '');
+    statusCell.innerHTML = '<span class="badge badge-yellow">Завершается</span>';
+    _updateRowActions(runId, 'finishing');
   } else if (status === 'done') {
     foundCell.innerHTML  = `<strong>${found}</strong>`;
     statusCell.innerHTML = '<span class="badge badge-green">Завершён</span>';
@@ -832,6 +893,7 @@ function insertRunHistoryRow(runId, cfg) {
     <td id="status-${runId}"><span class="badge badge-yellow">Выполняется</span></td>
     <td onclick="event.stopPropagation()" class="run-actions" id="actions-${runId}">
       <button class="btn-icon btn-icon-pause" title="Пауза" onclick="rowPause(${runId},this)">⏸</button>
+      <button class="btn-icon btn-icon-finish" title="Завершить поиск" onclick="rowFinish(${runId},this)">✓</button>
       <button class="btn-icon-danger" title="Удалить" onclick="deleteRun(${runId},this)">✕</button>
     </td>`;
 
@@ -995,12 +1057,19 @@ function deleteRun(runId, btn) {
 .btn-pause:hover { background: #f1f5f9; }
 .btn-pause--resume { background: #f0fdf4; border-color: #86efac; color: #15803d; }
 .btn-pause--resume:hover { background: #dcfce7; }
+.btn-finish {
+  padding: 4px 12px; border-radius: 6px; border: 1px solid #bbf7d0;
+  background: #f0fdf4; color: #166534; font-size: 13px; cursor: pointer;
+}
+.btn-finish:hover { background: #dcfce7; }
+.btn-finish:disabled { opacity: .65; cursor: default; }
 .btn-icon {
   background: none; border: none; cursor: pointer;
   color: #94a3b8; font-size: 13px; padding: 2px 5px; border-radius: 4px;
 }
 .btn-icon-pause:hover  { color: #f59e0b; background: #fef3c7; }
 .btn-icon-resume:hover { color: #16a34a; background: #dcfce7; }
+.btn-icon-finish:hover { color: #16a34a; background: #dcfce7; }
 .run-row { cursor: pointer; }
 .run-row:hover { background: #f8fafc; }
 .run-chevron { font-size: 10px; color: #94a3b8; transition: transform .15s; display:inline-block; }

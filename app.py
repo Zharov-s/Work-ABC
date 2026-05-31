@@ -17,7 +17,7 @@ from database import (
 from auth import check_credentials, set_password, set_login
 from mailer import send_campaign, send_pending_campaign, test_smtp, parse_addresses, TEMPLATE_META
 from researcher import (
-    start_research, get_run_status, pause_research, resume_research,
+    start_research, get_run_status, pause_research, resume_research, finish_research,
     SEGMENT_LABELS, REGION_SUFFIX, INDUSTRY_LABELS, SCALE_LABELS,
     CONTACT_REQUIREMENT_LABELS, normalize_contact_requirements, contact_satisfies_requirements,
     project_contact_to_requirements,
@@ -274,12 +274,18 @@ def research_start():
     if not contact_requirements:
         return jsonify({'ok': False, 'error': 'Выберите хотя бы одно требование к контакту'})
     contact_requirements = normalize_contact_requirements(contact_requirements)
+    try:
+        target_count = int(request.form.get('count', 10))
+    except (TypeError, ValueError):
+        return jsonify({'ok': False, 'error': 'Введите корректное количество компаний'})
+    if target_count < 1:
+        return jsonify({'ok': False, 'error': 'Количество компаний должно быть больше нуля'})
     config = {
         'segments':      segments,
         'industries':    request.form.getlist('industries'),
         'regions':       regions,
         'region':        regions[0],
-        'count':         int(request.form.get('count', 10)),
+        'count':         target_count,
         'keywords':      request.form.get('keywords', ''),
         'company_scales': company_scales,
         'company_scale': company_scales[0],
@@ -307,6 +313,12 @@ def research_run_pause(run_id):
 @login_required
 def research_run_resume(run_id):
     return jsonify({'ok': resume_research(run_id)})
+
+
+@app.route('/research/run/<int:run_id>/finish', methods=['POST'])
+@login_required
+def research_run_finish(run_id):
+    return jsonify({'ok': finish_research(run_id)})
 
 
 @app.route('/research/run/<int:run_id>/contacts')
@@ -519,7 +531,7 @@ init_db()
 
 # При рестарте все "running" воркеры убиты — помечаем как interrupted
 _boot_conn = get_db()
-_boot_conn.execute("UPDATE research_runs SET status='interrupted' WHERE status IN ('running','paused')")
+_boot_conn.execute("UPDATE research_runs SET status='interrupted' WHERE status IN ('running','paused','finishing')")
 _boot_conn.commit()
 _boot_conn.close()
 
