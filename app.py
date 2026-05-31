@@ -13,7 +13,10 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from database import init_db, get_db, get_setting, set_setting, get_all_settings
 from auth import check_credentials, set_password, set_login
 from mailer import send_campaign, test_smtp, parse_addresses, TEMPLATE_META
-from researcher import start_research, get_run_status, pause_research, resume_research, SEGMENT_LABELS, REGION_SUFFIX
+from researcher import (
+    start_research, get_run_status, pause_research, resume_research,
+    SEGMENT_LABELS, REGION_SUFFIX, INDUSTRY_LABELS, SCALE_LABELS,
+)
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'abcentrum-dev-key')
@@ -243,7 +246,9 @@ def research():
     return render_template('research.html',
         runs=runs,
         segments=SEGMENT_LABELS,
+        industries=INDUSTRY_LABELS,
         regions=REGION_SUFFIX,
+        scales=SCALE_LABELS,
     )
 
 
@@ -253,12 +258,17 @@ def research_start():
     segments = request.form.getlist('segments')
     if not segments:
         return jsonify({'ok': False, 'error': 'Выберите хотя бы один сегмент'})
+    regions = request.form.getlist('regions') or [request.form.get('region', 'moscow')]
+    company_scales = request.form.getlist('company_scales') or [request.form.get('company_scale', 'any')]
     config = {
         'segments':      segments,
-        'region':        request.form.get('region', 'moscow'),
+        'industries':    request.form.getlist('industries'),
+        'regions':       regions,
+        'region':        regions[0],
         'count':         int(request.form.get('count', 10)),
         'keywords':      request.form.get('keywords', ''),
-        'company_scale': request.form.get('company_scale', 'any'),
+        'company_scales': company_scales,
+        'company_scale': company_scales[0],
         'require_email': bool(request.form.get('require_email')),
         'require_phone': bool(request.form.get('require_phone')),
         'active_only':   True,

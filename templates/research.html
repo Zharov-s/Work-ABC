@@ -14,23 +14,66 @@
       </div>
       <form id="research-form">
 
+        <!-- Отрасль -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Отрасль</div>
+              <div class="accordion-desc" data-summary-for="industries">Все подходящие отрасли</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body filter-menu" style="display:none">
+            <div class="filter-menu-list" data-filter-list="industries">
+              {% for key, label in industries.items() %}
+              <label class="filter-menu-row {% if key in ['trade','services','production'] %}filter-menu-row--nested{% endif %}">
+                <span class="filter-menu-marker">
+                  {% if key in ['trade','services','production'] %}<span class="filter-menu-arrow">›</span>{% else %}<span class="filter-menu-dot"></span>{% endif %}
+                </span>
+                <span class="filter-menu-label">{{ label }}</span>
+                <input type="checkbox" name="industries" value="{{ key }}" data-label="{{ label }}" onchange="updateFilterSummary('industries')">
+                <span class="filter-menu-check"></span>
+              </label>
+              {% endfor %}
+            </div>
+            <div class="filter-menu-footer">
+              <label class="filter-menu-search">
+                <span>⌕</span>
+                <input type="search" placeholder="Поиск" oninput="filterMenuOptions(this, 'industries')">
+              </label>
+              <button type="button" class="filter-menu-done" onclick="closeAccordion(this)">Готово</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Сегменты -->
         <div class="accordion">
           <div class="accordion-header" onclick="toggleAccordion(this)">
             <div>
               <div class="accordion-title">Сегменты компаний</div>
-              <div class="accordion-desc">Выберите один или несколько</div>
+              <div class="accordion-desc" data-summary-for="segments">Выберите один или несколько</div>
             </div>
             <span class="accordion-chevron">▾</span>
           </div>
-          <div class="accordion-body" style="display:none">
+          <div class="accordion-body filter-menu" style="display:none">
+            <div class="filter-menu-list" data-filter-list="segments">
             {% for key, label in segments.items() %}
-            <label class="filter-checkbox">
-              <input type="checkbox" name="segments" value="{{ key }}">
-              <span>{{ label }}</span>
+            <label class="filter-menu-row">
+              <span class="filter-menu-marker"><span class="filter-menu-dot"></span></span>
+              <span class="filter-menu-label">{{ label }}</span>
+              <input type="checkbox" name="segments" value="{{ key }}" data-label="{{ label }}" onchange="updateFilterSummary('segments')">
+              <span class="filter-menu-check"></span>
             </label>
             {% endfor %}
+            </div>
             <div class="filter-note">⚠ Не выбрано — поиск не запустится</div>
+            <div class="filter-menu-footer">
+              <label class="filter-menu-search">
+                <span>⌕</span>
+                <input type="search" placeholder="Поиск" oninput="filterMenuOptions(this, 'segments')">
+              </label>
+              <button type="button" class="filter-menu-done" onclick="closeAccordion(this)">Готово</button>
+            </div>
           </div>
         </div>
 
@@ -39,17 +82,28 @@
           <div class="accordion-header" onclick="toggleAccordion(this)">
             <div>
               <div class="accordion-title">Регион</div>
-              <div class="accordion-desc">Москва по умолчанию</div>
+              <div class="accordion-desc" data-summary-for="regions">Москва по умолчанию</div>
             </div>
             <span class="accordion-chevron">▾</span>
           </div>
-          <div class="accordion-body" style="display:none">
+          <div class="accordion-body filter-menu" style="display:none">
+            <div class="filter-menu-list" data-filter-list="regions">
             {% for key, label in regions.items() %}
-            <label class="filter-radio">
-              <input type="radio" name="region" value="{{ key }}" {% if loop.first %}checked{% endif %}>
-              <span>{{ label }}</span>
+            <label class="filter-menu-row">
+              <span class="filter-menu-marker"><span class="filter-menu-dot"></span></span>
+              <span class="filter-menu-label">{{ label }}</span>
+              <input type="checkbox" name="regions" value="{{ key }}" data-label="{{ label }}" {% if loop.first %}checked{% endif %} onchange="updateFilterSummary('regions')">
+              <span class="filter-menu-check"></span>
             </label>
             {% endfor %}
+            </div>
+            <div class="filter-menu-footer">
+              <label class="filter-menu-search">
+                <span>⌕</span>
+                <input type="search" placeholder="Поиск" oninput="filterMenuOptions(this, 'regions')">
+              </label>
+              <button type="button" class="filter-menu-done" onclick="closeAccordion(this)">Готово</button>
+            </div>
           </div>
         </div>
 
@@ -79,17 +133,29 @@
           <div class="accordion-header" onclick="toggleAccordion(this)">
             <div>
               <div class="accordion-title">Масштаб бизнеса</div>
-              <div class="accordion-desc">Добавляет уточнение в запрос</div>
+              <div class="accordion-desc" data-summary-for="company_scales">Любой</div>
             </div>
             <span class="accordion-chevron">▾</span>
           </div>
-          <div class="accordion-body" style="display:none">
-            {% for val, label in [('any','Любой'),('small','Малый'),('medium','Средний'),('large','Крупный')] %}
-            <label class="filter-radio">
-              <input type="radio" name="company_scale" value="{{ val }}" {% if val == 'any' %}checked{% endif %}>
-              <span>{{ label }}</span>
+          <div class="accordion-body filter-menu" style="display:none">
+            <div class="filter-menu-list" data-filter-list="company_scales">
+            {% for val, label in scales.items() %}
+            <label class="filter-menu-row">
+              <span class="filter-menu-marker"><span class="filter-menu-dot"></span></span>
+              <span class="filter-menu-label">{{ label }}</span>
+              <input type="checkbox" name="company_scales" value="{{ val }}" data-label="{{ label }}" {% if val == 'any' %}checked{% endif %} onchange="handleScaleChange(this)">
+              <span class="filter-menu-check"></span>
             </label>
             {% endfor %}
+            </div>
+            <div class="filter-note">Если выбрать конкретный масштаб, пункт «Любой» снимется автоматически</div>
+            <div class="filter-menu-footer">
+              <label class="filter-menu-search">
+                <span>⌕</span>
+                <input type="search" placeholder="Поиск" oninput="filterMenuOptions(this, 'company_scales')">
+              </label>
+              <button type="button" class="filter-menu-done" onclick="closeAccordion(this)">Готово</button>
+            </div>
           </div>
         </div>
 
@@ -205,11 +271,21 @@
                   {% set cfg = r['config_json'] | from_json %}
                   {% if cfg %}
                     {% set segs = cfg.get('segments', [cfg.get('segment','?')]) %}
+                    {% set inds = cfg.get('industries', []) %}
+                    {% set regs = cfg.get('regions', [cfg.get('region','?')]) %}
+                    {% set scs = cfg.get('company_scales', [cfg.get('company_scale','any')]) %}
                     <span class="cell-main">
-                      {% if segs is string %}{{ segs }}
-                      {% else %}{{ segs | join(', ') }}{% endif %}
+                      {% if segs is string %}{{ segments.get(segs, segs) }}
+                      {% else %}
+                        {% for s in segs %}{{ segments.get(s, s) }}{% if not loop.last %}, {% endif %}{% endfor %}
+                      {% endif %}
                     </span>
-                    <span class="cell-sub">{{ cfg.get('region','?') }}, цель={{ cfg.get('count','?') }}</span>
+                    <span class="cell-sub">
+                      {% if inds %}{% for i in inds %}{{ industries.get(i, i) }}{% if not loop.last %}, {% endif %}{% endfor %} · {% endif %}
+                      {% if regs is string %}{{ regions.get(regs, regs) }}{% else %}{% for rkey in regs %}{{ regions.get(rkey, rkey) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+                      · {% if scs is string %}{{ scales.get(scs, scs) }}{% else %}{% for skey in scs %}{{ scales.get(skey, skey) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+                      · цель={{ cfg.get('count','?') }}
+                    </span>
                   {% endif %}
                 {% else %}—{% endif %}
               </td>
@@ -268,6 +344,64 @@ function toggleAccordion(header) {
   header.parentElement.classList.toggle('accordion--open', !isOpen);
 }
 
+function closeAccordion(el) {
+  const accordion = el.closest('.accordion');
+  if (!accordion) return;
+  const body = accordion.querySelector('.accordion-body');
+  body.style.display = 'none';
+  accordion.classList.remove('accordion--open');
+}
+
+function checkedLabels(name) {
+  return [...document.querySelectorAll(`input[name="${name}"]:checked`)]
+    .map(el => el.dataset.label || el.value);
+}
+
+function updateFilterSummary(name) {
+  const summary = document.querySelector(`[data-summary-for="${name}"]`);
+  if (!summary) return;
+  const labels = checkedLabels(name);
+  const defaults = {
+    industries: 'Все подходящие отрасли',
+    segments: 'Выберите один или несколько',
+    regions: 'Регион не выбран',
+    company_scales: 'Любой',
+  };
+  if (!labels.length) {
+    summary.textContent = defaults[name] || 'Не выбрано';
+  } else if (labels.length <= 2) {
+    summary.textContent = labels.join(', ');
+  } else {
+    summary.textContent = `${labels.slice(0, 2).join(', ')} +${labels.length - 2}`;
+  }
+}
+
+function filterMenuOptions(input, name) {
+  const q = input.value.trim().toLowerCase();
+  document
+    .querySelectorAll(`[data-filter-list="${name}"] .filter-menu-row`)
+    .forEach(row => {
+      row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+}
+
+function handleScaleChange(input) {
+  const boxes = [...document.querySelectorAll('input[name="company_scales"]')];
+  if (input.value === 'any' && input.checked) {
+    boxes.forEach(box => {
+      if (box !== input) box.checked = false;
+    });
+  } else if (input.checked) {
+    const anyBox = boxes.find(box => box.value === 'any');
+    if (anyBox) anyBox.checked = false;
+  }
+  if (!boxes.some(box => box.checked)) {
+    const anyBox = boxes.find(box => box.value === 'any');
+    if (anyBox) anyBox.checked = true;
+  }
+  updateFilterSummary('company_scales');
+}
+
 // ── Кнопки количества ──────────────────────────────────────────────────────
 function markCountBtn(radio) {
   document.querySelectorAll('.count-btn').forEach(l => l.classList.remove('count-btn--active'));
@@ -315,6 +449,12 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
     return;
   }
 
+  const regs = this.querySelectorAll('input[name="regions"]:checked');
+  if (regs.length === 0) {
+    alert('Выберите хотя бы один регион');
+    return;
+  }
+
   const startBtn = document.getElementById('start-btn');
   startBtn.disabled    = true;
   startBtn.textContent = '⏳ Выполняется...';
@@ -324,8 +464,10 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
 
   // Собираем параметры до отправки (нужны для вставки строки истории)
   const runConfig = {
-    segments: [...this.querySelectorAll('input[name="segments"]:checked')].map(el => el.value).join(', '),
-    region:   this.querySelector('input[name="region"]:checked')?.value || 'moscow',
+    segments: checkedLabels('segments').join(', '),
+    industries: checkedLabels('industries').join(', ') || 'все отрасли',
+    regions:  checkedLabels('regions').join(', '),
+    scales:   checkedLabels('company_scales').join(', '),
     count:    this.querySelector('input[name="count"]:checked')?.value  || '?',
   };
 
@@ -560,7 +702,7 @@ function insertRunHistoryRow(runId, cfg) {
     <td>${timeStr}</td>
     <td>
       <span class="cell-main">${escapeHtml(cfg.segments)}</span>
-      <span class="cell-sub">${escapeHtml(cfg.region)}, цель=${escapeHtml(cfg.count)}</span>
+      <span class="cell-sub">${escapeHtml(cfg.industries)} · ${escapeHtml(cfg.regions)} · ${escapeHtml(cfg.scales)}, цель=${escapeHtml(cfg.count)}</span>
     </td>
     <td id="found-${runId}"><strong>0</strong></td>
     <td id="status-${runId}"><span class="badge badge-yellow">Выполняется</span></td>

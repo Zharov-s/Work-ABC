@@ -38,6 +38,45 @@ REGION_SUFFIX = {
     'russia':  'Россия',
 }
 
+INDUSTRY_LABELS = {
+    'construction': 'Строительство',
+    'transport':    'Транспорт',
+    'media':        'Медиа',
+    'it_telecom':   'ИТ и связь',
+    'finance':      'Финансы',
+    'healthcare':   'Здравоохранение',
+    'education':    'Образование',
+    'culture':      'Культура',
+    'government':   'Госуправление',
+    'associations': 'Объединения',
+    'trade':        'Торговля',
+    'services':     'Услуги',
+    'production':   'Производство',
+}
+
+INDUSTRY_QUERY_TERMS = {
+    'construction': ['строительные технологии', 'инженерные системы', 'производство строительных материалов'],
+    'transport':    ['транспортное оборудование', 'логистические технологии', 'техника для транспорта'],
+    'media':        ['медиаоборудование', 'производство контента оборудование', 'студийные технологии'],
+    'it_telecom':   ['ИТ оборудование', 'телекоммуникационное оборудование', 'hardware'],
+    'finance':      ['финтех оборудование', 'платежные терминалы', 'банковское оборудование'],
+    'healthcare':   ['медицинское оборудование', 'диагностика', 'лабораторное оборудование'],
+    'education':    ['образовательные технологии оборудование', 'учебные лаборатории', 'edtech hardware'],
+    'culture':      ['музейное оборудование', 'выставочные технологии', 'культурные проекты производство'],
+    'government':   ['госзаказ производство', 'импортозамещение', 'поставщик для государства'],
+    'associations': ['отраслевое объединение производство', 'ассоциация производителей', 'кластер производителей'],
+    'trade':        ['дистрибьютор с сервисным центром', 'шоурум и сервис', 'торговая компания производство'],
+    'services':     ['сервисный центр оборудование', 'технический сервис', 'инжиниринговые услуги'],
+    'production':   ['производственная компания', 'R&D производство', 'сборочное производство'],
+}
+
+SCALE_LABELS = {
+    'any':    'Любой',
+    'small':  'Малый',
+    'medium': 'Средний',
+    'large':  'Крупный',
+}
+
 SCALE_SUFFIX = {
     'any':    '',
     'small':  'малый бизнес',
@@ -348,7 +387,7 @@ def _check_ollama(client) -> bool:
 
 # ── AI-экстракторы ─────────────────────────────────────────────────────────
 
-def _extract_companies(client, results_text: str, segment_label: str) -> list:
+def _extract_companies(client, results_text: str, segment_label: str, industry_label: str = '') -> list:
     prompt = (
         'Ты помогаешь находить компании для аренды в промышленном технопарке класса A+ в Москве. '
         'Подходят: производство, R&D, лаборатории, шоурум, light industrial. '
@@ -360,7 +399,11 @@ def _extract_companies(client, results_text: str, segment_label: str) -> list:
     try:
         raw = _ollama_chat(client, [
             {'role': 'system', 'content': prompt},
-            {'role': 'user',   'content': f'Сегмент: {segment_label}\n\n{results_text}'},
+            {'role': 'user',   'content': (
+                f'Сегмент: {segment_label}\n'
+                f'Отрасль: {industry_label or "не задана"}\n\n'
+                f'{results_text}'
+            )},
         ], expect_json=True)
         clean = _extract_json(raw)
         if not clean:
@@ -563,17 +606,34 @@ def _research_worker(run_id: int, config: dict):
         raw_segs = [raw_segs]
     segments_list = [s for s in raw_segs if s in SEGMENT_LABELS] or ['electronics']
 
-    region_key    = config.get('region', 'moscow')
-    target_count  = int(config.get('count', 10))
-    keywords      = config.get('keywords', '').strip()
-    company_scale = config.get('company_scale', 'any')
+    raw_regions = config.get('regions', config.get('region', 'moscow'))
+    if isinstance(raw_regions, str):
+        raw_regions = [raw_regions]
+    regions_list = [r for r in raw_regions if r in REGION_SUFFIX] or ['moscow']
+
+    raw_scales = config.get('company_scales', config.get('company_scale', 'any'))
+    if isinstance(raw_scales, str):
+        raw_scales = [raw_scales]
+    scales_list = [s for s in raw_scales if s in SCALE_SUFFIX] or ['any']
+    if len(scales_list) > 1 and 'any' in scales_list:
+        scales_list = [s for s in scales_list if s != 'any']
+
+    raw_industries = config.get('industries', [])
+    if isinstance(raw_industries, str):
+        raw_industries = [raw_industries]
+    industries_list = [i for i in raw_industries if i in INDUSTRY_LABELS]
+
+    target_count = int(config.get('count', 10))
+    keywords     = config.get('keywords', '').strip()
     # ФИО + email + телефон всегда обязательны — это жёсткое требование, не настройка
 
-    region_label = REGION_SUFFIX.get(region_key, 'Москва')
-    scale_suffix = SCALE_SUFFIX.get(company_scale, '')
-
     seg_labels = [SEGMENT_LABELS.get(s, s) for s in segments_list]
-    _log(run_id, f'🚀 Старт: {", ".join(seg_labels)} | {region_label} | цель={target_count}')
+    region_labels = [REGION_SUFFIX.get(r, r) for r in regions_list]
+    scale_labels = [SCALE_LABELS.get(s, s) for s in scales_list]
+    industry_labels = [INDUSTRY_LABELS.get(i, i) for i in industries_list]
+    _log(run_id, f'🚀 Старт: {", ".join(seg_labels)} | {", ".join(region_labels)} | цель={target_count}')
+    _log(run_id, f'🏷 Отрасли: {", ".join(industry_labels) if industry_labels else "все подходящие"}')
+    _log(run_id, f'📏 Масштаб: {", ".join(scale_labels)}')
     _log(run_id, f'🤖 Модель: {OLLAMA_MODEL} (Ollama)')
 
     if not _check_ollama(client):
@@ -601,24 +661,35 @@ def _research_worker(run_id: int, config: dict):
     # Строим список запросов: основные + дополнительные каналы
     all_queries = []
     for seg in segments_list:
-        for q in SEGMENT_QUERIES.get(seg, []):
-            full_q = ' '.join(filter(None, [q, region_label, scale_suffix, keywords]))
-            all_queries.append((full_q, SEGMENT_LABELS.get(seg, seg), 'tavily'))
-        # Дополнительные каналы: технопарки, выставки, импортозамещение
-        for q in EXTRA_DISCOVERY_QUERIES.get(seg, []):
-            full_q = ' '.join(filter(None, [q, keywords]))
-            all_queries.append((full_q, SEGMENT_LABELS.get(seg, seg), 'extra'))
+        segment_label = SEGMENT_LABELS.get(seg, seg)
+        industry_keys = industries_list or [None]
+        for region_key in regions_list:
+            region_label = REGION_SUFFIX.get(region_key, 'Москва')
+            for scale_key in scales_list:
+                scale_suffix = SCALE_SUFFIX.get(scale_key, '')
+                for industry_key in industry_keys:
+                    industry_label = INDUSTRY_LABELS.get(industry_key, '') if industry_key else ''
+                    industry_terms = INDUSTRY_QUERY_TERMS.get(industry_key, ['']) if industry_key else ['']
+                    industry_suffix = ' '.join(industry_terms[:2])
+                    for q in SEGMENT_QUERIES.get(seg, []):
+                        full_q = ' '.join(filter(None, [q, industry_suffix, region_label, scale_suffix, keywords]))
+                        all_queries.append((full_q, segment_label, industry_label, region_label, 'tavily'))
+                    # Дополнительные каналы: технопарки, выставки, импортозамещение
+                    for q in EXTRA_DISCOVERY_QUERIES.get(seg, []):
+                        full_q = ' '.join(filter(None, [q, industry_suffix, region_label, scale_suffix, keywords]))
+                        all_queries.append((full_q, segment_label, industry_label, region_label, 'extra'))
 
     found_contacts = []
     searched_names = set()
 
-    for query, segment_label, source_tag in all_queries:
+    for query, segment_label, industry_label, region_label, source_tag in all_queries:
         _pause_events[run_id].wait()  # блокируется, пока стоит на паузе
         if len(found_contacts) >= target_count:
             break
 
         icon = '🔍' if source_tag == 'tavily' else '🏭'
-        _log(run_id, f'{icon} [{segment_label}] {query}')
+        filter_label = f'{segment_label}' + (f' / {industry_label}' if industry_label else '')
+        _log(run_id, f'{icon} [{filter_label}] {query}')
 
         try:
             search_res = tavily.search(query, max_results=7)
@@ -626,7 +697,7 @@ def _research_worker(run_id: int, config: dict):
             _log(run_id, f'❌ Tavily: {e}')
             continue
 
-        companies = _extract_companies(client, _results_to_text(search_res), segment_label)
+        companies = _extract_companies(client, _results_to_text(search_res), segment_label, industry_label)
         _log(run_id, f'   Компаний в выдаче: {len(companies)}')
 
         for company in companies:
@@ -741,7 +812,9 @@ def _research_worker(run_id: int, config: dict):
     _log(run_id, '')
     _log(run_id, f'✅ Готово. Сохранено в базу: {saved} новых контактов')
     _log(run_id, f'   Запрошено: {target_count} | Проверено компаний: {len(searched_names)}')
-    _log(run_id, f'   Запросов выполнено: {len(all_queries)} ({len(SEGMENT_QUERIES.get(segments_list[0],[]))*len(segments_list)} основных + {len(EXTRA_DISCOVERY_QUERIES.get(segments_list[0],[]))*len(segments_list)} дополнительных)')
+    main_query_count = sum(1 for *_, source_tag in all_queries if source_tag == 'tavily')
+    extra_query_count = sum(1 for *_, source_tag in all_queries if source_tag == 'extra')
+    _log(run_id, f'   Запросов выполнено: {len(all_queries)} ({main_query_count} основных + {extra_query_count} дополнительных)')
 
     _set_run_status(run_id, 'done', found_count=saved)
 

@@ -446,6 +446,119 @@ body {
 .filter-checkbox input,
 .filter-radio input { accent-color: #2563eb; flex-shrink: 0; }
 
+/* Full-option filter menu */
+.filter-menu {
+  padding: 0;
+  gap: 0;
+}
+.filter-menu-list {
+  padding: 10px 14px 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.filter-menu-row {
+  display: grid;
+  grid-template-columns: 30px 1fr 28px;
+  align-items: center;
+  min-height: 32px;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13.5px;
+  color: #1f2937;
+}
+.filter-menu-row:hover .filter-menu-label { color: #2563eb; }
+.filter-menu-row input { display: none; }
+.filter-menu-marker {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #d9dadd;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.filter-menu-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #61656a;
+}
+.filter-menu-arrow {
+  color: #61656a;
+  font-size: 26px;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+.filter-menu-check {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #d1d5db;
+  border-radius: 6px;
+  justify-self: end;
+  position: relative;
+  background: #fff;
+}
+.filter-menu-row input:checked + .filter-menu-check {
+  border-color: #2563eb;
+  background: #2563eb;
+}
+.filter-menu-row input:checked + .filter-menu-check::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.filter-menu-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid #e5e7eb;
+  background: #fff;
+}
+.filter-menu-search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 2px solid #4b5563;
+  border-radius: 12px;
+  color: #111827;
+  background: #f9fafb;
+}
+.filter-menu-search span {
+  font-size: 20px;
+  line-height: 1;
+}
+.filter-menu-search input {
+  border: none;
+  outline: none;
+  background: transparent;
+  width: 100%;
+  min-width: 0;
+  font-size: 14px;
+  color: #111827;
+}
+.filter-menu-search input::placeholder { color: #9ca3af; }
+.filter-menu-done {
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f2937;
+  cursor: pointer;
+  padding: 8px 0 8px 8px;
+}
+.filter-menu-done:hover { color: #2563eb; }
+
 /* Toggle switch */
 .filter-toggle {
   display: flex;
