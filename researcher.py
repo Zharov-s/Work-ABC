@@ -649,11 +649,11 @@ def _research_worker(run_id: int, config: dict):
             cur = conn.execute(
                 """INSERT OR IGNORE INTO contacts
                    (company_name, website, person_name, title, email, phone,
-                    source_url, segment, region, date_found, status)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,'new')""",
+                    source_url, segment, region, date_found, status, run_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,'new',?)""",
                 (c.get('company_name'), c.get('website'), c.get('person_name'),
                  c.get('title'), c.get('email') or None, c.get('phone') or None,
-                 c.get('source_url'), c.get('segment'), c.get('region'), today)
+                 c.get('source_url'), c.get('segment'), c.get('region'), today, run_id)
             )
             if cur.rowcount > 0:
                 saved += 1

@@ -267,6 +267,28 @@ def research_start():
     return jsonify({'ok': True, 'run_id': run_id})
 
 
+@app.route('/research/run/<int:run_id>/contacts')
+@login_required
+def research_run_contacts(run_id):
+    conn = get_db()
+    rows = conn.execute(
+        'SELECT id, company_name, person_name, title, email, phone, segment FROM contacts WHERE run_id=? ORDER BY id',
+        (run_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route('/research/run/<int:run_id>/delete', methods=['POST'])
+@login_required
+def research_run_delete(run_id):
+    conn = get_db()
+    conn.execute('DELETE FROM research_runs WHERE id=?', (run_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
 @app.route('/research/status/<int:run_id>')
 @login_required
 def research_status(run_id):

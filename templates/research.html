@@ -164,19 +164,22 @@
       <div class="panel">
         <div class="panel-header">История запусков</div>
         {% if runs %}
-        <table class="table">
+        <table class="table" id="runs-table">
           <thead>
             <tr>
+              <th style="width:32px"></th>
               <th>#</th>
               <th>Запущен</th>
               <th>Параметры</th>
               <th>Найдено</th>
               <th>Статус</th>
+              <th style="width:40px"></th>
             </tr>
           </thead>
           <tbody>
             {% for r in runs %}
-            <tr>
+            <tr class="run-row" data-run-id="{{ r['id'] }}" onclick="toggleRunDetails(this)">
+              <td><span class="run-chevron">▶</span></td>
               <td>{{ r['id'] }}</td>
               <td>{{ r['started_at'][:16] if r['started_at'] else '—' }}</td>
               <td>
@@ -202,11 +205,22 @@
                   <span class="badge badge-red">{{ r['status'] }}</span>
                 {% endif %}
               </td>
+              <td onclick="event.stopPropagation()">
+                <button class="btn-icon-danger" title="Удалить" onclick="deleteRun({{ r['id'] }}, this)">✕</button>
+              </td>
+            </tr>
+            <tr class="run-detail-row" id="detail-{{ r['id'] }}" style="display:none">
+              <td colspan="7" style="padding:0">
+                <div class="run-detail-content" id="detail-content-{{ r['id'] }}">
+                  <div class="run-detail-loading">Загружаем...</div>
+                </div>
+              </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
         {% else %}
+          <div class="empty-state" id="runs-empty" style="display:none">Запусков ещё не было</div>
           <div class="empty-state">Запусков ещё не было</div>
         {% endif %}
       </div>
@@ -308,5 +322,97 @@ function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+// ── Раскрытие строки истории ───────────────────────────────────────────────
+const _loadedRuns = {};
+
+function toggleRunDetails(row) {
+  const runId      = row.dataset.runId;
+  const detailRow  = document.getElementById('detail-' + runId);
+  const chevron    = row.querySelector('.run-chevron');
+  const isOpen     = detailRow.style.display !== 'none';
+
+  if (isOpen) {
+    detailRow.style.display = 'none';
+    chevron.textContent = '▶';
+    chevron.style.transform = '';
+    return;
+  }
+
+  detailRow.style.display = 'table-row';
+  chevron.textContent = '▼';
+
+  if (_loadedRuns[runId]) return;
+  _loadedRuns[runId] = true;
+
+  fetch(`/research/run/${runId}/contacts`)
+    .then(r => r.json())
+    .then(contacts => {
+      const el = document.getElementById('detail-content-' + runId);
+      if (!contacts.length) {
+        el.innerHTML = '<div class="run-detail-empty">Контакты не привязаны к этому запуску (старые данные)</div>';
+        return;
+      }
+      const rows = contacts.map(c => `
+        <tr>
+          <td>${escapeHtml(c.company_name || '—')}</td>
+          <td>${escapeHtml(c.person_name  || '—')}</td>
+          <td>${escapeHtml(c.title        || '—')}</td>
+          <td>${escapeHtml(c.email        || '—')}</td>
+          <td>${escapeHtml(c.phone        || '—')}</td>
+          <td>${escapeHtml(c.segment      || '—')}</td>
+        </tr>`).join('');
+      el.innerHTML = `
+        <table class="table run-contacts-table">
+          <thead><tr>
+            <th>Компания</th><th>ЛПР</th><th>Должность</th>
+            <th>Email</th><th>Телефон</th><th>Сегмент</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    })
+    .catch(() => {
+      document.getElementById('detail-content-' + runId).innerHTML =
+        '<div class="run-detail-empty">Ошибка загрузки</div>';
+    });
+}
+
+// ── Удаление строки истории ────────────────────────────────────────────────
+function deleteRun(runId, btn) {
+  if (!confirm('Удалить запуск #' + runId + ' из истории?')) return;
+  fetch(`/research/run/${runId}/delete`, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        const row       = btn.closest('tr');
+        const detailRow = document.getElementById('detail-' + runId);
+        row.remove();
+        if (detailRow) detailRow.remove();
+        const tbody = document.querySelector('#runs-table tbody');
+        if (tbody && !tbody.querySelector('tr')) {
+          document.querySelector('#runs-table').style.display = 'none';
+          const empty = document.getElementById('runs-empty');
+          if (empty) empty.style.display = '';
+        }
+      }
+    });
+}
 </script>
+
+<style>
+.run-row { cursor: pointer; }
+.run-row:hover { background: #f8fafc; }
+.run-chevron { font-size: 10px; color: #94a3b8; transition: transform .15s; display:inline-block; }
+.btn-icon-danger {
+  background: none; border: none; cursor: pointer;
+  color: #94a3b8; font-size: 14px; padding: 2px 6px; border-radius: 4px;
+  line-height: 1;
+}
+.btn-icon-danger:hover { color: #ef4444; background: #fee2e2; }
+.run-detail-row td { background: #f8fafc; border-top: none; }
+.run-detail-content { padding: 8px 12px 12px; }
+.run-detail-loading, .run-detail-empty { padding: 12px; color: #64748b; font-size: 13px; }
+.run-contacts-table { margin: 0; font-size: 13px; }
+.run-contacts-table th { background: #f1f5f9; font-size: 12px; }
+</style>
 {% endblock %}

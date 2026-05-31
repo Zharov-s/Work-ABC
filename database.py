@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS contacts (
     status       TEXT DEFAULT 'new',
     notes        TEXT,
     created_at   TEXT DEFAULT (datetime('now')),
+    run_id       INTEGER REFERENCES research_runs(id),
     UNIQUE(email) ON CONFLICT IGNORE
 );
 
@@ -85,6 +86,12 @@ def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = get_db()
     conn.executescript(SCHEMA)
+
+    # Миграция: добавить run_id если колонки ещё нет
+    cols = [r[1] for r in conn.execute('PRAGMA table_info(contacts)').fetchall()]
+    if 'run_id' not in cols:
+        conn.execute('ALTER TABLE contacts ADD COLUMN run_id INTEGER REFERENCES research_runs(id)')
+        conn.commit()
 
     # Заполняем настройки по умолчанию (только если ключа ещё нет)
     import bcrypt
