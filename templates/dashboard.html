@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Дашборд — ABCENTRUM{% endblock %}
+{% block heading %}Дашборд{% endblock %}
+
+{% block header_actions %}
+  <a href="{{ url_for('research') }}" class="btn btn-primary">+ Research</a>
+  <a href="{{ url_for('campaigns') }}" class="btn btn-secondary">✉ Новая рассылка</a>
+{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ total_contacts }}</div>
+    <div class="stat-label">Всего контактов</div>
+  </div>
+  <div class="stat-card stat-card--green">
+    <div class="stat-value">{{ new_contacts }}</div>
+    <div class="stat-label">Новых (не отправлено)</div>
+  </div>
+  <div class="stat-card stat-card--blue">
+    <div class="stat-value">{{ total_sends }}</div>
+    <div class="stat-label">Рассылок отправлено</div>
+  </div>
+  <div class="stat-card stat-card--gray">
+    <div class="stat-value">{{ total_contacts - new_contacts }}</div>
+    <div class="stat-label">Уже получили письмо</div>
+  </div>
+</div>
+
+<div class="dashboard-grid">
+  <div class="panel">
+    <div class="panel-header">Последние рассылки</div>
+    {% if recent_sends %}
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>Шаблон</th>
+            <th>Отправлено</th>
+            <th>Статус</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in recent_sends %}
+          <tr>
+            <td>{{ s['sent_at'][:16] if s['sent_at'] else '—' }}</td>
+            <td>
+              {% if s['template'] == 'mitino' %}
+                <span class="badge badge-blue">Митино</span>
+              {% else %}
+                <span class="badge badge-green">Грекова</span>
+              {% endif %}
+            </td>
+            <td>{{ s['total_sent'] }}</td>
+            <td>
+              {% if s['status'] == 'done' %}
+                <span class="badge badge-green">Готово</span>
+              {% elif s['status'] == 'partial' %}
+                <span class="badge badge-yellow">Частично</span>
+              {% else %}
+                <span class="badge badge-red">Ошибка</span>
+              {% endif %}
+            </td>
+            <td><a href="{{ url_for('campaign_detail', send_id=s['id']) }}" class="link">детали</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-state">Рассылок ещё не было</div>
+    {% endif %}
+    <div class="panel-footer">
+      <a href="{{ url_for('campaigns') }}" class="link">Все рассылки →</a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">Последний Research</div>
+    {% if last_run %}
+      <div class="info-list">
+        <div class="info-row">
+          <span class="info-key">Запущен</span>
+          <span class="info-val">{{ last_run['started_at'][:16] if last_run['started_at'] else '—' }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Статус</span>
+          <span class="info-val">
+            {% if last_run['status'] == 'done' %}
+              <span class="badge badge-green">Завершён</span>
+            {% elif last_run['status'] == 'running' %}
+              <span class="badge badge-yellow">Выполняется</span>
+            {% else %}
+              <span class="badge badge-red">Ошибка</span>
+            {% endif %}
+          </span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Найдено</span>
+          <span class="info-val"><strong>{{ last_run['found_count'] }}</strong> контактов</span>
+        </div>
+        {% if last_run['config_json'] %}
+          {% set cfg = last_run['config_json'] | from_json %}
+          {% if cfg %}
+          <div class="info-row">
+            <span class="info-key">Параметры</span>
+            <span class="info-val">{{ cfg.get('segment','?') }}, {{ cfg.get('region','?') }}, цель {{ cfg.get('count','?') }}</span>
+          </div>
+          {% endif %}
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="empty-state">Research ещё не запускался</div>
+    {% endif %}
+    <div class="panel-footer">
+      <a href="{{ url_for('research') }}" class="link">Перейти в Research →</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

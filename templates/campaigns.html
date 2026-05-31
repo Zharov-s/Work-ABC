@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}Рассылки — ABCENTRUM{% endblock %}
+{% block heading %}Рассылки{% endblock %}
+
+{% block content %}
+<div class="campaigns-layout">
+
+  <!-- Новая рассылка -->
+  <div class="panel">
+    <div class="panel-header">Новая рассылка</div>
+
+    <!-- Выбор шаблона -->
+    <div class="template-selector">
+      <label class="template-option {% if preselect_tmpl == 'mitino' %}template-option--active{% endif %}" id="tmpl-mitino">
+        <input type="radio" name="template" value="mitino" {% if preselect_tmpl == 'mitino' %}checked{% endif %} onchange="selectTemplate(this)">
+        <div class="template-info">
+          <div class="template-name">Промтехнопарк Митино</div>
+          <div class="template-subject">Тема: Аренда производственных и коммерческих помещений</div>
+          <div class="template-preheader">11 776 м², класс A+, ввод — 3 кв. 2026</div>
+        </div>
+        <a href="/preview/mitino" target="_blank" class="btn btn-link template-preview-link" onclick="event.stopPropagation()">👁 Предпросмотр</a>
+      </label>
+
+      <label class="template-option {% if preselect_tmpl == 'grekova' %}template-option--active{% endif %}" id="tmpl-grekova">
+        <input type="radio" name="template" value="grekova" {% if preselect_tmpl == 'grekova' %}checked{% endif %} onchange="selectTemplate(this)">
+        <div class="template-info">
+          <div class="template-name">Грекова, 5–7</div>
+          <div class="template-subject">Тема: Грекова, 5–7: продажа медицинского здания</div>
+          <div class="template-preheader">3 761,68 м², Shell & Core, ввод — IV кв. 2027</div>
+        </div>
+        <a href="/preview/grekova" target="_blank" class="btn btn-link template-preview-link" onclick="event.stopPropagation()">👁 Предпросмотр</a>
+      </label>
+    </div>
+
+    <!-- Получатели -->
+    <div class="form-group" style="margin-top:20px">
+      <label>
+        Email-адреса получателей
+        <span class="label-hint">— по одному на строке, максимум 30</span>
+      </label>
+      <textarea id="addresses" rows="10" placeholder="example@company.ru&#10;another@firm.ru&#10;..."
+                oninput="countAddresses(this)" style="font-family:monospace">{{ preselect_addrs }}</textarea>
+      <div class="addr-counter" id="addr-counter">0 адресов</div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn btn-primary btn-large" id="send-btn" onclick="doSend()" disabled>
+        ✉ Отправить
+      </button>
+      <span class="hint-text" id="send-hint">Введите адреса получателей</span>
+    </div>
+
+    <!-- Результат отправки -->
+    <div id="send-result" style="display:none" class="send-result"></div>
+  </div>
+
+  <!-- История рассылок -->
+  <div class="panel">
+    <div class="panel-header">История рассылок</div>
+    {% if history %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Дата</th>
+          <th>Шаблон</th>
+          <th>Отправлено</th>
+          <th>Ошибок</th>
+          <th>Статус</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in history %}
+        <tr>
+          <td>{{ h['sent_at'][:16] if h['sent_at'] else '—' }}</td>
+          <td>
+            {% if h['template'] == 'mitino' %}
+              <span class="badge badge-blue">Митино</span>
+            {% else %}
+              <span class="badge badge-green">Грекова</span>
+            {% endif %}
+          </td>
+          <td>{{ h['total_sent'] }}</td>
+          <td>{{ h['total_failed'] }}</td>
+          <td>
+            {% if h['status'] == 'done' %}
+              <span class="badge badge-green">Готово</span>
+            {% elif h['status'] == 'partial' %}
+              <span class="badge badge-yellow">Частично</span>
+            {% else %}
+              <span class="badge badge-red">Ошибка</span>
+            {% endif %}
+          </td>
+          <td><a href="{{ url_for('campaign_detail', send_id=h['id']) }}" class="link">детали</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty-state">Рассылок ещё не было</div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Инициировать счётчик если адреса пришли с Контактов
+document.addEventListener('DOMContentLoaded', function() {
+  const ta = document.getElementById('addresses');
+  if (ta.value.trim()) countAddresses(ta);
+});
+
+function selectTemplate(radio) {
+  document.querySelectorAll('.template-option').forEach(el => el.classList.remove('template-option--active'));
+  radio.closest('.template-option').classList.add('template-option--active');
+}
+
+function countAddresses(ta) {
+  const lines = ta.value.split('\n').map(l => l.trim()).filter(l => l && l.includes('@'));
+  const n     = lines.length;
+  const ctr   = document.getElementById('addr-counter');
+  const btn   = document.getElementById('send-btn');
+  const hint  = document.getElementById('send-hint');
+
+  ctr.textContent = `${n} адресов`;
+  if (n > 30) {
+    ctr.style.color = '#dc2626';
+    btn.disabled    = true;
+    hint.textContent = '⚠ Превышен лимит 30 адресов. Уберите лишние.';
+  } else if (n === 0) {
+    ctr.style.color = '#6b7280';
+    btn.disabled    = true;
+    hint.textContent = 'Введите адреса получателей';
+  } else {
+    ctr.style.color = '#16a34a';
+    btn.disabled    = false;
+    hint.textContent = `Будет отправлено: ${n} получателей`;
+  }
+}
+
+function doSend() {
+  const template  = document.querySelector('input[name="template"]:checked')?.value;
+  const addresses = document.getElementById('addresses').value;
+  const btn       = document.getElementById('send-btn');
+  const result    = document.getElementById('send-result');
+
+  if (!template) { alert('Выберите шаблон'); return; }
+  if (!addresses.trim()) { alert('Введите адреса'); return; }
+
+  btn.disabled    = true;
+  btn.textContent = '⏳ Отправляем...';
+  result.style.display = 'none';
+
+  const fd = new FormData();
+  fd.append('template', template);
+  fd.append('addresses', addresses);
+
+  fetch('/campaigns/send', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => {
+      btn.disabled    = false;
+      btn.textContent = '✉ Отправить';
+      result.style.display = 'block';
+
+      if (d.ok) {
+        result.className = 'send-result send-result--ok';
+        result.innerHTML = `
+          <strong>✅ Готово!</strong><br>
+          Отправлено: <b>${d.total_sent}</b> адресов &nbsp;|&nbsp;
+          Ошибок: <b>${d.total_failed}</b> &nbsp;|&nbsp;
+          Батчей: <b>${d.batch_count}</b>
+          ${d.invalid && d.invalid.length ? '<br><span style="color:#6b7280">Пропущены невалидные: ' + d.invalid.join(', ') + '</span>' : ''}
+          ${d.failed && d.failed.length ? '<br><span style="color:#dc2626">Не отправлены: ' + d.failed.join(', ') + '</span>' : ''}
+        `;
+      } else {
+        result.className = 'send-result send-result--error';
+        result.innerHTML = `<strong>❌ Ошибка:</strong> ${escapeHtml(d.error || 'Неизвестная ошибка')}`;
+      }
+    })
+    .catch(err => {
+      btn.disabled    = false;
+      btn.textContent = '✉ Отправить';
+      result.style.display   = 'block';
+      result.className       = 'send-result send-result--error';
+      result.textContent     = '❌ Сетевая ошибка: ' + err.message;
+    });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+{% endblock %}

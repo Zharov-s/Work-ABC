@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block title %}Контакты — ABCENTRUM{% endblock %}
+{% block heading %}Контакты <span class="count-badge">{{ total }}</span>{% endblock %}
+
+{% block header_actions %}
+  <button class="btn btn-secondary" onclick="openModal('add-contact-modal')">+ Добавить</button>
+  <a href="{{ url_for('export_contacts') }}" class="btn btn-secondary" id="export-btn">↓ Экспорт</a>
+{% endblock %}
+
+{% block content %}
+
+<!-- Панель выбора (появляется при выборе строк) -->
+<div class="selection-bar" id="selection-bar" style="display:none">
+  <span id="selection-count">Выбрано: 0 / 30</span>
+  <button class="btn btn-primary" id="send-mitino-btn" onclick="sendSelected('mitino')" disabled>✉ Отправить Митино</button>
+  <button class="btn btn-secondary" id="send-grekova-btn" onclick="sendSelected('grekova')" disabled>✉ Отправить Грекова</button>
+  <button class="btn btn-link" onclick="clearSelection()">Снять выбор</button>
+  <button class="btn btn-secondary" id="export-selected-btn" onclick="exportSelected()">↓ Экспорт выбранных</button>
+</div>
+
+<!-- Фильтры -->
+<form method="get" class="filter-bar">
+  <input type="text" name="q" placeholder="Поиск по компании, имени, email..." value="{{ q }}" class="filter-input filter-input--wide">
+  <select name="segment" class="filter-select">
+    <option value="">Все сегменты</option>
+    {% for seg in segments %}
+      <option value="{{ seg }}" {% if filter_segment == seg %}selected{% endif %}>{{ seg }}</option>
+    {% endfor %}
+  </select>
+  <select name="region" class="filter-select">
+    <option value="">Все регионы</option>
+    {% for reg in regions %}
+      <option value="{{ reg }}" {% if filter_region == reg %}selected{% endif %}>{{ reg }}</option>
+    {% endfor %}
+  </select>
+  <select name="status" class="filter-select">
+    <option value="">Все статусы</option>
+    <option value="new" {% if filter_status == 'new' %}selected{% endif %}>Новые</option>
+    <option value="sent" {% if filter_status == 'sent' %}selected{% endif %}>Отправлено</option>
+    <option value="unsubscribed" {% if filter_status == 'unsubscribed' %}selected{% endif %}>Отписка</option>
+  </select>
+  <button type="submit" class="btn btn-primary">Найти</button>
+  <a href="{{ url_for('contacts') }}" class="btn btn-link">Сбросить</a>
+</form>
+
+<!-- Таблица -->
+<div class="table-wrapper">
+  <table class="table contacts-table">
+    <thead>
+      <tr>
+        <th class="th-check">
+          <input type="checkbox" id="select-all" onchange="toggleSelectAll(this)">
+        </th>
+        <th>Компания</th>
+        <th>ФИО / Должность</th>
+        <th>Email</th>
+        <th>Телефон</th>
+        <th>Сегмент</th>
+        <th>Статус</th>
+        <th>Дата</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in contacts %}
+      <tr data-id="{{ c['id'] }}" data-email="{{ c['email'] }}">
+        <td><input type="checkbox" class="row-check" value="{{ c['id'] }}" onchange="updateSelection()"></td>
+        <td>
+          <div class="cell-main">{{ c['company_name'] or '—' }}</div>
+          {% if c['website'] %}
+            <div class="cell-sub"><a href="{{ c['website'] }}" target="_blank" class="link">{{ c['website'][:35] }}</a></div>
+          {% endif %}
+        </td>
+        <td>
+          <div class="cell-main">{{ c['person_name'] or '—' }}</div>
+          <div class="cell-sub">{{ c['title'] or '' }}</div>
+        </td>
+        <td><a href="mailto:{{ c['email'] }}" class="link">{{ c['email'] }}</a></td>
+        <td>{{ c['phone'] or '—' }}</td>
+        <td><span class="badge badge-gray">{{ c['segment'] or '—' }}</span></td>
+        <td>
+          {% if c['status'] == 'new' %}
+            <span class="badge badge-blue">Новый</span>
+          {% elif c['status'] == 'sent' %}
+            <span class="badge badge-green">Отправлено</span>
+          {% else %}
+            <span class="badge badge-red">{{ c['status'] }}</span>
+          {% endif %}
+        </td>
+        <td>{{ c['date_found'] or '—' }}</td>
+        <td>
+          <button class="btn-icon" title="Удалить" onclick="deleteContact({{ c['id'] }}, this)">✕</button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9" class="empty-state">Контакты не найдены</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Пагинация -->
+{% if total_pages > 1 %}
+<div class="pagination">
+  {% if page > 1 %}
+    <a href="?{{ request.query_string.decode() | replace('page=' ~ page, 'page=' ~ (page-1)) }}" class="btn btn-link">← Пред.</a>
+  {% endif %}
+  <span>Страница {{ page }} из {{ total_pages }}</span>
+  {% if page < total_pages %}
+    <a href="?{{ request.query_string.decode() | replace('page=' ~ page, 'page=' ~ (page+1)) }}&page={{ page+1 }}" class="btn btn-link">След. →</a>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Модальное окно: добавить контакт -->
+<div class="modal" id="add-contact-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>Добавить контакт</h2>
+      <button class="btn-icon" onclick="closeModal('add-contact-modal')">✕</button>
+    </div>
+    <form method="post" action="{{ url_for('add_contact') }}">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Компания *</label>
+          <input type="text" name="company_name" required>
+        </div>
+        <div class="form-group">
+          <label>Сайт</label>
+          <input type="url" name="website" placeholder="https://...">
+        </div>
+        <div class="form-group">
+          <label>ФИО</label>
+          <input type="text" name="person_name">
+        </div>
+        <div class="form-group">
+          <label>Должность</label>
+          <input type="text" name="title">
+        </div>
+        <div class="form-group">
+          <label>Email *</label>
+          <input type="email" name="email" required>
+        </div>
+        <div class="form-group">
+          <label>Телефон</label>
+          <input type="text" name="phone">
+        </div>
+        <div class="form-group">
+          <label>Сегмент</label>
+          <input type="text" name="segment" placeholder="Электроника, Медтех...">
+        </div>
+        <div class="form-group">
+          <label>Регион</label>
+          <input type="text" name="region" placeholder="Москва, МО...">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Добавить</button>
+        <button type="button" class="btn btn-link" onclick="closeModal('add-contact-modal')">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateSelection() {
+  const checks = document.querySelectorAll('.row-check:checked');
+  const bar    = document.getElementById('selection-bar');
+  const cnt    = document.getElementById('selection-count');
+  const n      = checks.length;
+  if (n > 0) {
+    bar.style.display = 'flex';
+    cnt.textContent   = `Выбрано: ${n} / 30`;
+    cnt.style.color   = n > 30 ? '#dc2626' : '#111';
+    const ok = n > 0 && n <= 30;
+    document.getElementById('send-mitino-btn').disabled  = !ok;
+    document.getElementById('send-grekova-btn').disabled = !ok;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function clearSelection() {
+  document.querySelectorAll('.row-check').forEach(cb => cb.checked = false);
+  document.getElementById('select-all').checked = false;
+  updateSelection();
+}
+
+function toggleSelectAll(cb) {
+  document.querySelectorAll('.row-check').forEach(c => c.checked = cb.checked);
+  updateSelection();
+}
+
+function getSelectedIds() {
+  return Array.from(document.querySelectorAll('.row-check:checked')).map(c => c.value);
+}
+
+function sendSelected(template) {
+  const ids = getSelectedIds();
+  if (ids.length > 30) { alert('Максимум 30 адресов за раз'); return; }
+  window.location.href = `/campaigns?template=${template}&ids=${ids.join(',')}`;
+}
+
+function exportSelected() {
+  const ids = getSelectedIds();
+  window.open(`/contacts/export?ids=${ids.join(',')}`, '_blank');
+}
+
+function deleteContact(id, btn) {
+  if (!confirm('Удалить контакт?')) return;
+  fetch(`/contacts/${id}/delete`, {method:'POST'})
+    .then(r => r.json())
+    .then(d => { if (d.ok) btn.closest('tr').remove(); });
+}
+</script>
+{% endblock %}

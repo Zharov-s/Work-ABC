@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Research — ABCENTRUM{% endblock %}
+{% block heading %}Research — поиск ЛПР{% endblock %}
+
+{% block content %}
+<div class="research-layout">
+
+  <!-- Форма запуска -->
+  <div class="panel">
+    <div class="panel-header">Параметры поиска</div>
+    <form id="research-form">
+      <div class="form-grid">
+
+        <div class="form-group form-group--full">
+          <label>Сегмент компаний</label>
+          <div class="segment-grid">
+            {% for key, label in segments.items() %}
+            <label class="segment-option">
+              <input type="radio" name="segment" value="{{ key }}" {% if loop.first %}checked{% endif %}>
+              <span>{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Регион</label>
+          <select name="region">
+            {% for key, label in regions.items() %}
+            <option value="{{ key }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Количество компаний</label>
+          <select name="count">
+            <option value="5">5</option>
+            <option value="10" selected>10</option>
+            <option value="15">15</option>
+            <option value="20">20</option>
+            <option value="25">25</option>
+          </select>
+        </div>
+
+        <div class="form-group form-group--full">
+          <label>Дополнительные ключевые слова <span class="label-hint">(необязательно)</span></label>
+          <input type="text" name="keywords" placeholder="Например: импортозамещение, робототехника, экспорт...">
+        </div>
+
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary" id="start-btn">▶ Запустить поиск</button>
+        <span class="hint-text">Поиск идёт в фоне. Страницу можно не закрывать.</span>
+      </div>
+    </form>
+  </div>
+
+  <!-- Блок выполнения -->
+  <div class="panel" id="run-panel" style="display:none">
+    <div class="panel-header">
+      Выполнение
+      <span class="status-badge" id="run-status-badge">Запускаем...</span>
+    </div>
+    <div class="log-console" id="log-console"></div>
+    <div class="run-summary" id="run-summary" style="display:none">
+      <strong id="run-found-text"></strong>
+      <a href="{{ url_for('contacts') }}" class="btn btn-primary" style="margin-left:16px">Перейти к контактам →</a>
+    </div>
+  </div>
+
+  <!-- История запусков -->
+  <div class="panel">
+    <div class="panel-header">История запусков</div>
+    {% if runs %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Запущен</th>
+          <th>Завершён</th>
+          <th>Параметры</th>
+          <th>Найдено</th>
+          <th>Статус</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td>{{ r['id'] }}</td>
+          <td>{{ r['started_at'][:16] if r['started_at'] else '—' }}</td>
+          <td>{{ r['completed_at'][:16] if r['completed_at'] else '—' }}</td>
+          <td>
+            {% if r['config_json'] %}
+              {% set cfg = r['config_json'] | from_json %}
+              {% if cfg %}{{ cfg.get('segment','?') }}, {{ cfg.get('region','?') }}, цель={{ cfg.get('count','?') }}{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td><strong>{{ r['found_count'] }}</strong></td>
+          <td>
+            {% if r['status'] == 'done' %}
+              <span class="badge badge-green">Завершён</span>
+            {% elif r['status'] == 'running' %}
+              <span class="badge badge-yellow">Выполняется</span>
+            {% else %}
+              <span class="badge badge-red">{{ r['status'] }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty-state">Запусков ещё не было</div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let pollInterval = null;
+let currentRunId = null;
+
+document.getElementById('research-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  const form     = e.target;
+  const data     = new FormData(form);
+  const startBtn = document.getElementById('start-btn');
+  startBtn.disabled    = true;
+  startBtn.textContent = '⏳ Выполняется...';
+
+  document.getElementById('run-panel').style.display = 'block';
+  document.getElementById('run-status-badge').textContent = 'Запускаем...';
+  document.getElementById('log-console').innerHTML = '';
+  document.getElementById('run-summary').style.display = 'none';
+
+  fetch('/research/start', { method: 'POST', body: data })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        currentRunId = d.run_id;
+        pollInterval = setInterval(pollStatus, 2000);
+      } else {
+        alert('Ошибка запуска: ' + (d.error || ''));
+        startBtn.disabled    = false;
+        startBtn.textContent = '▶ Запустить поиск';
+      }
+    });
+});
+
+function pollStatus() {
+  if (!currentRunId) return;
+  fetch(`/research/status/${currentRunId}`)
+    .then(r => r.json())
+    .then(d => {
+      const console_el = document.getElementById('log-console');
+      const badge      = document.getElementById('run-status-badge');
+      const log        = Array.isArray(d.log) ? d.log : (d.log || '').split('\n').filter(Boolean);
+
+      console_el.innerHTML = log.map(l => `<div class="log-line">${escapeHtml(l)}</div>`).join('');
+      console_el.scrollTop = console_el.scrollHeight;
+
+      if (d.status === 'done') {
+        clearInterval(pollInterval);
+        badge.textContent     = '✅ Завершено';
+        badge.style.color     = '#16a34a';
+        const summary         = document.getElementById('run-summary');
+        summary.style.display = 'flex';
+        document.getElementById('run-found-text').textContent = `Найдено и сохранено: ${d.found_count} контактов`;
+        const startBtn                 = document.getElementById('start-btn');
+        startBtn.disabled              = false;
+        startBtn.textContent           = '▶ Запустить поиск';
+      } else if (d.status === 'running') {
+        badge.textContent = '⏳ Выполняется...';
+      }
+    });
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+{% endblock %}

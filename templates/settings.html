@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Настройки — ABCENTRUM{% endblock %}
+{% block heading %}Настройки{% endblock %}
+
+{% block content %}
+<form method="post" action="{{ url_for('settings_save') }}">
+
+  <!-- SMTP -->
+  <div class="panel">
+    <div class="panel-header">
+      SMTP / Отправитель
+      <button type="button" class="btn btn-secondary btn-sm" onclick="testSmtp()">⚡ Проверить соединение</button>
+    </div>
+    <div id="smtp-test-result"></div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>SMTP Хост</label>
+        <input type="text" name="smtp_host" value="{{ s.get('smtp_host','smtp.mail.ru') }}">
+      </div>
+      <div class="form-group">
+        <label>Порт</label>
+        <input type="number" name="smtp_port" value="{{ s.get('smtp_port','465') }}">
+      </div>
+      <div class="form-group">
+        <label>Email отправителя (SMTP логин)</label>
+        <input type="email" name="smtp_user" value="{{ s.get('smtp_user','') }}">
+      </div>
+      <div class="form-group">
+        <label>Пароль приложения <span class="label-hint">(внешний пароль Mail.ru)</span></label>
+        <div class="password-field">
+          <input type="password" name="smtp_pass" id="smtp_pass" value="{{ s.get('smtp_pass','') }}" autocomplete="new-password">
+          <button type="button" class="btn-icon" onclick="togglePass('smtp_pass')" title="Показать/скрыть">👁</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Имя отправителя</label>
+        <input type="text" name="from_name" value="{{ s.get('from_name','ABCENTRUM') }}">
+      </div>
+      <div class="form-group">
+        <label>Email в поле From</label>
+        <input type="email" name="from_email" value="{{ s.get('from_email','') }}">
+      </div>
+      <div class="form-group">
+        <label>Reply-To</label>
+        <input type="email" name="reply_to" value="{{ s.get('reply_to','') }}">
+      </div>
+    </div>
+  </div>
+
+  <!-- Шаблоны -->
+  <div class="panel">
+    <div class="panel-header">Шаблоны писем</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Asset URL — Митино <span class="label-hint">(папка с картинками)</span></label>
+        <input type="url" name="asset_url_mitino" value="{{ s.get('asset_url_mitino','') }}">
+      </div>
+      <div class="form-group">
+        <label>Asset URL — Грекова</label>
+        <input type="url" name="asset_url_grekova" value="{{ s.get('asset_url_grekova','') }}">
+      </div>
+      <div class="form-group form-group--full">
+        <label>URL отписки</label>
+        <input type="text" name="unsubscribe_url" value="{{ s.get('unsubscribe_url','') }}">
+      </div>
+    </div>
+  </div>
+
+  <!-- Доступ -->
+  <div class="panel">
+    <div class="panel-header">Доступ в интерфейс</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Логин</label>
+        <input type="text" name="app_login" value="{{ s.get('app_login','admin') }}" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>Новый пароль <span class="label-hint">(оставьте пустым, чтобы не менять)</span></label>
+        <div class="password-field">
+          <input type="password" name="new_password" id="new_password" placeholder="мин. 4 символа" autocomplete="new-password">
+          <button type="button" class="btn-icon" onclick="togglePass('new_password')" title="Показать/скрыть">👁</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-actions" style="margin-top:0">
+    <button type="submit" class="btn btn-primary btn-large">💾 Сохранить настройки</button>
+  </div>
+
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function togglePass(id) {
+  const el = document.getElementById(id);
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+function testSmtp() {
+  const result = document.getElementById('smtp-test-result');
+  result.innerHTML = '<div class="alert alert-info">⏳ Проверяем соединение...</div>';
+  fetch('/settings/test-smtp', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        result.innerHTML = `<div class="alert alert-success">✅ ${d.message}</div>`;
+      } else {
+        result.innerHTML = `<div class="alert alert-error">❌ ${d.error}</div>`;
+      }
+    });
+}
+</script>
+{% endblock %}

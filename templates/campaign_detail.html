@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Рассылка #{{ send['id'] }} — ABCENTRUM{% endblock %}
+{% block heading %}Рассылка #{{ send['id'] }}{% endblock %}
+
+{% block header_actions %}
+  <a href="{{ url_for('campaigns') }}" class="btn btn-link">← Назад</a>
+{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <div class="panel-header">Детали рассылки</div>
+  <div class="info-list">
+    <div class="info-row"><span class="info-key">Дата</span><span class="info-val">{{ send['sent_at'] or '—' }}</span></div>
+    <div class="info-row"><span class="info-key">Шаблон</span>
+      <span class="info-val">
+        {% if send['template'] == 'mitino' %}<span class="badge badge-blue">Митино</span>
+        {% else %}<span class="badge badge-green">Грекова</span>{% endif %}
+      </span>
+    </div>
+    <div class="info-row"><span class="info-key">Тема</span><span class="info-val">{{ send['subject'] or '—' }}</span></div>
+    <div class="info-row"><span class="info-key">Отправлено</span><span class="info-val"><strong>{{ send['total_sent'] }}</strong></span></div>
+    <div class="info-row"><span class="info-key">Ошибок</span><span class="info-val">{{ send['total_failed'] }}</span></div>
+    <div class="info-row"><span class="info-key">Батчей</span><span class="info-val">{{ send['batch_count'] }}</span></div>
+    <div class="info-row"><span class="info-key">Статус</span>
+      <span class="info-val">
+        {% if send['status'] == 'done' %}<span class="badge badge-green">Готово</span>
+        {% elif send['status'] == 'partial' %}<span class="badge badge-yellow">Частично</span>
+        {% else %}<span class="badge badge-red">{{ send['status'] }}</span>{% endif %}
+      </span>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header">Получатели ({{ recipients | length }})</div>
+  <table class="table">
+    <thead><tr><th>Email</th><th>Статус</th></tr></thead>
+    <tbody>
+      {% for r in recipients %}
+      <tr>
+        <td>{{ r['email'] }}</td>
+        <td>
+          {% if r['status'] == 'sent' %}<span class="badge badge-green">Отправлено</span>
+          {% else %}<span class="badge badge-red">{{ r['status'] }}</span>{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="2" class="empty-state">Получатели не найдены</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

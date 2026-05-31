@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ABCENTRUM{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-logo">ABCENTRUM</div>
+      <nav class="sidebar-nav">
+        <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
+          <span class="nav-icon">▣</span> Дашборд
+        </a>
+        <a href="{{ url_for('research') }}" class="nav-item {% if request.endpoint == 'research' %}active{% endif %}">
+          <span class="nav-icon">⊕</span> Research
+        </a>
+        <a href="{{ url_for('contacts') }}" class="nav-item {% if request.endpoint == 'contacts' %}active{% endif %}">
+          <span class="nav-icon">☰</span> Контакты
+        </a>
+        <a href="{{ url_for('campaigns') }}" class="nav-item {% if request.endpoint == 'campaigns' %}active{% endif %}">
+          <span class="nav-icon">✉</span> Рассылки
+        </a>
+        <a href="{{ url_for('settings') }}" class="nav-item {% if request.endpoint == 'settings' %}active{% endif %}">
+          <span class="nav-icon">⚙</span> Настройки
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <a href="{{ url_for('logout') }}" class="nav-item logout">⏻ Выйти</a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-header">
+        <h1>{% block heading %}{% endblock %}</h1>
+        <div class="header-actions">{% block header_actions %}{% endblock %}</div>
+      </div>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
