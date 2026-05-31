@@ -5,6 +5,46 @@
 {% block content %}
 <div class="campaigns-layout">
 
+  <!-- Пул адресов -->
+  <div class="panel">
+    <div class="panel-header">База email для рассылки</div>
+    <div class="mailing-stats">
+      <div class="mailing-stat">
+        <div class="mailing-stat-value" id="mailing-total">{{ mailing_stats.total }}</div>
+        <div class="mailing-stat-label">всего email в базе</div>
+      </div>
+      <div class="mailing-stat">
+        <div class="mailing-stat-value" id="mailing-sent">{{ mailing_stats.sent }}</div>
+        <div class="mailing-stat-label">уже отправлено</div>
+      </div>
+      <div class="mailing-stat">
+        <div class="mailing-stat-value" id="mailing-remaining">{{ mailing_stats.remaining }}</div>
+        <div class="mailing-stat-label">осталось</div>
+      </div>
+      <div class="mailing-stat">
+        <div class="mailing-stat-value" id="mailing-batches">{{ mailing_stats.batch_count }}</div>
+        <div class="mailing-stat-label">этапов по {{ mailing_batch_limit }}</div>
+      </div>
+    </div>
+    <div class="mailing-offer" id="mailing-offer">
+      {% if mailing_stats.remaining %}
+        Осталось {{ mailing_stats.remaining }} адресов. Рассылка будет выполнена в {{ mailing_stats.batch_count }} этап(а/ов), максимум по {{ mailing_batch_limit }} адресов за этап.
+      {% else %}
+        Все email из базы уже отмечены как отправленные.
+      {% endif %}
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" id="send-pending-all-btn" onclick="doSendPending('all')" {% if not mailing_stats.remaining %}disabled{% endif %}>
+        Отправить по оставшимся
+      </button>
+      <button class="btn btn-secondary" id="send-pending-next-btn" onclick="doSendPending('next')" {% if not mailing_stats.remaining %}disabled{% endif %}>
+        Отправить ближайшие {{ mailing_stats.next_batch }}
+      </button>
+      <span class="hint-text" id="pending-send-hint">Перед запуском выберите шаблон ниже</span>
+    </div>
+    <div id="pending-send-result" style="display:none" class="send-result"></div>
+  </div>
+
   <!-- Новая рассылка -->
   <div class="panel">
     <div class="panel-header">Новая рассылка</div>
@@ -36,7 +76,7 @@
     <div class="form-group" style="margin-top:20px">
       <label>
         Email-адреса получателей
-        <span class="label-hint">— по одному на строке, максимум 30</span>
+        <span class="label-hint">— по одному на строке, максимум {{ mailing_batch_limit }}</span>
       </label>
       <textarea id="addresses" rows="10" placeholder="example@company.ru&#10;another@firm.ru&#10;..."
                 oninput="countAddresses(this)" style="font-family:monospace">{{ preselect_addrs }}</textarea>
@@ -125,10 +165,10 @@ function countAddresses(ta) {
   const hint  = document.getElementById('send-hint');
 
   ctr.textContent = `${n} адресов`;
-  if (n > 30) {
+  if (n > {{ mailing_batch_limit }}) {
     ctr.style.color = '#dc2626';
     btn.disabled    = true;
-    hint.textContent = '⚠ Превышен лимит 30 адресов. Уберите лишние.';
+    hint.textContent = 'Превышен лимит {{ mailing_batch_limit }} адресов. Уберите лишние.';
   } else if (n === 0) {
     ctr.style.color = '#6b7280';
     btn.disabled    = true;
@@ -165,18 +205,19 @@ function doSend() {
       result.style.display = 'block';
 
       if (d.ok) {
+        if (d.mailing_stats) updateMailingStats(d.mailing_stats);
         result.className = 'send-result send-result--ok';
         result.innerHTML = `
-          <strong>✅ Готово!</strong><br>
+          <strong>Готово.</strong><br>
           Отправлено: <b>${d.total_sent}</b> адресов &nbsp;|&nbsp;
           Ошибок: <b>${d.total_failed}</b> &nbsp;|&nbsp;
-          Батчей: <b>${d.batch_count}</b>
+          Этапов: <b>${d.batch_count}</b>
           ${d.invalid && d.invalid.length ? '<br><span style="color:#6b7280">Пропущены невалидные: ' + d.invalid.join(', ') + '</span>' : ''}
           ${d.failed && d.failed.length ? '<br><span style="color:#dc2626">Не отправлены: ' + d.failed.join(', ') + '</span>' : ''}
         `;
       } else {
         result.className = 'send-result send-result--error';
-        result.innerHTML = `<strong>❌ Ошибка:</strong> ${escapeHtml(d.error || 'Неизвестная ошибка')}`;
+        result.innerHTML = `<strong>Ошибка:</strong> ${escapeHtml(d.error || 'Неизвестная ошибка')}`;
       }
     })
     .catch(err => {
@@ -184,8 +225,69 @@ function doSend() {
       btn.textContent = '✉ Отправить';
       result.style.display   = 'block';
       result.className       = 'send-result send-result--error';
-      result.textContent     = '❌ Сетевая ошибка: ' + err.message;
+      result.textContent     = 'Сетевая ошибка: ' + err.message;
     });
+}
+
+function doSendPending(mode) {
+  const template = document.querySelector('input[name="template"]:checked')?.value;
+  const allBtn = document.getElementById('send-pending-all-btn');
+  const nextBtn = document.getElementById('send-pending-next-btn');
+  const result = document.getElementById('pending-send-result');
+  const hint = document.getElementById('pending-send-hint');
+
+  if (!template) { alert('Выберите шаблон'); return; }
+
+  allBtn.disabled = true;
+  nextBtn.disabled = true;
+  hint.textContent = mode === 'all' ? 'Идёт рассылка по оставшимся адресам...' : 'Идёт рассылка ближайшего этапа...';
+  result.style.display = 'none';
+
+  const fd = new FormData();
+  fd.append('template', template);
+  fd.append('count', mode === 'next' ? '{{ mailing_batch_limit }}' : 'all');
+
+  fetch('/campaigns/send-pending', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => {
+      result.style.display = 'block';
+      if (d.mailing_stats) updateMailingStats(d.mailing_stats);
+      if (d.ok) {
+        result.className = 'send-result send-result--ok';
+        result.innerHTML = `
+          <strong>Готово.</strong><br>
+          Отправлено: <b>${d.total_sent}</b> адресов &nbsp;|&nbsp;
+          Ошибок: <b>${d.total_failed}</b> &nbsp;|&nbsp;
+          Этапов: <b>${d.batch_count}</b>
+          ${d.failed && d.failed.length ? '<br><span style="color:#dc2626">Не отправлены: ' + d.failed.map(escapeHtml).join(', ') + '</span>' : ''}
+        `;
+      } else {
+        result.className = 'send-result send-result--error';
+        result.innerHTML = `<strong>Ошибка:</strong> ${escapeHtml(d.error || 'Неизвестная ошибка')}`;
+      }
+    })
+    .catch(err => {
+      result.style.display = 'block';
+      result.className = 'send-result send-result--error';
+      result.textContent = 'Сетевая ошибка: ' + err.message;
+    })
+    .finally(() => {
+      const remaining = parseInt(document.getElementById('mailing-remaining').textContent || '0', 10);
+      allBtn.disabled = remaining <= 0;
+      nextBtn.disabled = remaining <= 0;
+      hint.textContent = remaining > 0 ? 'Можно продолжить рассылку по оставшимся адресам' : 'Все email из базы уже отмечены как отправленные';
+    });
+}
+
+function updateMailingStats(stats) {
+  document.getElementById('mailing-total').textContent = stats.total;
+  document.getElementById('mailing-sent').textContent = stats.sent;
+  document.getElementById('mailing-remaining').textContent = stats.remaining;
+  document.getElementById('mailing-batches').textContent = stats.batch_count;
+  document.getElementById('send-pending-next-btn').textContent = `Отправить ближайшие ${stats.next_batch}`;
+  document.getElementById('mailing-offer').textContent = stats.remaining
+    ? `Осталось ${stats.remaining} адресов. Рассылка будет выполнена в ${stats.batch_count} этап(а/ов), максимум по ${stats.batch_limit} адресов за этап.`
+    : 'Все email из базы уже отмечены как отправленные.';
 }
 
 function escapeHtml(s) {

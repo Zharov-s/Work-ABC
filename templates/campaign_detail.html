@@ -20,7 +20,7 @@
     <div class="info-row"><span class="info-key">Тема</span><span class="info-val">{{ send['subject'] or '—' }}</span></div>
     <div class="info-row"><span class="info-key">Отправлено</span><span class="info-val"><strong>{{ send['total_sent'] }}</strong></span></div>
     <div class="info-row"><span class="info-key">Ошибок</span><span class="info-val">{{ send['total_failed'] }}</span></div>
-    <div class="info-row"><span class="info-key">Батчей</span><span class="info-val">{{ send['batch_count'] }}</span></div>
+    <div class="info-row"><span class="info-key">Этапов</span><span class="info-val">{{ send['batch_count'] }}</span></div>
     <div class="info-row"><span class="info-key">Статус</span>
       <span class="info-val">
         {% if send['status'] == 'done' %}<span class="badge badge-green">Готово</span>

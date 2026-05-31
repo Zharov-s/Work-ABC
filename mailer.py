@@ -6,7 +6,7 @@ import json
 import os
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from database import get_setting, get_db
+from database import get_setting, get_db, normalize_mailing_email, sync_mailing_recipients, MAILING_BATCH_LIMIT
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), 'email_templates')
 
@@ -29,27 +29,12 @@ TEMPLATE_META = {
     },
 }
 
-BATCH_SIZE = 10
+BATCH_SIZE = MAILING_BATCH_LIMIT
 PAUSE_SEC  = 10
 
 
 def normalize_email(raw):
-    raw = raw.strip().lower()
-    if '@' not in raw:
-        return None
-    local, domain = raw.rsplit('@', 1)
-    try:
-        domain.encode('ascii')
-    except UnicodeEncodeError:
-        try:
-            domain = '.'.join(
-                p.encode('idna').decode('ascii') if not p.isascii() else p
-                for p in domain.split('.')
-            )
-        except Exception:
-            return None
-    addr = f'{local}@{domain}'
-    return addr if EMAIL_RE.match(addr) else None
+    return normalize_mailing_email(raw)
 
 
 def parse_addresses(raw_text):
@@ -71,21 +56,10 @@ def parse_addresses(raw_text):
     return valid, invalid
 
 
-def send_campaign(template_key, raw_addresses, contact_ids=None):
-    """
-    Отправляет рассылку.
-    Возвращает dict с отчётом.
-    Все адреса идут в BCC, To = from_email.
-    Максимум 30 адресов за вызов (проверяется здесь и в UI).
-    """
+def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, source='manual'):
     meta = TEMPLATE_META.get(template_key)
     if not meta:
         return {'ok': False, 'error': f'Неизвестный шаблон: {template_key}'}
-
-    valid, invalid = parse_addresses(raw_addresses)
-
-    if len(valid) > 30:
-        return {'ok': False, 'error': f'Превышен лимит: {len(valid)} адресов (максимум 30 за раз)'}
 
     if not valid:
         return {'ok': False, 'error': 'Нет валидных адресов для отправки'}
@@ -126,6 +100,7 @@ def send_campaign(template_key, raw_addresses, contact_ids=None):
     batches    = [valid[i:i+BATCH_SIZE] for i in range(0, len(valid), BATCH_SIZE)]
     ok_count   = 0
     failed     = []
+    failed_errors = {}
 
     def _send_batch(batch):
         msg = MIMEMultipart('alternative')
@@ -143,18 +118,22 @@ def send_campaign(template_key, raw_addresses, contact_ids=None):
 
     for i, batch in enumerate(batches, 1):
         sent = False
+        last_error = ''
         for attempt in range(1, 4):
             try:
                 _send_batch(batch)
                 sent = True
                 break
             except Exception as e:
+                last_error = str(e)
                 if attempt < 3:
                     time.sleep(30)
         if sent:
             ok_count += 1
         else:
             failed.extend(batch)
+            for addr in batch:
+                failed_errors[addr] = last_error
         if i < len(batches):
             time.sleep(PAUSE_SEC)
 
@@ -171,6 +150,7 @@ def send_campaign(template_key, raw_addresses, contact_ids=None):
         'total_failed':total_failed,
         'batch_count': len(batches),
         'failed':      failed,
+        'source':      source,
     }
 
     # Сохранить в историю
@@ -183,23 +163,95 @@ def send_campaign(template_key, raw_addresses, contact_ids=None):
     )
     send_id = cur.lastrowid
 
+    recipients_by_email = {}
+    for row in recipient_rows or []:
+        email = row['email'] if hasattr(row, 'keys') else row.get('email')
+        recipients_by_email[email] = row
+
     for addr in valid:
         status = 'failed' if addr in failed else 'sent'
         cid = None
-        if contact_ids:
-            pass  # contact_ids is a list of (email, id) pairs
+        row = recipients_by_email.get(addr)
+        if row:
+            cid = row['contact_id'] if hasattr(row, 'keys') else row.get('contact_id')
         conn.execute(
-            'INSERT INTO send_recipients(send_id, email, status) VALUES(?,?,?)',
-            (send_id, addr, status)
+            'INSERT INTO send_recipients(send_id, contact_id, email, status) VALUES(?,?,?,?)',
+            (send_id, cid, addr, status)
         )
-        # Обновить статус контакта
         if addr not in failed:
-            conn.execute("UPDATE contacts SET status='sent' WHERE email=?", (addr,))
+            conn.execute(
+                """UPDATE contacts SET status='sent'
+                   WHERE lower(email)=? OR lower(personal_email)=? OR lower(generic_email)=?""",
+                (addr, addr, addr)
+            )
+            conn.execute(
+                """INSERT INTO mailing_recipients(email, contact_id, status, sent_at, last_error)
+                   VALUES(?,?, 'sent', datetime('now'), NULL)
+                   ON CONFLICT(email) DO UPDATE SET
+                     status='sent',
+                     sent_at=datetime('now'),
+                     last_error=NULL,
+                     contact_id=COALESCE(mailing_recipients.contact_id, excluded.contact_id)""",
+                (addr, cid)
+            )
+        else:
+            conn.execute(
+                """INSERT INTO mailing_recipients(email, contact_id, status, last_error)
+                   VALUES(?,?, 'failed', ?)
+                   ON CONFLICT(email) DO UPDATE SET
+                     status='failed',
+                     last_error=excluded.last_error,
+                     contact_id=COALESCE(mailing_recipients.contact_id, excluded.contact_id)""",
+                (addr, cid, failed_errors.get(addr, 'Ошибка отправки'))
+            )
 
     conn.commit()
     conn.close()
 
     return report
+
+
+def send_campaign(template_key, raw_addresses, contact_ids=None):
+    """
+    Ручная отправка по введённым адресам.
+    Все адреса идут в BCC, To = from_email.
+    За один ручной запуск нельзя отправить больше 29 адресов.
+    """
+    valid, invalid = parse_addresses(raw_addresses)
+
+    if len(valid) > MAILING_BATCH_LIMIT:
+        return {
+            'ok': False,
+            'error': f'Превышен лимит: {len(valid)} адресов (максимум {MAILING_BATCH_LIMIT} за раз)'
+        }
+
+    return _send_addresses(template_key, valid, invalid, source='manual')
+
+
+def send_pending_campaign(template_key, requested_count=None):
+    """
+    Отправляет по оставшимся адресам из общего пула.
+    Если адресов больше 29, они уходят несколькими SMTP-этапами по 29.
+    """
+    sync_mailing_recipients()
+    conn = get_db()
+    limit = ''
+    params = []
+    if requested_count:
+        limit = 'LIMIT ?'
+        params.append(int(requested_count))
+    rows = conn.execute(
+        f"""SELECT id, contact_id, email
+            FROM mailing_recipients
+            WHERE status!='sent'
+            ORDER BY CASE WHEN status='failed' THEN 1 ELSE 0 END, id
+            {limit}""",
+        params
+    ).fetchall()
+    conn.close()
+
+    addresses = [r['email'] for r in rows]
+    return _send_addresses(template_key, addresses, [], recipient_rows=rows, source='queue')
 
 
 def test_smtp():

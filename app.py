@@ -10,9 +10,12 @@ load_dotenv()
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, jsonify, Response, flash, send_file)
 
-from database import init_db, get_db, get_setting, set_setting, get_all_settings
+from database import (
+    init_db, get_db, get_setting, set_setting, get_all_settings,
+    sync_mailing_recipients, get_mailing_stats, MAILING_BATCH_LIMIT,
+)
 from auth import check_credentials, set_password, set_login
-from mailer import send_campaign, test_smtp, parse_addresses, TEMPLATE_META
+from mailer import send_campaign, send_pending_campaign, test_smtp, parse_addresses, TEMPLATE_META
 from researcher import (
     start_research, get_run_status, pause_research, resume_research,
     SEGMENT_LABELS, REGION_SUFFIX, INDUSTRY_LABELS, SCALE_LABELS,
@@ -375,6 +378,9 @@ def research_status(run_id):
 @login_required
 def campaigns():
     conn    = get_db()
+    sync_mailing_recipients(conn)
+    conn.commit()
+    mailing_stats = get_mailing_stats(conn)
     history = conn.execute(
         'SELECT * FROM send_history ORDER BY id DESC LIMIT 20'
     ).fetchall()
@@ -396,6 +402,8 @@ def campaigns():
         templates=TEMPLATE_META,
         preselect_addrs=preselect_addrs,
         preselect_tmpl=preselect_tmpl,
+        mailing_stats=mailing_stats,
+        mailing_batch_limit=MAILING_BATCH_LIMIT,
     )
 
 
@@ -405,6 +413,23 @@ def campaign_send():
     template_key  = request.form.get('template', 'mitino')
     raw_addresses = request.form.get('addresses', '')
     result        = send_campaign(template_key, raw_addresses)
+    result['mailing_stats'] = get_mailing_stats()
+    return jsonify(result)
+
+
+@app.route('/campaigns/send-pending', methods=['POST'])
+@login_required
+def campaign_send_pending():
+    template_key = request.form.get('template', 'mitino')
+    count_raw = request.form.get('count', 'all')
+    requested_count = None
+    if count_raw != 'all':
+        try:
+            requested_count = max(int(count_raw), 0)
+        except ValueError:
+            requested_count = None
+    result = send_pending_campaign(template_key, requested_count)
+    result['mailing_stats'] = get_mailing_stats()
     return jsonify(result)
 
 

@@ -686,6 +686,35 @@ body {
 /* ── Campaigns ── */
 .campaigns-layout { display: flex; flex-direction: column; }
 
+.mailing-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 12px;
+  padding: 16px 16px 8px;
+}
+.mailing-stat {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: #f9fafb;
+}
+.mailing-stat-value {
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: #111827;
+}
+.mailing-stat-label {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: #6b7280;
+}
+.mailing-offer {
+  padding: 4px 16px 0;
+  color: #4b5563;
+  font-size: 13.5px;
+}
+
 .template-selector { display: flex; gap: 12px; padding: 16px; flex-wrap: wrap; }
 .template-option {
   flex: 1;
@@ -723,6 +752,10 @@ body {
 }
 .send-result--ok    { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
 .send-result--error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+
+@media (max-width: 900px) {
+  .mailing-stats { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+}
 
 /* ── Contacts table (overrides) ── */
 .contacts-table td { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
