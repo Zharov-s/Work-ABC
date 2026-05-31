@@ -924,23 +924,34 @@ function fetchRunContacts(runId) {
         return;
       }
 
+      const requirements = Array.isArray(contacts[0]?._contact_requirements)
+        ? contacts[0]._contact_requirements
+        : null;
+      const hasRequirement = (name) => !requirements || requirements.includes(name);
+      const showWebsite = hasRequirement('website');
+      const showEmail = hasRequirement('personal_email') || hasRequirement('generic_email');
+      const showPhone = hasRequirement('mobile_phone') || hasRequirement('generic_phone');
+      const showInn = hasRequirement('inn');
+
+      const columns = [
+        { header: 'Компания', cell: c => escapeHtml(c.company_name || '—') },
+        ...(showWebsite ? [{
+          header: 'Сайт',
+          cell: c => c.website ? `<a class="link" href="${escapeHtml(c.website)}" target="_blank">${escapeHtml(c.website)}</a>` : '—'
+        }] : []),
+        { header: 'ЛПР', cell: c => escapeHtml(c.person_name || '—') },
+        { header: 'Должность', cell: c => escapeHtml(c.title || '—') },
+        ...(showEmail ? [{ header: 'Email', cell: c => escapeHtml(c.email || '—') }] : []),
+        ...(showPhone ? [{ header: 'Телефон', cell: c => escapeHtml(c.phone || '—') }] : []),
+        ...(showInn ? [{ header: 'ИНН', cell: c => escapeHtml(c.inn || '—') }] : []),
+        { header: 'Сегмент', cell: c => escapeHtml(c.segment || '—') }
+      ];
+
       const rows = contacts.map(c => `
-        <tr>
-          <td>${escapeHtml(c.company_name || '—')}</td>
-          <td>${c.website ? `<a class="link" href="${escapeHtml(c.website)}" target="_blank">${escapeHtml(c.website)}</a>` : '—'}</td>
-          <td>${escapeHtml(c.person_name  || '—')}</td>
-          <td>${escapeHtml(c.title        || '—')}</td>
-          <td>${escapeHtml(c.email        || '—')}</td>
-          <td>${escapeHtml(c.phone        || '—')}</td>
-          <td>${escapeHtml(c.inn          || '—')}</td>
-          <td>${escapeHtml(c.segment      || '—')}</td>
-        </tr>`).join('');
+        <tr>${columns.map(col => `<td>${col.cell(c)}</td>`).join('')}</tr>`).join('');
       el.innerHTML = `
         <table class="table run-contacts-table">
-          <thead><tr>
-            <th>Компания</th><th>Сайт</th><th>ЛПР</th><th>Должность</th>
-            <th>Email</th><th>Телефон</th><th>ИНН</th><th>Сегмент</th>
-          </tr></thead>
+          <thead><tr>${columns.map(col => `<th>${col.header}</th>`).join('')}</tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
 

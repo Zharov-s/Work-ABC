@@ -229,6 +229,29 @@ def contact_satisfies_requirements(contact: dict, requirements) -> tuple[bool, s
         return False, 'нет ИНН'
     return True, ''
 
+
+def project_contact_to_requirements(contact: dict, requirements) -> dict:
+    """Return only the fields the user selected for the research result."""
+    reqs = set(normalize_contact_requirements(requirements))
+    projected = dict(contact)
+
+    if 'website' not in reqs:
+        projected['website'] = None
+    if 'personal_email' not in reqs:
+        projected['personal_email'] = None
+    if 'generic_email' not in reqs:
+        projected['generic_email'] = None
+    if 'mobile_phone' not in reqs:
+        projected['mobile_phone'] = None
+    if 'generic_phone' not in reqs:
+        projected['generic_phone'] = None
+    if 'inn' not in reqs:
+        projected['inn'] = None
+
+    projected['email'] = projected.get('personal_email') or projected.get('generic_email') or None
+    projected['phone'] = projected.get('mobile_phone') or projected.get('generic_phone') or None
+    return projected
+
 # ── Поисковые запросы ───────────────────────────────────────────────────────
 
 # Основные запросы через Tavily (широкий поиск)
@@ -1065,12 +1088,10 @@ def _research_worker(run_id: int, config: dict):
             inn = '' if inn in ('null', 'none') else inn
             person = '' if person in ('null', 'none') else person
 
-            primary_email = personal_email or generic_email or None
-            primary_phone = mobile_phone or generic_phone or None
             lpr['company_name'] = lpr.get('company_name') or name
             lpr['website'] = website or None
-            lpr['email'] = primary_email
-            lpr['phone'] = primary_phone
+            lpr['email'] = personal_email or generic_email or None
+            lpr['phone'] = mobile_phone or generic_phone or None
             lpr['personal_email'] = personal_email or None
             lpr['generic_email'] = generic_email or None
             lpr['mobile_phone'] = mobile_phone or None
@@ -1081,6 +1102,11 @@ def _research_worker(run_id: int, config: dict):
             if not ok_requirements:
                 _log(run_id, f'   ⛔  {requirement_error} — компания не засчитывается, ищем дальше')
                 continue
+
+            lpr = project_contact_to_requirements(lpr, requirements_list)
+            primary_email = lpr.get('email')
+            primary_phone = lpr.get('phone')
+            inn = lpr.get('inn') or ''
 
             # Email уже в базе
             if primary_email and primary_email in existing_emails:

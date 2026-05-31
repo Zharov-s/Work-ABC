@@ -17,6 +17,7 @@ from researcher import (
     start_research, get_run_status, pause_research, resume_research,
     SEGMENT_LABELS, REGION_SUFFIX, INDUSTRY_LABELS, SCALE_LABELS,
     CONTACT_REQUIREMENT_LABELS, normalize_contact_requirements, contact_satisfies_requirements,
+    project_contact_to_requirements,
 )
 
 app = Flask(__name__)
@@ -325,11 +326,14 @@ def research_run_contacts(run_id):
         except Exception:
             requirements = None
     if requirements:
+        requirements = normalize_contact_requirements(requirements)
         filtered = []
         for r in rows:
             item = dict(r)
             ok, _ = contact_satisfies_requirements(item, requirements)
             if ok:
+                item = project_contact_to_requirements(item, requirements)
+                item['_contact_requirements'] = requirements
                 filtered.append(item)
         return jsonify(filtered)
     return jsonify([dict(r) for r in rows])
