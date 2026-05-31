@@ -44,22 +44,18 @@
       <div class="glass-list-item">
         <span class="glass-list-label">Рассылок отправлено</span>
         <span class="glass-list-val">{{ total_sends }}</span>
-        <span class="glass-toggle glass-toggle--pink"></span>
       </div>
       <div class="glass-list-item">
         <span class="glass-list-label">Получили письмо</span>
         <span class="glass-list-val">{{ total_contacts - new_contacts }}</span>
-        <span class="glass-toggle glass-toggle--blue"></span>
       </div>
       <div class="glass-list-item">
         <span class="glass-list-label">Найдено последним поиском</span>
         <span class="glass-list-val">{% if last_run %}{{ last_run['found_count'] }}{% else %}—{% endif %}</span>
-        <span class="glass-toggle glass-toggle--cyan"></span>
       </div>
       <div class="glass-list-item">
         <span class="glass-list-label">Ожидают рассылки</span>
         <span class="glass-list-val">{{ new_contacts }}</span>
-        <span class="glass-toggle glass-toggle--gray"></span>
       </div>
     </div>
 
