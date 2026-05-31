@@ -151,6 +151,21 @@
           Выполнение
           <span class="status-badge" id="run-status-badge">Запускаем...</span>
         </div>
+        <!-- Прогресс -->
+        <div id="run-progress-strip" style="display:none; padding:12px 16px 0">
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:6px">
+            <div style="flex:1; background:#e2e8f0; border-radius:99px; height:8px; overflow:hidden">
+              <div id="progress-bar-fill"
+                   style="height:100%; background:#2563eb; border-radius:99px; width:0%; transition:width .4s ease"></div>
+            </div>
+            <span id="progress-label" style="white-space:nowrap; font-size:13px; font-weight:600; color:#1e293b; min-width:110px; text-align:right">
+              0 / ?
+            </span>
+          </div>
+          <div style="font-size:12px; color:#64748b; margin-bottom:8px" id="progress-sub">
+            Идёт поиск...
+          </div>
+        </div>
         <div class="log-console" id="log-console"></div>
         <div class="run-summary" id="run-summary" style="display:none">
           <strong id="run-found-text"></strong>
@@ -251,6 +266,32 @@ function markCountBtn(radio) {
 let pollInterval = null;
 let currentRunId = null;
 
+// ID запущенного таска, если есть на момент загрузки страницы
+const BOOT_RUNNING_ID = (function() {
+  const row = document.querySelector('.run-row');
+  if (!row) return null;
+  // Первая строка — самая свежая. Проверяем бейдж.
+  const badge = row.querySelector('.badge-yellow');
+  return badge ? parseInt(row.dataset.runId, 10) : null;
+})();
+
+function showRunPanel(runId) {
+  currentRunId = runId;
+  document.getElementById('run-panel').style.display      = 'block';
+  document.getElementById('run-status-badge').textContent = 'Выполняется...';
+  document.getElementById('run-status-badge').style.color = '';
+  document.getElementById('run-summary').style.display    = 'none';
+}
+
+// Авто-возобновление при перезагрузке страницы
+if (BOOT_RUNNING_ID) {
+  showRunPanel(BOOT_RUNNING_ID);
+  document.getElementById('start-btn').disabled    = true;
+  document.getElementById('start-btn').textContent = '⏳ Выполняется...';
+  pollStatus();  // сразу первый тик
+  pollInterval = setInterval(pollStatus, 2000);
+}
+
 document.getElementById('research-form').addEventListener('submit', function(e) {
   e.preventDefault();
 
@@ -264,17 +305,14 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
   startBtn.disabled    = true;
   startBtn.textContent = '⏳ Выполняется...';
 
-  document.getElementById('run-panel').style.display = 'block';
-  document.getElementById('run-status-badge').textContent = 'Запускаем...';
-  document.getElementById('run-status-badge').style.color = '';
-  document.getElementById('log-console').innerHTML = '';
-  document.getElementById('run-summary').style.display = 'none';
+  document.getElementById('run-progress-strip').style.display = 'none';
+  document.getElementById('log-console').innerHTML            = '';
 
   fetch('/research/start', { method: 'POST', body: new FormData(this) })
     .then(r => r.json())
     .then(d => {
       if (d.ok) {
-        currentRunId = d.run_id;
+        showRunPanel(d.run_id);
         pollInterval = setInterval(pollStatus, 2000);
       } else {
         alert('Ошибка запуска: ' + (d.error || ''));
@@ -293,10 +331,10 @@ function pollStatus() {
       const badge  = document.getElementById('run-status-badge');
       const log    = Array.isArray(d.log) ? d.log : (d.log || '').split('\n').filter(Boolean);
 
-      logEl.innerHTML  = log.map(l => `<div class="log-line">${escapeHtml(l)}</div>`).join('');
-      logEl.scrollTop  = logEl.scrollHeight;
+      logEl.innerHTML = log.map(l => `<div class="log-line">${escapeHtml(l)}</div>`).join('');
+      logEl.scrollTop = logEl.scrollHeight;
 
-      // Обновляем ячейку "Найдено" в строке истории в реальном времени
+      updateProgressStrip(d.found_count, d.target_count, d.status);
       updateRunHistoryRow(currentRunId, d.found_count, d.target_count, d.status);
 
       if (d.status === 'done') {
@@ -307,9 +345,9 @@ function pollStatus() {
         summary.style.display = 'flex';
         document.getElementById('run-found-text').textContent =
           `Сохранено в базу: ${d.found_count} новых контактов`;
-        const btn          = document.getElementById('start-btn');
-        btn.disabled       = false;
-        btn.textContent    = '▶ Запустить поиск';
+        const btn         = document.getElementById('start-btn');
+        btn.disabled      = false;
+        btn.textContent   = '▶ Запустить поиск';
       } else if (d.status === 'failed') {
         clearInterval(pollInterval);
         badge.textContent = '❌ Ошибка (см. лог)';
@@ -319,6 +357,37 @@ function pollStatus() {
         btn.textContent   = '▶ Запустить поиск';
       }
     });
+}
+
+function updateProgressStrip(found, target, status) {
+  const strip = document.getElementById('run-progress-strip');
+  if (status !== 'running' && status !== 'done') return;
+  strip.style.display = 'block';
+
+  const pct       = target ? Math.min(100, Math.round(found / target * 100)) : 0;
+  const remaining = Math.max(0, (target || 0) - found);
+
+  document.getElementById('progress-bar-fill').style.width = pct + '%';
+  document.getElementById('progress-label').textContent    =
+    `${found} / ${target || '?'}`;
+
+  if (status === 'running') {
+    document.getElementById('progress-bar-fill').style.background = '#2563eb';
+    document.getElementById('progress-sub').textContent =
+      remaining > 0
+        ? `Осталось найти: ${remaining} ${pluralCompany(remaining)}`
+        : 'Финальная обработка...';
+  } else {
+    document.getElementById('progress-bar-fill').style.background = '#16a34a';
+    document.getElementById('progress-sub').textContent =
+      found > 0 ? `Готово — все ${found} сохранены в базу` : 'Поиск завершён, новых контактов не найдено';
+  }
+}
+
+function pluralCompany(n) {
+  if (n % 10 === 1 && n % 100 !== 11) return 'компания';
+  if ([2,3,4].includes(n % 10) && ![12,13,14].includes(n % 100)) return 'компании';
+  return 'компаний';
 }
 
 function updateRunHistoryRow(runId, found, target, status) {
