@@ -395,8 +395,11 @@ def preview_template(template_key):
     return Response(html, mimetype='text/html')
 
 
-# ── Run ───────────────────────────────────────────────────────────────────────
+# ── Init DB on startup (работает и с gunicorn, и напрямую) ───────────────────
+init_db()
 
+# ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
-    init_db()
-    app.run(debug=True, host='127.0.0.1', port=5050, use_reloader=False)
+    port = int(os.getenv('PORT', 5050))
+    debug = os.getenv('FLASK_ENV') != 'production'
+    app.run(debug=debug, host='0.0.0.0', port=port, use_reloader=False)
