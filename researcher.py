@@ -10,6 +10,7 @@ import json
 import time
 import threading
 from datetime import datetime
+from urllib.parse import urlparse
 from database import get_db
 
 TAVILY_API_KEY  = os.getenv('TAVILY_API_KEY', '')
@@ -96,6 +97,87 @@ CONTACT_REQUIREMENT_LABELS = {
 
 DEFAULT_CONTACT_REQUIREMENTS = ['company_name', 'website', 'personal_email', 'mobile_phone']
 
+BLOCKED_WEBSITE_DOMAINS = {
+    'rusprofile.ru', 'www.rusprofile.ru',
+    'zachestnyibiznes.ru', 'www.zachestnyibiznes.ru',
+    'checko.ru', 'www.checko.ru',
+    'list-org.com', 'www.list-org.com',
+    'sbis.ru', 'www.sbis.ru',
+    'audit-it.ru', 'www.audit-it.ru',
+    'spark-interfax.ru', 'www.spark-interfax.ru',
+    'kartoteka.ru', 'www.kartoteka.ru',
+    'nalog.ru', 'egrul.nalog.ru', 'www.nalog.ru',
+    '4pda.to', '4pda.ru', 'www.4pda.to', 'www.4pda.ru',
+    'forumhouse.ru', 'www.forumhouse.ru',
+    'hh.ru', 'www.hh.ru',
+    'habr.com', 'www.habr.com',
+    'vc.ru', 'www.vc.ru',
+    't.me', 'telegram.me', 'vk.com', 'www.vk.com',
+    'facebook.com', 'www.facebook.com',
+    'linkedin.com', 'www.linkedin.com',
+    'youtube.com', 'www.youtube.com',
+    'instagram.com', 'www.instagram.com',
+    'avito.ru', 'www.avito.ru',
+    'tiu.ru', 'www.tiu.ru',
+    'pulscen.ru', 'www.pulscen.ru',
+    'all.biz', 'www.all.biz',
+    'promportal.su', 'www.promportal.su',
+    'wikipedia.org', 'ru.wikipedia.org',
+    '2gis.ru', 'www.2gis.ru',
+    'maps.google.com', 'google.com', 'www.google.com',
+    'yandex.ru', 'www.yandex.ru', 'yandex.com', 'www.yandex.com',
+}
+
+BLOCKED_WEBSITE_DOMAIN_SUFFIXES = (
+    '.rusprofile.ru',
+    '.zachestnyibiznes.ru',
+    '.checko.ru',
+    '.sbis.ru',
+    '.nalog.ru',
+    '.wikipedia.org',
+)
+
+
+def _url_domain(url: str) -> str:
+    raw = (url or '').strip()
+    if not raw:
+        return ''
+    if not re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*://', raw):
+        raw = 'https://' + raw
+    try:
+        parsed = urlparse(raw)
+    except Exception:
+        return ''
+    return (parsed.netloc or '').split('@')[-1].split(':')[0].lower()
+
+
+def normalize_official_website(url: str) -> str | None:
+    raw = (url or '').strip()
+    if not raw or raw.lower() in ('null', 'none'):
+        return None
+    if raw.startswith(('mailto:', 'tel:', '#')):
+        return None
+    if not re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*://', raw):
+        raw = 'https://' + raw
+    try:
+        parsed = urlparse(raw)
+    except Exception:
+        return None
+    if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+        return None
+    domain = _url_domain(raw)
+    if not domain or domain in BLOCKED_WEBSITE_DOMAINS:
+        return None
+    if any(domain.endswith(suffix) for suffix in BLOCKED_WEBSITE_DOMAIN_SUFFIXES):
+        return None
+    if '.' not in domain:
+        return None
+    return f'{parsed.scheme}://{parsed.netloc.lower()}'
+
+
+def is_official_website_url(url: str) -> bool:
+    return normalize_official_website(url) is not None
+
 
 def normalize_contact_requirements(raw_requirements) -> list[str]:
     if isinstance(raw_requirements, str):
@@ -125,8 +207,8 @@ def contact_satisfies_requirements(contact: dict, requirements) -> tuple[bool, s
 
     if 'company_name' in reqs and not company_name:
         return False, 'нет наименования компании'
-    if 'website' in reqs and not website:
-        return False, 'нет сайта'
+    if 'website' in reqs and not is_official_website_url(website):
+        return False, 'нет официального сайта'
     if reqs.intersection({'personal_email', 'mobile_phone'}) and (not person or len(person.split()) < 2):
         return False, 'нет ФИО ЛПР для личного контакта'
     if 'personal_email' in reqs and (
@@ -515,7 +597,11 @@ def _extract_companies(client, results_text: str, segment_label: str, industry_l
         clean = _extract_json(raw)
         if not clean:
             return []
-        return json.loads(clean).get('companies', [])
+        companies = json.loads(clean).get('companies', [])
+        for company in companies:
+            website = normalize_official_website(company.get('website'))
+            company['website'] = website
+        return companies
     except Exception:
         return []
 
@@ -632,6 +718,51 @@ def _results_to_text(results: dict, max_chars: int = 500) -> str:
     return '\n\n---\n\n'.join(parts)
 
 
+def _extract_urls_from_text(text: str) -> list[str]:
+    urls = []
+    seen = set()
+    for raw in re.findall(r'https?://[^\s<>"\')]+', text or ''):
+        normalized = normalize_official_website(raw)
+        if normalized and normalized not in seen:
+            urls.append(normalized)
+            seen.add(normalized)
+    return urls
+
+
+def _resolve_official_website(tavily, company: dict, combined_text: str, log_fn) -> str | None:
+    name = company.get('name') or company.get('company_name') or ''
+
+    for candidate in (company.get('website'), company.get('source_url')):
+        official = normalize_official_website(candidate)
+        if official:
+            return official
+
+    for candidate in _extract_urls_from_text(combined_text):
+        official = normalize_official_website(candidate)
+        if official:
+            return official
+
+    if not name:
+        return None
+
+    queries = [
+        f'"{name}" официальный сайт',
+        f'"{name}" сайт компании',
+    ]
+    for query in queries:
+        try:
+            res = tavily.search(query, max_results=5)
+        except Exception:
+            continue
+        text = _results_to_text(res, 500)
+        for candidate in _extract_urls_from_text(text):
+            official = normalize_official_website(candidate)
+            if official:
+                log_fn(f'   🌐 Официальный сайт: {official}')
+                return official
+    return None
+
+
 def is_valid_phone(phone: str) -> bool:
     """Телефон валиден если содержит минимум 7 цифр."""
     if not phone or str(phone).lower() in ('null', 'none', ''):
@@ -656,7 +787,9 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
     website = company.get('website') or ''
     domain  = ''
     if website:
-        domain = website.replace('https://', '').replace('http://', '').split('/')[0]
+        website = normalize_official_website(website) or ''
+    if website:
+        domain = _url_domain(website)
 
     combined_parts = []
     director_name  = None
@@ -920,7 +1053,9 @@ def _research_worker(run_id: int, config: dict):
             mobile_phone = (lpr.get('mobile_phone') or '').strip()
             generic_phone = (lpr.get('generic_phone') or '').strip()
             inn = (lpr.get('inn') or '').strip()
-            website = (lpr.get('website') or company.get('website') or '').strip()
+            website = normalize_official_website(lpr.get('website') or company.get('website'))
+            if 'website' in requirements and not website:
+                website = _resolve_official_website(tavily, company, combined_text, lambda m: _log(run_id, m))
 
             # Чистим "null" строки от модели
             personal_email = '' if personal_email in ('null', 'none') else personal_email
