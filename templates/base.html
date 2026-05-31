@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}ABCENTRUM{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  {% block extra_css %}{% endblock %}
 </head>
 <body>
   <div class="layout">
@@ -32,7 +33,7 @@
       </div>
     </aside>
 
-    <main class="content">
+    <main class="content {% block content_class %}{% endblock %}">
       <div class="content-header">
         <h1>{% block heading %}{% endblock %}</h1>
         <div class="header-actions">{% block header_actions %}{% endblock %}</div>

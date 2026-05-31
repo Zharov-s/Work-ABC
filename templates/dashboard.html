@@ -1,120 +1,202 @@
 {% extends "base.html" %}
-{% block title %}Дашборд — ABCENTRUM{% endblock %}
-{% block heading %}Дашборд{% endblock %}
-
-{% block header_actions %}
-  <a href="{{ url_for('research') }}" class="btn btn-primary">+ Research</a>
-  <a href="{{ url_for('campaigns') }}" class="btn btn-secondary">✉ Новая рассылка</a>
-{% endblock %}
+{% block title %}Главная — ABCENTRUM{% endblock %}
+{% block heading %}Главная{% endblock %}
+{% block content_class %}glass-bg{% endblock %}
 
 {% block content %}
-<div class="stats-grid">
-  <div class="stat-card">
-    <div class="stat-value">{{ total_contacts }}</div>
-    <div class="stat-label">Всего контактов</div>
-  </div>
-  <div class="stat-card stat-card--green">
-    <div class="stat-value">{{ new_contacts }}</div>
-    <div class="stat-label">Новых (не отправлено)</div>
-  </div>
-  <div class="stat-card stat-card--blue">
-    <div class="stat-value">{{ total_sends }}</div>
-    <div class="stat-label">Рассылок отправлено</div>
-  </div>
-  <div class="stat-card stat-card--gray">
-    <div class="stat-value">{{ total_contacts - new_contacts }}</div>
-    <div class="stat-label">Уже получили письмо</div>
-  </div>
-</div>
 
-<div class="dashboard-grid">
-  <div class="panel">
-    <div class="panel-header">Последние рассылки</div>
-    {% if recent_sends %}
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Дата</th>
-            <th>Шаблон</th>
-            <th>Отправлено</th>
-            <th>Статус</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for s in recent_sends %}
-          <tr>
-            <td>{{ s['sent_at'][:16] if s['sent_at'] else '—' }}</td>
-            <td>
-              {% if s['template'] == 'mitino' %}
-                <span class="badge badge-blue">Митино</span>
-              {% else %}
-                <span class="badge badge-green">Грекова</span>
-              {% endif %}
-            </td>
-            <td>{{ s['total_sent'] }}</td>
-            <td>
-              {% if s['status'] == 'done' %}
-                <span class="badge badge-green">Готово</span>
-              {% elif s['status'] == 'partial' %}
-                <span class="badge badge-yellow">Частично</span>
-              {% else %}
-                <span class="badge badge-red">Ошибка</span>
-              {% endif %}
-            </td>
-            <td><a href="{{ url_for('campaign_detail', send_id=s['id']) }}" class="link">детали</a></td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="empty-state">Рассылок ещё не было</div>
-    {% endif %}
-    <div class="panel-footer">
-      <a href="{{ url_for('campaigns') }}" class="link">Все рассылки →</a>
+<!-- ── Top row: Stats card + Recent campaigns card ── -->
+<div class="glass-top-row">
+
+  <!-- Stats card (mirrors the design reference exactly) -->
+  <div class="glass-card">
+    <div class="glass-card-header">
+      <span class="glass-card-title">Статистика</span>
+      <a href="{{ url_for('contacts') }}" class="glass-pill-btn">Контакты →</a>
     </div>
-  </div>
 
-  <div class="panel">
-    <div class="panel-header">Последний Research</div>
-    {% if last_run %}
-      <div class="info-list">
-        <div class="info-row">
-          <span class="info-key">Запущен</span>
-          <span class="info-val">{{ last_run['started_at'][:16] if last_run['started_at'] else '—' }}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-key">Статус</span>
-          <span class="info-val">
-            {% if last_run['status'] == 'done' %}
-              <span class="badge badge-green">Завершён</span>
-            {% elif last_run['status'] == 'running' %}
-              <span class="badge badge-yellow">Выполняется</span>
-            {% else %}
-              <span class="badge badge-red">Ошибка</span>
-            {% endif %}
-          </span>
-        </div>
-        <div class="info-row">
-          <span class="info-key">Найдено</span>
-          <span class="info-val"><strong>{{ last_run['found_count'] }}</strong> контактов</span>
-        </div>
-        {% if last_run['config_json'] %}
-          {% set cfg = last_run['config_json'] | from_json %}
-          {% if cfg %}
-          <div class="info-row">
-            <span class="info-key">Параметры</span>
-            <span class="info-val">{{ cfg.get('segment','?') }}, {{ cfg.get('region','?') }}, цель {{ cfg.get('count','?') }}</span>
-          </div>
-          {% endif %}
-        {% endif %}
+    <!-- Highlighted stat rows -->
+    <div class="glass-stat-rows">
+      <div class="glass-stat-row glass-stat-row--light">
+        <span class="glass-stat-icon glass-icon-green">✓</span>
+        <span class="glass-stat-label">Всего контактов</span>
+        <span class="glass-stat-value">{{ total_contacts }}</span>
+        <span class="glass-chevron">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 6l4 4 4-4" stroke="rgba(255,255,255,0.5)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
       </div>
-    {% else %}
-      <div class="empty-state">Research ещё не запускался</div>
-    {% endif %}
-    <div class="panel-footer">
-      <a href="{{ url_for('research') }}" class="link">Перейти в Research →</a>
+      <div class="glass-stat-row glass-stat-row--purple">
+        <span class="glass-stat-icon glass-icon-red">✓</span>
+        <span class="glass-stat-label">Новых контактов</span>
+        <span class="glass-stat-value">{{ new_contacts }}</span>
+        <span class="glass-chevron">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M4 6l4 4 4-4" stroke="rgba(255,255,255,0.75)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+      </div>
+    </div>
+
+    <!-- List items with toggle indicators -->
+    <div class="glass-list">
+      <!-- item 1: pink toggle — рассылки (активная метрика) -->
+      <div class="glass-list-item">
+        <span class="glass-list-icon">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="glass-list-label">Рассылок отправлено</span>
+        <span class="glass-list-val">{{ total_sends }}</span>
+        <span class="glass-toggle glass-toggle--pink"></span>
+      </div>
+      <!-- item 2: blue filled — получили письмо -->
+      <div class="glass-list-item">
+        <span class="glass-list-icon">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="glass-list-label">Получили письмо</span>
+        <span class="glass-list-val">{{ total_contacts - new_contacts }}</span>
+        <span class="glass-toggle glass-toggle--blue"></span>
+      </div>
+      <!-- item 3: cyan outline — последний поиск -->
+      <div class="glass-list-item">
+        <span class="glass-list-icon glass-list-icon--plus">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="glass-list-label">Найдено последним поиском</span>
+        <span class="glass-list-val">{% if last_run %}{{ last_run['found_count'] }}{% else %}—{% endif %}</span>
+        <span class="glass-toggle glass-toggle--cyan"></span>
+      </div>
+      <!-- item 4: gray — ожидают рассылки -->
+      <div class="glass-list-item">
+        <span class="glass-list-icon glass-list-icon--plus">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="glass-list-label">Ожидают рассылки</span>
+        <span class="glass-list-val">{{ new_contacts }}</span>
+        <span class="glass-toggle glass-toggle--gray"></span>
+      </div>
+    </div>
+
+    <!-- Action buttons: blue (Save) + red (Reset) style from design -->
+    <div class="glass-actions">
+      <a href="{{ url_for('research') }}" class="glass-btn glass-btn--blue">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+          <circle cx="6.5" cy="6.5" r="4" stroke="white" stroke-width="1.5"/>
+          <path d="M9.5 9.5l3 3" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        Начать поиск
+      </a>
+      <a href="{{ url_for('campaigns') }}" class="glass-btn glass-btn--red">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+          <rect x="1.5" y="3.5" width="12" height="8" rx="1" stroke="white" stroke-width="1.5"/>
+          <path d="M1.5 4.5l6 4 6-4" stroke="white" stroke-width="1.3" stroke-linejoin="round"/>
+        </svg>
+        Новая рассылка
+      </a>
     </div>
   </div>
+
+  <!-- Recent campaigns card -->
+  <div class="glass-card">
+    <div class="glass-card-header">
+      <span class="glass-card-title">Последние рассылки</span>
+      <a href="{{ url_for('campaigns') }}" class="glass-pill-btn">Все →</a>
+    </div>
+    {% if recent_sends %}
+    <table class="glass-table">
+      <thead>
+        <tr>
+          <th>Дата</th>
+          <th>Шаблон</th>
+          <th>Отправлено</th>
+          <th>Статус</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in recent_sends %}
+        <tr>
+          <td>{{ s['sent_at'][:10] if s['sent_at'] else '—' }}</td>
+          <td>
+            {% if s['template'] == 'mitino' %}
+              <span class="glass-badge glass-badge--blue">Митино</span>
+            {% else %}
+              <span class="glass-badge glass-badge--green">Грекова</span>
+            {% endif %}
+          </td>
+          <td>{{ s['total_sent'] }}</td>
+          <td>
+            {% if s['status'] == 'done' %}
+              <span class="glass-badge glass-badge--green">Готово</span>
+            {% elif s['status'] == 'partial' %}
+              <span class="glass-badge glass-badge--yellow">Частично</span>
+            {% else %}
+              <span class="glass-badge glass-badge--red">Ошибка</span>
+            {% endif %}
+          </td>
+          <td><a href="{{ url_for('campaign_detail', send_id=s['id']) }}" class="glass-link">детали</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="glass-empty">Рассылок ещё не было</div>
+    {% endif %}
+  </div>
+
 </div>
+
+<!-- ── Last research card (full width) ── -->
+<div class="glass-card">
+  <div class="glass-card-header">
+    <span class="glass-card-title">Последний поиск</span>
+    <a href="{{ url_for('research') }}" class="glass-pill-btn">Перейти →</a>
+  </div>
+  {% if last_run %}
+  <div>
+    <div class="glass-info-row">
+      <span class="glass-info-key">Запущен</span>
+      <span class="glass-info-val">{{ last_run['started_at'][:16] if last_run['started_at'] else '—' }}</span>
+    </div>
+    <div class="glass-info-row">
+      <span class="glass-info-key">Статус</span>
+      <span class="glass-info-val">
+        {% if last_run['status'] == 'done' %}
+          <span class="glass-badge glass-badge--green">Завершён</span>
+        {% elif last_run['status'] == 'running' %}
+          <span class="glass-badge glass-badge--yellow">Выполняется</span>
+        {% else %}
+          <span class="glass-badge glass-badge--red">Ошибка</span>
+        {% endif %}
+      </span>
+    </div>
+    <div class="glass-info-row">
+      <span class="glass-info-key">Найдено контактов</span>
+      <span class="glass-info-val"><strong>{{ last_run['found_count'] }}</strong></span>
+    </div>
+    {% if last_run['config_json'] %}
+      {% set cfg = last_run['config_json'] | from_json %}
+      {% if cfg %}
+      <div class="glass-info-row">
+        <span class="glass-info-key">Параметры</span>
+        <span class="glass-info-val">{{ cfg.get('segment','?') }}, {{ cfg.get('region','?') }}, цель {{ cfg.get('count','?') }}</span>
+      </div>
+      {% endif %}
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="glass-empty">Поиск ещё не запускался</div>
+  {% endif %}
+</div>
+
 {% endblock %}
