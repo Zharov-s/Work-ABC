@@ -5,8 +5,9 @@ import threading
 from datetime import datetime
 from database import get_db
 
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
-TAVILY_API_KEY = os.getenv('TAVILY_API_KEY', '')
+TAVILY_API_KEY  = os.getenv('TAVILY_API_KEY', '')
+OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')
+OLLAMA_MODEL    = os.getenv('OLLAMA_MODEL', 'qwen3:4b')
 
 # Хранилище запусков в памяти (run_id -> dict)
 _runs: dict = {}
@@ -14,11 +15,11 @@ _lock = threading.Lock()
 
 
 SEGMENT_LABELS = {
-    'electronics':    'Электроника и приборостроение',
-    'medtech':        'Медтех и фармацевтика',
-    'robotics':       'Робототехника и автоматизация',
-    'it_hardware':    'IT-производство и hardware',
-    'laser_optics':   'Лазерные и оптические технологии',
+    'electronics':     'Электроника и приборостроение',
+    'medtech':         'Медтех и фармацевтика',
+    'robotics':        'Робототехника и автоматизация',
+    'it_hardware':     'IT-производство и hardware',
+    'laser_optics':    'Лазерные и оптические технологии',
     'light_industrial':'Прочее light industrial',
 }
 
@@ -30,7 +31,7 @@ SEGMENT_QUERIES = {
     ],
     'medtech': [
         'медицинское оборудование производство Москва компания',
-        'медтех стартап производитель Москва контакты',
+        'медтех производитель Москва контакты',
         'медицинские приборы диагностика производство Москва',
     ],
     'robotics': [
@@ -51,24 +52,23 @@ SEGMENT_QUERIES = {
     'light_industrial': [
         'легкое производство light industrial Москва компания',
         'промышленный технопарк резиденты производство Москва',
-        'производственная компания Москва класс А технопарк',
+        'производственная компания Москва технопарк',
     ],
 }
 
 REGION_SUFFIX = {
-    'moscow':    'Москва',
-    'mo':        'Московская область',
-    'russia':    'Россия',
+    'moscow':  'Москва',
+    'mo':      'Московская область',
+    'russia':  'Россия',
 }
 
 
 def _log(run_id: int, msg: str):
-    ts = datetime.now().strftime('%H:%M:%S')
+    ts    = datetime.now().strftime('%H:%M:%S')
     entry = f'[{ts}] {msg}'
     with _lock:
         if run_id in _runs:
             _runs[run_id]['log'].append(entry)
-    # Persist to DB
     try:
         conn = get_db()
         conn.execute(
@@ -86,95 +86,104 @@ def get_run_status(run_id: int):
         return _runs.get(run_id)
 
 
+def _ollama_chat(client, messages: list, expect_json: bool = True) -> str:
+    """Вызов Ollama через OpenAI-совместимый API."""
+    kwargs = dict(
+        model=OLLAMA_MODEL,
+        messages=messages,
+        temperature=0.1,
+        max_tokens=1000,
+    )
+    if expect_json:
+        kwargs['response_format'] = {'type': 'json_object'}
+
+    resp = client.chat.completions.create(**kwargs)
+    return resp.choices[0].message.content or ''
+
+
 def _extract_companies(client, results_text: str, segment_label: str) -> list:
+    prompt = (
+        'Ты помогаешь находить компании для аренды в промышленном технопарке класса A+ в Москве. '
+        'Объект подходит для: производства, R&D, лабораторий, шоурума, light industrial. '
+        'НЕ подходит: склады, ритейл, офисы без производства. '
+        'Из результатов поиска извлеки список реальных российских компаний. '
+        'Верни ТОЛЬКО валидный JSON без лишнего текста: '
+        '{"companies": [{"name": "...", "website": "...", "description": "..."}]}'
+    )
     try:
-        resp = client.chat.completions.create(
-            model='gpt-4o-mini',
-            messages=[
-                {
-                    'role': 'system',
-                    'content': (
-                        'Ты помогаешь находить компании для аренды в промышленном технопарке класса A+ в Москве (Митино). '
-                        'Объект подходит для: производства, R&D, лабораторий, шоурума, light industrial. '
-                        'НЕ подходит: склады, ритейл, офисы без производства, тяжёлая промышленность. '
-                        'Из результатов поиска извлеки список реальных российских компаний. '
-                        'Верни JSON: {"companies": [{"name": "...", "website": "...", "description": "..."}]}'
-                    )
-                },
-                {
-                    'role': 'user',
-                    'content': f'Сегмент: {segment_label}\n\nРезультаты поиска:\n{results_text}'
-                }
-            ],
-            response_format={'type': 'json_object'},
-            max_tokens=1500,
-        )
-        data = json.loads(resp.choices[0].message.content)
+        raw = _ollama_chat(client, [
+            {'role': 'system', 'content': prompt},
+            {'role': 'user',   'content': f'Сегмент: {segment_label}\n\nРезультаты поиска:\n{results_text}'},
+        ])
+        # Qwen3 иногда добавляет <think>...</think> блок — убираем
+        if '<think>' in raw:
+            raw = raw[raw.rfind('</think>') + 8:].strip()
+        data = json.loads(raw)
         return data.get('companies', [])
-    except Exception as e:
+    except Exception:
         return []
 
 
 def _extract_lpr(client, company: dict, results_text: str) -> dict | None:
+    prompt = (
+        'Ты ищешь контакты ЛПР (лица, принимающего решения) в компании. '
+        'Приоритет ролей: Административный директор, Исполнительный директор, '
+        'Заместитель генерального директора, HR-директор, Технический директор, '
+        'Финансовый директор, Генеральный директор. '
+        'ВАЖНО: извлекай ТОЛЬКО реальные данные из текста. Не придумывай. '
+        'Верни ТОЛЬКО валидный JSON без лишнего текста: '
+        '{"person_name": "ФИО или null", "title": "Должность или null", '
+        '"email": "email или null", "phone": "телефон или null", "source_url": "URL или null"}'
+    )
     try:
-        resp = client.chat.completions.create(
-            model='gpt-4o-mini',
-            messages=[
-                {
-                    'role': 'system',
-                    'content': (
-                        'Ты ищешь контакты ЛПР (лица, принимающего решения) в компании. '
-                        'Приоритет ролей: 1. Административный директор, 2. Исполнительный директор, '
-                        '3. Заместитель генерального директора, 4. HR-директор, 5. Технический директор, '
-                        '6. Финансовый директор, 7. Генеральный директор / владелец. '
-                        'ВАЖНО: извлекай ТОЛЬКО реальные данные из текста. Не придумывай. '
-                        'Верни JSON: {"person_name": "ФИО или null", "title": "Должность или null", '
-                        '"email": "email или null", "phone": "телефон или null", "source_url": "URL"}'
-                    )
-                },
-                {
-                    'role': 'user',
-                    'content': (
-                        f'Компания: {company.get("name")}\n'
-                        f'Сайт: {company.get("website")}\n\n'
-                        f'Найденная информация:\n{results_text}'
-                    )
-                }
-            ],
-            response_format={'type': 'json_object'},
-            max_tokens=400,
-        )
-        data = json.loads(resp.choices[0].message.content)
+        raw = _ollama_chat(client, [
+            {'role': 'system', 'content': prompt},
+            {'role': 'user',   'content': (
+                f'Компания: {company.get("name")}\n'
+                f'Сайт: {company.get("website")}\n\n'
+                f'Найденная информация:\n{results_text}'
+            )},
+        ])
+        if '<think>' in raw:
+            raw = raw[raw.rfind('</think>') + 8:].strip()
+        data = json.loads(raw)
         if data.get('email'):
             data['company_name'] = company.get('name', '')
-            data['website'] = company.get('website', '')
+            data['website']      = company.get('website', '')
             return data
         return None
     except Exception:
         return None
 
 
-def _results_to_text(results: dict, max_chars_per_result: int = 600) -> str:
+def _results_to_text(results: dict, max_chars: int = 600) -> str:
     parts = []
     for r in results.get('results', []):
-        content = r.get('content', '') or r.get('raw_content', '') or ''
+        content = (r.get('content') or r.get('raw_content') or '')[:max_chars]
         parts.append(
             f"URL: {r.get('url', '')}\n"
             f"Заголовок: {r.get('title', '')}\n"
-            f"Контент: {content[:max_chars_per_result]}"
+            f"Контент: {content}"
         )
     return '\n\n---\n\n'.join(parts)
+
+
+def _check_ollama(client) -> bool:
+    """Проверяет что Ollama доступна и модель загружена."""
+    try:
+        models = client.models.list()
+        available = [m.id for m in models.data]
+        return any(OLLAMA_MODEL in m for m in available)
+    except Exception:
+        return False
 
 
 def _research_worker(run_id: int, config: dict):
     from openai import OpenAI
     from tavily import TavilyClient
 
-    openai_key = os.getenv('OPENAI_API_KEY', OPENAI_API_KEY)
-    tavily_key = os.getenv('TAVILY_API_KEY', TAVILY_API_KEY)
-
-    client  = OpenAI(api_key=openai_key)
-    tavily  = TavilyClient(api_key=tavily_key)
+    client = OpenAI(base_url=OLLAMA_BASE_URL, api_key='ollama')
+    tavily = TavilyClient(api_key=TAVILY_API_KEY)
 
     segment      = config.get('segment', 'electronics')
     region_key   = config.get('region', 'moscow')
@@ -185,18 +194,35 @@ def _research_worker(run_id: int, config: dict):
     region_label  = REGION_SUFFIX.get(region_key, 'Москва')
 
     _log(run_id, f'🚀 Старт поиска: {segment_label}, {region_label}, цель={target_count}')
+    _log(run_id, f'🤖 Модель: {OLLAMA_MODEL} (Ollama)')
+
+    # Проверить Ollama
+    if not _check_ollama(client):
+        _log(run_id, f'❌ Ollama недоступна или модель {OLLAMA_MODEL} не загружена.')
+        _log(run_id, 'Убедитесь что Ollama запущена: ollama serve')
+        _log(run_id, f'И модель скачана: ollama pull {OLLAMA_MODEL}')
+        with _lock:
+            if run_id in _runs:
+                _runs[run_id]['status'] = 'failed'
+        conn = get_db()
+        conn.execute(
+            "UPDATE research_runs SET status='failed', completed_at=datetime('now') WHERE id=?",
+            (run_id,)
+        )
+        conn.commit()
+        conn.close()
+        return
+
     if keywords:
         _log(run_id, f'🔑 Доп. слова: {keywords}')
 
     queries = SEGMENT_QUERIES.get(segment, SEGMENT_QUERIES['electronics'])
-    # Добавить регион и ключевые слова к запросам
     queries = [f'{q} {region_label} {keywords}'.strip() for q in queries]
 
     found_contacts = []
     searched_names: set = set()
 
     conn_main = get_db()
-    # Загрузить уже существующие email из БД для дедупликации
     existing_emails = {
         r['email'] for r in conn_main.execute('SELECT email FROM contacts').fetchall()
     }
@@ -210,12 +236,12 @@ def _research_worker(run_id: int, config: dict):
         try:
             search_res = tavily.search(query, max_results=8)
         except Exception as e:
-            _log(run_id, f'❌ Ошибка поиска: {e}')
+            _log(run_id, f'❌ Ошибка поиска Tavily: {e}')
             continue
 
         results_text = _results_to_text(search_res)
         companies    = _extract_companies(client, results_text, segment_label)
-        _log(run_id, f'   Найдено компаний в выдаче: {len(companies)}')
+        _log(run_id, f'   Компаний в выдаче: {len(companies)}')
 
         for company in companies:
             if len(found_contacts) >= target_count:
@@ -226,7 +252,7 @@ def _research_worker(run_id: int, config: dict):
                 continue
             searched_names.add(name)
 
-            _log(run_id, f'🏢 Проверяем: {name}')
+            _log(run_id, f'🏢 Ищем контакты: {name}')
 
             contact_query = f'{name} контакты директор email телефон'
             try:
@@ -243,16 +269,16 @@ def _research_worker(run_id: int, config: dict):
                 lpr['segment'] = segment_label
                 lpr['region']  = region_label
                 found_contacts.append(lpr)
-                _log(run_id, f'   ✅ {lpr.get("person_name","??")} — {lpr["email"]}')
+                _log(run_id, f'   ✅ {lpr.get("person_name", "???")} — {lpr["email"]}')
             elif lpr and lpr.get('email') in existing_emails:
-                _log(run_id, f'   ⏭  {lpr["email"]} уже в базе, пропускаем')
+                _log(run_id, f'   ⏭  {lpr["email"]} уже в базе')
             else:
                 _log(run_id, f'   ⚠️  email не найден')
 
-            time.sleep(0.3)
+            time.sleep(0.2)
 
     # Сохранить в БД
-    conn = get_db()
+    conn  = get_db()
     saved = 0
     today = datetime.now().strftime('%Y-%m-%d')
     for c in found_contacts:
@@ -278,16 +304,15 @@ def _research_worker(run_id: int, config: dict):
     conn.close()
 
     _log(run_id, f'✅ Готово! Сохранено {saved} новых контактов из {target_count} запрошенных')
-
     with _lock:
         if run_id in _runs:
-            _runs[run_id]['status'] = 'done'
+            _runs[run_id]['status']      = 'done'
             _runs[run_id]['found_count'] = saved
 
 
 def start_research(config: dict) -> int:
     conn = get_db()
-    cur = conn.execute(
+    cur  = conn.execute(
         "INSERT INTO research_runs(config_json, status) VALUES(?,?)",
         (json.dumps(config, ensure_ascii=False), 'running')
     )
