@@ -172,11 +172,26 @@ def normalize_company_name(name: str) -> str:
     return s
 
 
+_VALID_EMAIL_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._%+\-]*@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
+
+def is_valid_email_format(email: str) -> bool:
+    """Валидный email: ASCII-локальная часть, домен с точкой и TLD ≥2 символов."""
+    return bool(email and _VALID_EMAIL_RE.match(email))
+
+
 def is_generic_email(email: str) -> bool:
     if not email or '@' not in email:
         return True
     local = email.split('@')[0].lower()
-    return local in BLOCKED_EMAIL_PREFIXES
+    # Точное совпадение
+    if local in BLOCKED_EMAIL_PREFIXES:
+        return True
+    # Префикс из списка + разделитель (info-site@, info123@, info_corp@, info.ru@)
+    return any(
+        local == p or local.startswith(p + '-') or local.startswith(p + '_')
+        or local.startswith(p + '.') or (local.startswith(p) and local[len(p):len(p)+1].isdigit())
+        for p in BLOCKED_EMAIL_PREFIXES
+    )
 
 
 def extract_director_name(text: str) -> str | None:
@@ -194,7 +209,7 @@ def extract_director_name(text: str) -> str | None:
 def extract_emails_from_text(text: str) -> list[str]:
     """Извлекает все email-адреса из текста, фильтруя общие."""
     found = _EMAIL_RE.findall(text)
-    return [e.lower() for e in found if not is_generic_email(e)]
+    return [e.lower() for e in found if is_valid_email_format(e) and not is_generic_email(e)]
 
 
 def get_run_status(run_id: int):
@@ -662,8 +677,8 @@ def _research_worker(run_id: int, config: dict):
                 _log(run_id, f'   ⛔  нет ФИО ЛПР — компания не засчитывается, ищем дальше')
                 continue
 
-            # Email: личный, не общий
-            if not email or is_generic_email(email):
+            # Email: валидный формат + личный, не общий
+            if not email or not is_valid_email_format(email) or is_generic_email(email):
                 _log(run_id, f'   ⛔  нет личного email — компания не засчитывается, ищем дальше')
                 continue
 

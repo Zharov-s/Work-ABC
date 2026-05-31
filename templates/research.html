@@ -322,10 +322,18 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
   document.getElementById('run-progress-strip').style.display = 'none';
   document.getElementById('log-console').innerHTML            = '';
 
+  // Собираем параметры до отправки (нужны для вставки строки истории)
+  const runConfig = {
+    segments: [...this.querySelectorAll('input[name="segments"]:checked')].map(el => el.value).join(', '),
+    region:   this.querySelector('input[name="region"]:checked')?.value || 'moscow',
+    count:    this.querySelector('input[name="count"]:checked')?.value  || '?',
+  };
+
   fetch('/research/start', { method: 'POST', body: new FormData(this) })
     .then(r => r.json())
     .then(d => {
       if (d.ok) {
+        insertRunHistoryRow(d.run_id, runConfig);
         showRunPanel(d.run_id);
         pollInterval = setInterval(pollStatus, 2000);
       } else {
@@ -527,6 +535,59 @@ function updateRunHistoryRow(runId, found, target, status) {
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Вставка строки нового запуска в таблицу истории ────────────────────────
+function insertRunHistoryRow(runId, cfg) {
+  // Если строка уже есть (перезапуск) — не дублируем
+  if (document.querySelector(`.run-row[data-run-id="${runId}"]`)) return;
+
+  const now     = new Date();
+  const timeStr = now.getFullYear() + '-'
+    + String(now.getMonth()+1).padStart(2,'0') + '-'
+    + String(now.getDate()).padStart(2,'0') + ' '
+    + String(now.getHours()).padStart(2,'0') + ':'
+    + String(now.getMinutes()).padStart(2,'0');
+
+  const mainTr = document.createElement('tr');
+  mainTr.className = 'run-row';
+  mainTr.dataset.runId = String(runId);
+  mainTr.dataset.found = '0';
+  mainTr.setAttribute('onclick', 'toggleRunDetails(this)');
+  mainTr.innerHTML = `
+    <td><span class="run-chevron">▶</span></td>
+    <td>${runId}</td>
+    <td>${timeStr}</td>
+    <td>
+      <span class="cell-main">${escapeHtml(cfg.segments)}</span>
+      <span class="cell-sub">${escapeHtml(cfg.region)}, цель=${escapeHtml(cfg.count)}</span>
+    </td>
+    <td id="found-${runId}"><strong>0</strong></td>
+    <td id="status-${runId}"><span class="badge badge-yellow">Выполняется</span></td>
+    <td onclick="event.stopPropagation()" class="run-actions" id="actions-${runId}">
+      <button class="btn-icon btn-icon-pause" title="Пауза" onclick="rowPause(${runId},this)">⏸</button>
+      <button class="btn-icon-danger" title="Удалить" onclick="deleteRun(${runId},this)">✕</button>
+    </td>`;
+
+  const detailTr = document.createElement('tr');
+  detailTr.className = 'run-detail-row';
+  detailTr.id = `detail-${runId}`;
+  detailTr.style.display = 'none';
+  detailTr.innerHTML = `<td colspan="7" style="padding:0">
+    <div class="run-detail-content" id="detail-content-${runId}">
+      <div class="run-detail-loading">Ищем... появится сразу после первой находки</div>
+    </div></td>`;
+
+  // Вставляем вверх таблицы (самый свежий)
+  const tbody = document.querySelector('#runs-table tbody');
+  if (tbody) {
+    tbody.insertBefore(detailTr, tbody.firstChild);
+    tbody.insertBefore(mainTr,   tbody.firstChild);
+    // Скрываем заглушку "запусков не было"
+    const empty = document.getElementById('runs-empty');
+    if (empty) empty.style.display = 'none';
+    document.getElementById('runs-table').style.display = '';
+  }
 }
 
 // ── Раскрытие строки истории ───────────────────────────────────────────────
