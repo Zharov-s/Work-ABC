@@ -13,8 +13,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from database import init_db, get_db, get_setting, set_setting, get_all_settings
 from auth import check_credentials, set_password, set_login
 from mailer import send_campaign, test_smtp, parse_addresses, TEMPLATE_META
-from researcher import (start_research, get_run_status,
-                        SEGMENT_LABELS, REGION_SUFFIX, INDUSTRIES_LIST)
+from researcher import start_research, get_run_status, SEGMENT_LABELS, REGION_SUFFIX
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'abcentrum-dev-key')
@@ -245,26 +244,24 @@ def research():
         runs=runs,
         segments=SEGMENT_LABELS,
         regions=REGION_SUFFIX,
-        industries_list=INDUSTRIES_LIST,
     )
 
 
 @app.route('/research/start', methods=['POST'])
 @login_required
 def research_start():
+    segments = request.form.getlist('segments')
+    if not segments:
+        return jsonify({'ok': False, 'error': 'Выберите хотя бы один сегмент'})
     config = {
-        'segments':      request.form.getlist('segments') or ['electronics'],
+        'segments':      segments,
         'region':        request.form.get('region', 'moscow'),
         'count':         int(request.form.get('count', 10)),
         'keywords':      request.form.get('keywords', ''),
         'company_scale': request.form.get('company_scale', 'any'),
         'require_email': bool(request.form.get('require_email')),
         'require_phone': bool(request.form.get('require_phone')),
-        'active_only':   bool(request.form.get('active_only')),
-        'okved_include': request.form.get('okved_include', ''),
-        'okved_exclude': request.form.get('okved_exclude', ''),
-        'industries':    request.form.getlist('industries'),
-        'okved_type':    request.form.get('okved_type', 'main'),
+        'active_only':   True,
     }
     run_id = start_research(config)
     return jsonify({'ok': True, 'run_id': run_id})

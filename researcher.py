@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import threading
@@ -9,10 +10,11 @@ TAVILY_API_KEY  = os.getenv('TAVILY_API_KEY', '')
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')
 OLLAMA_MODEL    = os.getenv('OLLAMA_MODEL', 'qwen3:4b')
 
-# Хранилище запусков в памяти (run_id -> dict)
 _runs: dict = {}
 _lock = threading.Lock()
 
+
+# ── Константы ──────────────────────────────────────────────────────────────
 
 SEGMENT_LABELS = {
     'electronics':     'Электроника и приборостроение',
@@ -25,34 +27,34 @@ SEGMENT_LABELS = {
 
 SEGMENT_QUERIES = {
     'electronics': [
-        'производство электроники Москва компания контакты директор',
-        'приборостроение Москва производитель сайт',
-        'электронная промышленность компания Москва разработка',
+        'производство электроники приборостроение Москва компания контакты руководитель',
+        'электронные компоненты приборы производитель Москва офис',
+        'разработка производство электроника Москва технопарк',
     ],
     'medtech': [
-        'медицинское оборудование производство Москва компания',
-        'медтех производитель Москва контакты',
-        'медицинские приборы диагностика производство Москва',
+        'медицинское оборудование производство Москва компания контакты',
+        'медтех диагностика лабораторное оборудование производитель Москва',
+        'фармацевтика биотехнологии производство Москва компания',
     ],
     'robotics': [
-        'робототехника автоматизация производство Москва компания',
+        'робототехника автоматизация производство Москва компания контакты',
         'промышленные роботы беспилотники производитель Москва',
-        'мехатроника автоматизация Москва сайт контакты',
+        'системы автоматизации мехатроника разработка Москва',
     ],
     'it_hardware': [
-        'производство серверов hardware Москва компания',
-        'телекоммуникационное оборудование производитель Москва',
-        'отечественное ИТ оборудование производство Москва',
+        'производство серверов телекоммуникационное оборудование Москва компания',
+        'отечественное ИТ hardware производство Москва офис',
+        'вычислительная техника сетевое оборудование производитель Москва',
     ],
     'laser_optics': [
-        'лазерные системы производство Москва компания',
-        'оптические приборы производитель Москва',
-        'лазерные технологии разработка производство Москва',
+        'лазерные системы оптические приборы производство Москва компания',
+        'фотоника оптика лазер разработка производитель Москва',
+        'лазерные технологии производство научное оборудование Москва',
     ],
     'light_industrial': [
-        'легкое производство light industrial Москва компания',
-        'промышленный технопарк резиденты производство Москва',
-        'производственная компания Москва технопарк',
+        'производство light industrial технопарк Москва компания контакты',
+        'лёгкое производство R&D шоурум аренда Москва',
+        'производственная компания Москва класс А технопарк офис',
     ],
 }
 
@@ -78,62 +80,51 @@ INDUSTRIES_LIST = [
     {'code': 'services',      'label': 'Услуги'},
 ]
 
-OKVED_SEARCH_TERMS = {
-    'A':    'сельское хозяйство агропромышленный',
-    'B':    'горнодобывающая добыча ископаемых',
-    'C':    'обрабатывающее производство промышленность',
-    'C10':  'пищевое производство продукты питания',
-    'C13':  'текстильное производство',
-    'C20':  'химическое производство реагенты',
-    'C21':  'фармацевтика лекарства производство',
-    'C22':  'пластмассы полимеры резина производство',
-    'C25':  'металлоизделия металлообработка',
-    'C26':  'электроника производство оптика компьютеры',
-    'C27':  'электрооборудование производство',
-    'C28':  'машиностроение оборудование',
-    'C29':  'автомобилестроение автокомпоненты',
-    'C32':  'производство готовых изделий',
-    'C32.5':'медицинские инструменты оборудование производство',
-    'C33':  'ремонт сервис техническое обслуживание',
-    'D':    'энергетика электроснабжение',
-    'E':    'водоснабжение утилизация',
-    'F':    'строительство застройщик',
-    'G':    'торговля дистрибуция',
-    'H':    'транспорт логистика',
-    'I':    'общественное питание гостиницы',
-    'J':    'IT информационные технологии software',
-    'J62':  'разработка программного обеспечения',
-    'J63':  'IT услуги технологии',
-    'K':    'финансы банки страхование',
-    'L':    'недвижимость аренда',
-    'M':    'научно-техническая деятельность R&D',
-    'M71':  'проектирование инжиниринг',
-    'M72':  'научные исследования разработки R&D лаборатория',
-    'M73':  'маркетинговые исследования',
-    'M74':  'консалтинг техническая деятельность',
-    'N':    'административные услуги',
-    'O':    'государственное управление',
-    'P':    'образование обучение',
-    'Q':    'здравоохранение медицина клиника',
-    'R':    'культура спорт',
-    'S':    'прочие услуги',
+SCALE_SUFFIX = {
+    'any':    '',
+    'small':  'малый бизнес',
+    'medium': 'средний бизнес',
+    'large':  'крупный бизнес',
 }
 
-INDUSTRY_SEARCH_TERMS = {
-    'manufacturing': 'производство промышленность завод',
-    'it':            'IT информационные технологии',
-    'healthcare':    'здравоохранение медицина',
-    'construction':  'строительство',
-    'transport':     'транспорт логистика',
-    'media':         'медиа СМИ',
-    'finance':       'финансы банки',
-    'education':     'образование',
-    'culture':       'культура спорт',
-    'gov':           'государственное управление',
-    'unions':        'объединения ассоциации',
-    'trade':         'торговля',
-    'services':      'сервисные услуги',
+# Email-адреса общего назначения — не ЛПР, не сохранять
+BLOCKED_EMAIL_PREFIXES = {
+    'info', 'sales', 'office', 'support', 'mail', 'contact', 'zakaz',
+    'hello', 'admin', 'reception', 'corp', 'marketing', 'pr', 'press',
+    'media', 'hr', 'career', 'communications', 'comms', 'post', 'inbox',
+    'noreply', 'no-reply', 'feedback', 'help', 'service', 'request',
 }
+
+# Юридические префиксы для нормализации имён компаний
+_LEGAL_PREFIX = re.compile(
+    r'\b(ООО|АО|ПАО|ЗАО|НКО|ГУП|МУП|ИП|ФГУП|НПП|НПО|ОАО|СРО)\s*["""«»]?',
+    re.IGNORECASE,
+)
+
+
+# ── Вспомогательные функции ────────────────────────────────────────────────
+
+def normalize_company_name(name: str) -> str:
+    """Приводит название компании к нижнему регистру без юр. форм и кавычек."""
+    if not name:
+        return ''
+    s = _LEGAL_PREFIX.sub('', name)
+    s = re.sub(r'["«»“”„‘’\'`]', '', s)
+    s = re.sub(r'\s+', ' ', s).strip().lower()
+    return s
+
+
+def is_generic_email(email: str) -> bool:
+    """True если адрес является общим ящиком, а не личным ЛПР."""
+    if not email or '@' not in email:
+        return True
+    local = email.split('@')[0].lower()
+    return local in BLOCKED_EMAIL_PREFIXES
+
+
+def get_run_status(run_id: int):
+    with _lock:
+        return _runs.get(run_id)
 
 
 def _log(run_id: int, msg: str):
@@ -145,7 +136,7 @@ def _log(run_id: int, msg: str):
     try:
         conn = get_db()
         conn.execute(
-            "UPDATE research_runs SET log_text = log_text || ? WHERE id=?",
+            'UPDATE research_runs SET log_text = log_text || ? WHERE id=?',
             (entry + '\n', run_id)
         )
         conn.commit()
@@ -154,13 +145,9 @@ def _log(run_id: int, msg: str):
         pass
 
 
-def get_run_status(run_id: int):
-    with _lock:
-        return _runs.get(run_id)
-
+# ── Ollama helpers ─────────────────────────────────────────────────────────
 
 def _ollama_chat(client, messages: list, expect_json: bool = True) -> str:
-    """Вызов Ollama через OpenAI-совместимый API."""
     kwargs = dict(
         model=OLLAMA_MODEL,
         messages=messages,
@@ -169,34 +156,44 @@ def _ollama_chat(client, messages: list, expect_json: bool = True) -> str:
     )
     if expect_json:
         kwargs['response_format'] = {'type': 'json_object'}
-
     resp = client.chat.completions.create(**kwargs)
     return resp.choices[0].message.content or ''
 
 
+def _strip_think(raw: str) -> str:
+    """Убирает <think>...</think> блок из ответа Qwen3."""
+    if '<think>' in raw and '</think>' in raw:
+        raw = raw[raw.rfind('</think>') + 8:].strip()
+    return raw
+
+
+def _check_ollama(client) -> bool:
+    try:
+        models = client.models.list()
+        available = [m.id for m in models.data]
+        return any(OLLAMA_MODEL in m for m in available)
+    except Exception:
+        return False
+
+
 def _extract_companies(client, results_text: str, segment_label: str,
                        exclude_hint: str = '') -> list:
-    exclude_clause = (
-        f'Исключай компании из сфер: {exclude_hint}. ' if exclude_hint else ''
-    )
+    exclude_clause = f'Исключай компании из сфер: {exclude_hint}. ' if exclude_hint else ''
     prompt = (
-        'Ты помогаешь находить компании для аренды в промышленном технопарке класса A+ в Москве. '
+        'Ты помогаешь находить компании для аренды в промышленном технопарке класса A+ в Москве (Митино). '
         'Объект подходит для: производства, R&D, лабораторий, шоурума, light industrial. '
-        'НЕ подходит: склады, ритейл, офисы без производства. '
+        'НЕ подходит: склады, ритейл, чистые офисы без производства, тяжёлая промышленность. '
         f'{exclude_clause}'
         'Из результатов поиска извлеки список реальных российских компаний. '
-        'Верни ТОЛЬКО валидный JSON без лишнего текста: '
-        '{"companies": [{"name": "...", "website": "...", "description": "..."}]}'
+        'Верни ТОЛЬКО валидный JSON: '
+        '{"companies": [{"name": "полное название компании", "website": "сайт или null", "description": "краткое описание"}]}'
     )
     try:
-        raw = _ollama_chat(client, [
+        raw  = _ollama_chat(client, [
             {'role': 'system', 'content': prompt},
             {'role': 'user',   'content': f'Сегмент: {segment_label}\n\nРезультаты поиска:\n{results_text}'},
         ])
-        # Qwen3 иногда добавляет <think>...</think> блок — убираем
-        if '<think>' in raw:
-            raw = raw[raw.rfind('</think>') + 8:].strip()
-        data = json.loads(raw)
+        data = json.loads(_strip_think(raw))
         return data.get('companies', [])
     except Exception:
         return []
@@ -205,16 +202,19 @@ def _extract_companies(client, results_text: str, segment_label: str,
 def _extract_lpr(client, company: dict, results_text: str) -> dict | None:
     prompt = (
         'Ты ищешь контакты ЛПР (лица, принимающего решения) в компании. '
-        'Приоритет ролей: Административный директор, Исполнительный директор, '
-        'Заместитель генерального директора, HR-директор, Технический директор, '
-        'Финансовый директор, Генеральный директор. '
+        'Приоритет ролей: Административный директор > Исполнительный директор > '
+        'Заместитель генерального директора > HR-директор > Технический директор > '
+        'Финансовый директор > Генеральный директор. '
         'ВАЖНО: извлекай ТОЛЬКО реальные данные из текста. Не придумывай. '
-        'Верни ТОЛЬКО валидный JSON без лишнего текста: '
+        'Email должен быть ЛИЧНЫМ (имя.фамилия@..., i.ivanov@...) — '
+        'НЕ общим (info@, sales@, office@, support@ и т.п.). '
+        'Верни ТОЛЬКО валидный JSON: '
         '{"person_name": "ФИО или null", "title": "Должность или null", '
-        '"email": "email или null", "phone": "телефон или null", "source_url": "URL или null"}'
+        '"email": "личный email или null", "phone": "телефон или null", '
+        '"source_url": "URL источника или null"}'
     )
     try:
-        raw = _ollama_chat(client, [
+        raw  = _ollama_chat(client, [
             {'role': 'system', 'content': prompt},
             {'role': 'user',   'content': (
                 f'Компания: {company.get("name")}\n'
@@ -222,10 +222,8 @@ def _extract_lpr(client, company: dict, results_text: str) -> dict | None:
                 f'Найденная информация:\n{results_text}'
             )},
         ])
-        if '<think>' in raw:
-            raw = raw[raw.rfind('</think>') + 8:].strip()
-        data = json.loads(raw)
-        if data.get('email'):
+        data = json.loads(_strip_think(raw))
+        if data.get('email') and not is_generic_email(data['email']):
             data['company_name'] = company.get('name', '')
             data['website']      = company.get('website', '')
             return data
@@ -246,23 +244,7 @@ def _results_to_text(results: dict, max_chars: int = 600) -> str:
     return '\n\n---\n\n'.join(parts)
 
 
-def _check_ollama(client) -> bool:
-    """Проверяет что Ollama доступна и модель загружена."""
-    try:
-        models = client.models.list()
-        available = [m.id for m in models.data]
-        return any(OLLAMA_MODEL in m for m in available)
-    except Exception:
-        return False
-
-
-SCALE_SUFFIX = {
-    'any':    '',
-    'small':  'малый бизнес выручка до 800 млн',
-    'medium': 'средний бизнес выручка 800 млн – 2 млрд',
-    'large':  'крупный бизнес выручка от 2 млрд',
-}
-
+# ── Основной worker ────────────────────────────────────────────────────────
 
 def _research_worker(run_id: int, config: dict):
     from openai import OpenAI
@@ -271,7 +253,7 @@ def _research_worker(run_id: int, config: dict):
     client = OpenAI(base_url=OLLAMA_BASE_URL, api_key='ollama')
     tavily = TavilyClient(api_key=TAVILY_API_KEY)
 
-    # Поддержка нескольких сегментов
+    # Параметры из конфига
     raw_segments = config.get('segments', config.get('segment', 'electronics'))
     if isinstance(raw_segments, str):
         raw_segments = [raw_segments]
@@ -285,85 +267,53 @@ def _research_worker(run_id: int, config: dict):
     company_scale = config.get('company_scale', 'any')
     require_email = bool(config.get('require_email'))
     require_phone = bool(config.get('require_phone'))
-    active_only   = bool(config.get('active_only'))
-    okved_type    = config.get('okved_type', 'main')
-
-    # ОКВЭД и отрасль
-    okved_include_raw = config.get('okved_include', '') or ''
-    okved_exclude_raw = config.get('okved_exclude', '') or ''
-    industries_raw    = config.get('industries', [])
-
-    okved_include = [c.strip() for c in okved_include_raw.split(',') if c.strip()]
-    okved_exclude = [c.strip() for c in okved_exclude_raw.split(',') if c.strip()]
-    industries    = industries_raw if isinstance(industries_raw, list) else [industries_raw]
-
-    # Строим доп. термины из ОКВЭД include
-    okved_terms = ' '.join(
-        OKVED_SEARCH_TERMS.get(c, '') for c in okved_include if c in OKVED_SEARCH_TERMS
-    ).strip()
-    # Строим доп. термины из отрасли
-    industry_terms = ' '.join(
-        INDUSTRY_SEARCH_TERMS.get(i, '') for i in industries if i in INDUSTRY_SEARCH_TERMS
-    ).strip()
-    # Строим термины для исключения (используем в промпте ИИ)
-    okved_exclude_terms = ' '.join(
-        OKVED_SEARCH_TERMS.get(c, '') for c in okved_exclude if c in OKVED_SEARCH_TERMS
-    ).strip()
+    active_only   = bool(config.get('active_only', True))
 
     region_label = REGION_SUFFIX.get(region_key, 'Москва')
     scale_suffix = SCALE_SUFFIX.get(company_scale, '')
-    active_str   = 'активная компания' if active_only else ''
+    active_str   = 'действующая компания' if active_only else ''
 
     seg_labels = [SEGMENT_LABELS.get(s, s) for s in segments_list]
     _log(run_id, f'🚀 Старт поиска: {", ".join(seg_labels)}')
-    _log(run_id, f'   Регион: {region_label} | Цель: {target_count} | Масштаб: {company_scale or "любой"}')
-    if okved_include:
-        _log(run_id, f'   ОКВЭД включить: {", ".join(okved_include)} ({okved_type})')
-    if okved_exclude:
-        _log(run_id, f'   ОКВЭД исключить: {", ".join(okved_exclude)}')
-    if industries:
-        _log(run_id, f'   Отрасли: {", ".join(industries)}')
+    _log(run_id, f'   Регион: {region_label} | Цель: {target_count} | Масштаб: {SCALE_SUFFIX.get(company_scale) or "любой"}')
     _log(run_id, f'🤖 Модель: {OLLAMA_MODEL} (Ollama)')
 
     # Проверить Ollama
     if not _check_ollama(client):
         _log(run_id, f'❌ Ollama недоступна или модель {OLLAMA_MODEL} не загружена.')
-        _log(run_id, 'Убедитесь что Ollama запущена: ollama serve')
-        _log(run_id, f'И модель скачана: ollama pull {OLLAMA_MODEL}')
-        with _lock:
-            if run_id in _runs:
-                _runs[run_id]['status'] = 'failed'
-        conn = get_db()
-        conn.execute(
-            "UPDATE research_runs SET status='failed', completed_at=datetime('now') WHERE id=?",
-            (run_id,)
-        )
-        conn.commit()
-        conn.close()
+        _log(run_id, 'Запустите: ollama serve')
+        _log(run_id, f'Скачайте модель: ollama pull {OLLAMA_MODEL}')
+        _set_run_status(run_id, 'failed')
         return
+
+    # ── Загрузить память: все известные компании и email ──────────────────
+    conn_main = get_db()
+    existing_emails = {
+        r['email'].lower()
+        for r in conn_main.execute('SELECT email FROM contacts WHERE email IS NOT NULL').fetchall()
+    }
+    existing_companies = {
+        normalize_company_name(r['company_name'])
+        for r in conn_main.execute('SELECT company_name FROM contacts WHERE company_name IS NOT NULL').fetchall()
+        if r['company_name']
+    }
+    conn_main.close()
+
+    _log(run_id, f'📋 Память: {len(existing_companies)} компаний, {len(existing_emails)} email — новые пропущены не будут')
+    _log(run_id, f'🔍 Ищем только НОВЫЕ компании, которых нет в базе')
 
     if keywords:
         _log(run_id, f'🔑 Доп. слова: {keywords}')
 
-    # Собираем запросы для всех выбранных сегментов
+    # ── Строим список запросов ─────────────────────────────────────────────
     all_queries = []
     for seg in segments_list:
-        seg_queries = SEGMENT_QUERIES.get(seg, SEGMENT_QUERIES['electronics'])
-        for q in seg_queries:
-            full_q = ' '.join(filter(None, [
-                q, region_label, scale_suffix, active_str,
-                okved_terms, industry_terms, keywords
-            ]))
+        for q in SEGMENT_QUERIES.get(seg, SEGMENT_QUERIES['electronics']):
+            full_q = ' '.join(filter(None, [q, region_label, scale_suffix, active_str, keywords]))
             all_queries.append((full_q, SEGMENT_LABELS.get(seg, seg)))
 
-    found_contacts = []
-    searched_names: set = set()
-
-    conn_main = get_db()
-    existing_emails = {
-        r['email'] for r in conn_main.execute('SELECT email FROM contacts').fetchall()
-    }
-    conn_main.close()
+    found_contacts   = []
+    searched_names   = set()   # имена, уже проверенные в этой сессии
 
     for query, segment_label in all_queries:
         if len(found_contacts) >= target_count:
@@ -373,67 +323,89 @@ def _research_worker(run_id: int, config: dict):
         try:
             search_res = tavily.search(query, max_results=8)
         except Exception as e:
-            _log(run_id, f'❌ Ошибка поиска Tavily: {e}')
+            _log(run_id, f'❌ Ошибка Tavily: {e}')
             continue
 
         results_text = _results_to_text(search_res)
-        companies    = _extract_companies(
-            client, results_text, segment_label,
-            exclude_hint=okved_exclude_terms
-        )
+        companies    = _extract_companies(client, results_text, segment_label)
         _log(run_id, f'   Компаний в выдаче: {len(companies)}')
 
         for company in companies:
             if len(found_contacts) >= target_count:
                 break
 
-            name = (company.get('name') or '').strip()
-            if not name or name in searched_names:
+            name     = (company.get('name') or '').strip()
+            norm     = normalize_company_name(name)
+
+            if not name or not norm:
                 continue
-            searched_names.add(name)
 
-            _log(run_id, f'🏢 Ищем контакты: {name}')
+            # Проверить: компания уже в базе?
+            if norm in existing_companies:
+                _log(run_id, f'   ⏭  {name} — уже в базе, пропускаем')
+                continue
 
-            contact_query = f'{name} контакты директор email телефон'
+            # Проверить: уже обрабатывали в этой сессии?
+            if norm in searched_names:
+                continue
+            searched_names.add(norm)
+
+            _log(run_id, f'🏢 Новая компания: {name}')
+
+            contact_query = f'{name} контакты директор email телефон сайт'
             try:
                 contact_res = tavily.search(contact_query, max_results=5)
             except Exception as e:
-                _log(run_id, f'   ⚠️ Ошибка поиска контактов: {e}')
+                _log(run_id, f'   ⚠️ Ошибка Tavily контакты: {e}')
                 continue
 
             contact_text = _results_to_text(contact_res, 800)
             lpr          = _extract_lpr(client, company, contact_text)
 
             if not lpr:
-                _log(run_id, f'   ⚠️  контакт не найден')
+                _log(run_id, '   ⚠️  ЛПР не найден')
                 continue
 
-            email = lpr.get('email')
-            phone = lpr.get('phone')
+            email = (lpr.get('email') or '').lower().strip()
+            phone = (lpr.get('phone') or '').strip()
 
-            # Применяем фильтры контактных данных
-            if require_email and not email:
-                _log(run_id, f'   ⏭  пропущен (нет email)')
+            # Фильтр: общий email
+            if email and is_generic_email(email):
+                _log(run_id, f'   ⛔  {email} — общий адрес (info/sales/office), пропускаем')
                 continue
-            if require_phone and not phone:
-                _log(run_id, f'   ⏭  пропущен (нет телефона)')
-                continue
+
+            # Фильтр: email уже в базе
             if email and email in existing_emails:
-                _log(run_id, f'   ⏭  {email} уже в базе')
+                _log(run_id, f'   ⏭  {email} — email уже в базе')
                 continue
 
+            # Фильтр: требуется email
+            if require_email and not email:
+                _log(run_id, '   ⏭  нет email (фильтр: только с email)')
+                continue
+
+            # Фильтр: требуется телефон
+            if require_phone and not phone:
+                _log(run_id, '   ⏭  нет телефона (фильтр: только с телефоном)')
+                continue
+
+            # Добавляем в найденное
             if email:
                 existing_emails.add(email)
+            existing_companies.add(norm)
+
             lpr['segment'] = segment_label
             lpr['region']  = region_label
+            lpr['email']   = email or None
             found_contacts.append(lpr)
-            _log(run_id, f'   ✅ {lpr.get("person_name", "???")}'
-                         + (f' — {email}' if email else '')
-                         + (f' | {phone}' if phone else ''))
 
-            time.sleep(0.2)
+            person = lpr.get('person_name') or '???'
+            detail = ' | '.join(filter(None, [email, phone]))
+            _log(run_id, f'   ✅ {person} — {detail}')
 
-    # Сохранить в БД
+            time.sleep(0.3)
+
+    # ── Сохранить в базу ───────────────────────────────────────────────────
     conn  = get_db()
     saved = 0
     today = datetime.now().strftime('%Y-%m-%d')
@@ -459,17 +431,35 @@ def _research_worker(run_id: int, config: dict):
     conn.commit()
     conn.close()
 
-    _log(run_id, f'✅ Готово! Сохранено {saved} новых контактов из {target_count} запрошенных')
+    _log(run_id, f'')
+    _log(run_id, f'✅ Поиск завершён.')
+    _log(run_id, f'   Найдено и сохранено в базу: {saved} новых контактов')
+    _log(run_id, f'   Запрошено: {target_count} | Обработано компаний: {len(searched_names)}')
+
+    _set_run_status(run_id, 'done', found_count=saved)
+
+
+def _set_run_status(run_id: int, status: str, found_count: int = 0):
     with _lock:
         if run_id in _runs:
-            _runs[run_id]['status']      = 'done'
-            _runs[run_id]['found_count'] = saved
+            _runs[run_id]['status']      = status
+            _runs[run_id]['found_count'] = found_count
+    try:
+        conn = get_db()
+        conn.execute(
+            "UPDATE research_runs SET status=?, completed_at=datetime('now'), found_count=? WHERE id=?",
+            (status, found_count, run_id)
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def start_research(config: dict) -> int:
     conn = get_db()
     cur  = conn.execute(
-        "INSERT INTO research_runs(config_json, status) VALUES(?,?)",
+        'INSERT INTO research_runs(config_json, status) VALUES(?,?)',
         (json.dumps(config, ensure_ascii=False), 'running')
     )
     run_id = cur.lastrowid

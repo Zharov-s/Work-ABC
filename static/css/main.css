@@ -355,6 +355,32 @@ body {
   border-radius: 8px;
   overflow: hidden;
 }
+.filters-panel-title {
+  padding: 12px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.filters-panel-hint {
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.filter-note {
+  font-size: 11.5px;
+  color: #9ca3af;
+  margin-top: 6px;
+  line-height: 1.4;
+}
 .filters-action {
   padding: 14px 16px;
   border-top: 1px solid #e5e7eb;
