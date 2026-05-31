@@ -16,7 +16,7 @@ from mailer import send_campaign, test_smtp, parse_addresses, TEMPLATE_META
 from researcher import (
     start_research, get_run_status, pause_research, resume_research,
     SEGMENT_LABELS, REGION_SUFFIX, INDUSTRY_LABELS, SCALE_LABELS,
-    CONTACT_REQUIREMENT_LABELS,
+    CONTACT_REQUIREMENT_LABELS, normalize_contact_requirements, contact_satisfies_requirements,
 )
 
 app = Flask(__name__)
@@ -268,6 +268,7 @@ def research_start():
     contact_requirements = request.form.getlist('contact_requirements')
     if not contact_requirements:
         return jsonify({'ok': False, 'error': 'Выберите хотя бы одно требование к контакту'})
+    contact_requirements = normalize_contact_requirements(contact_requirements)
     config = {
         'segments':      segments,
         'industries':    request.form.getlist('industries'),
@@ -302,6 +303,7 @@ def research_run_resume(run_id):
 @login_required
 def research_run_contacts(run_id):
     conn = get_db()
+    run_row = conn.execute('SELECT config_json FROM research_runs WHERE id=?', (run_id,)).fetchone()
     rows = conn.execute(
         """SELECT id, company_name, website, person_name, title, email, phone,
                   personal_email, generic_email, mobile_phone, generic_phone, inn, segment
@@ -309,6 +311,21 @@ def research_run_contacts(run_id):
         (run_id,)
     ).fetchall()
     conn.close()
+    requirements = None
+    if run_row and run_row['config_json']:
+        try:
+            cfg = json.loads(run_row['config_json'])
+            requirements = cfg.get('contact_requirements')
+        except Exception:
+            requirements = None
+    if requirements:
+        filtered = []
+        for r in rows:
+            item = dict(r)
+            ok, _ = contact_satisfies_requirements(item, requirements)
+            if ok:
+                filtered.append(item)
+        return jsonify(filtered)
     return jsonify([dict(r) for r in rows])
 
 

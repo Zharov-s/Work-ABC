@@ -96,6 +96,57 @@ CONTACT_REQUIREMENT_LABELS = {
 
 DEFAULT_CONTACT_REQUIREMENTS = ['company_name', 'website', 'personal_email', 'mobile_phone']
 
+
+def normalize_contact_requirements(raw_requirements) -> list[str]:
+    if isinstance(raw_requirements, str):
+        raw_requirements = [raw_requirements]
+    if not raw_requirements:
+        raw_requirements = DEFAULT_CONTACT_REQUIREMENTS
+    seen = set()
+    normalized = []
+    for req in raw_requirements:
+        if req in CONTACT_REQUIREMENT_LABELS and req not in seen:
+            normalized.append(req)
+            seen.add(req)
+    return normalized or list(DEFAULT_CONTACT_REQUIREMENTS)
+
+
+def contact_satisfies_requirements(contact: dict, requirements) -> tuple[bool, str]:
+    reqs = set(normalize_contact_requirements(requirements))
+
+    company_name = (contact.get('company_name') or '').strip()
+    website = (contact.get('website') or '').strip()
+    person = (contact.get('person_name') or '').strip()
+    personal_email = (contact.get('personal_email') or contact.get('email') or '').lower().strip()
+    generic_email = (contact.get('generic_email') or '').lower().strip()
+    mobile_phone = (contact.get('mobile_phone') or '').strip()
+    generic_phone = (contact.get('generic_phone') or '').strip()
+    inn = re.sub(r'\D', '', str(contact.get('inn') or ''))
+
+    if 'company_name' in reqs and not company_name:
+        return False, 'нет наименования компании'
+    if 'website' in reqs and not website:
+        return False, 'нет сайта'
+    if reqs.intersection({'personal_email', 'mobile_phone'}) and (not person or len(person.split()) < 2):
+        return False, 'нет ФИО ЛПР для личного контакта'
+    if 'personal_email' in reqs and (
+        not personal_email or not is_valid_email_format(personal_email) or is_generic_email(personal_email)
+    ):
+        return False, 'нет личного email'
+    if 'generic_email' in reqs and (
+        not generic_email or not is_valid_email_format(generic_email) or not is_generic_email(generic_email)
+    ):
+        return False, 'нет общего email'
+    if 'mobile_phone' in reqs and (not is_valid_phone(mobile_phone) or not is_mobile_phone(mobile_phone)):
+        return False, 'нет мобильного телефона'
+    if 'generic_phone' in reqs and (
+        not is_valid_phone(generic_phone) or is_mobile_phone(generic_phone)
+    ):
+        return False, 'нет общего телефона'
+    if 'inn' in reqs and len(inn) not in (10, 12):
+        return False, 'нет ИНН'
+    return True, ''
+
 # ── Поисковые запросы ───────────────────────────────────────────────────────
 
 # Основные запросы через Tavily (широкий поиск)
@@ -728,10 +779,8 @@ def _research_worker(run_id: int, config: dict):
         raw_industries = [raw_industries]
     industries_list = [i for i in raw_industries if i in INDUSTRY_LABELS]
 
-    raw_requirements = config.get('contact_requirements', DEFAULT_CONTACT_REQUIREMENTS)
-    if isinstance(raw_requirements, str):
-        raw_requirements = [raw_requirements]
-    requirements = {r for r in raw_requirements if r in CONTACT_REQUIREMENT_LABELS} or set(DEFAULT_CONTACT_REQUIREMENTS)
+    requirements_list = normalize_contact_requirements(config.get('contact_requirements', DEFAULT_CONTACT_REQUIREMENTS))
+    requirements = set(requirements_list)
 
     target_count = int(config.get('count', 10))
     keywords     = config.get('keywords', '').strip()
@@ -740,7 +789,7 @@ def _research_worker(run_id: int, config: dict):
     region_labels = [REGION_SUFFIX.get(r, r) for r in regions_list]
     scale_labels = [SCALE_LABELS.get(s, s) for s in scales_list]
     industry_labels = [INDUSTRY_LABELS.get(i, i) for i in industries_list]
-    requirement_labels = [CONTACT_REQUIREMENT_LABELS.get(r, r) for r in requirements]
+    requirement_labels = [CONTACT_REQUIREMENT_LABELS.get(r, r) for r in requirements_list]
     _log(run_id, f'🚀 Старт: {", ".join(seg_labels)} | {", ".join(region_labels)} | цель={target_count}')
     _log(run_id, f'🏷 Отрасли: {", ".join(industry_labels) if industry_labels else "все подходящие"}')
     _log(run_id, f'📏 Масштаб: {", ".join(scale_labels)}')
@@ -881,44 +930,22 @@ def _research_worker(run_id: int, config: dict):
             inn = '' if inn in ('null', 'none') else inn
             person = '' if person in ('null', 'none') else person
 
-            if 'company_name' in requirements and not name:
-                _log(run_id, '   ⛔  нет наименования компании — компания не засчитывается')
-                continue
-
-            if 'website' in requirements and not website:
-                _log(run_id, '   ⛔  нет сайта — компания не засчитывается')
-                continue
-
-            if requirements.intersection({'personal_email', 'mobile_phone'}) and (not person or len(person.split()) < 2):
-                _log(run_id, f'   ⛔  нет ФИО ЛПР для личного контакта — компания не засчитывается, ищем дальше')
-                continue
-
-            if 'personal_email' in requirements and (
-                not personal_email or not is_valid_email_format(personal_email) or is_generic_email(personal_email)
-            ):
-                _log(run_id, f'   ⛔  нет личного email — компания не засчитывается, ищем дальше')
-                continue
-
-            if 'generic_email' in requirements and (
-                not generic_email or not is_valid_email_format(generic_email) or not is_generic_email(generic_email)
-            ):
-                _log(run_id, f'   ⛔  нет общего email — компания не засчитывается, ищем дальше')
-                continue
-
-            if 'mobile_phone' in requirements and (not is_valid_phone(mobile_phone) or not is_mobile_phone(mobile_phone)):
-                _log(run_id, f'   ⛔  нет мобильного телефона — компания не засчитывается, ищем дальше')
-                continue
-
-            if 'generic_phone' in requirements and not is_valid_phone(generic_phone):
-                _log(run_id, f'   ⛔  нет общего телефона — компания не засчитывается, ищем дальше')
-                continue
-
-            if 'inn' in requirements and not inn:
-                _log(run_id, f'   ⛔  нет ИНН — компания не засчитывается, ищем дальше')
-                continue
-
             primary_email = personal_email or generic_email or None
             primary_phone = mobile_phone or generic_phone or None
+            lpr['company_name'] = lpr.get('company_name') or name
+            lpr['website'] = website or None
+            lpr['email'] = primary_email
+            lpr['phone'] = primary_phone
+            lpr['personal_email'] = personal_email or None
+            lpr['generic_email'] = generic_email or None
+            lpr['mobile_phone'] = mobile_phone or None
+            lpr['generic_phone'] = generic_phone or None
+            lpr['inn'] = inn or None
+
+            ok_requirements, requirement_error = contact_satisfies_requirements(lpr, requirements_list)
+            if not ok_requirements:
+                _log(run_id, f'   ⛔  {requirement_error} — компания не засчитывается, ищем дальше')
+                continue
 
             # Email уже в базе
             if primary_email and primary_email in existing_emails:
@@ -931,14 +958,6 @@ def _research_worker(run_id: int, config: dict):
 
             lpr['segment'] = segment_label
             lpr['region']  = region_label
-            lpr['website'] = website or None
-            lpr['email'] = primary_email
-            lpr['phone'] = primary_phone
-            lpr['personal_email'] = personal_email or None
-            lpr['generic_email'] = generic_email or None
-            lpr['mobile_phone'] = mobile_phone or None
-            lpr['generic_phone'] = generic_phone or None
-            lpr['inn'] = inn or None
             found_contacts.append(lpr)
             _update_found_count(run_id, len(found_contacts))
 
