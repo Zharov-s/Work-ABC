@@ -645,6 +645,25 @@ def _research_worker(run_id: int, config: dict):
             found_contacts.append(lpr)
             _update_found_count(run_id, len(found_contacts))
 
+            # Сохраняем сразу — чтобы контакт был виден в UI до завершения запуска
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            try:
+                conn_now = get_db()
+                conn_now.execute(
+                    """INSERT OR IGNORE INTO contacts
+                       (company_name, website, person_name, title, email, phone,
+                        source_url, segment, region, date_found, status, run_id)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,'new',?)""",
+                    (lpr.get('company_name'), lpr.get('website'), lpr.get('person_name'),
+                     lpr.get('title'), lpr.get('email') or None, lpr.get('phone') or None,
+                     lpr.get('source_url'), lpr.get('segment'), lpr.get('region'),
+                     today_str, run_id)
+                )
+                conn_now.commit()
+                conn_now.close()
+            except Exception as e:
+                _log(run_id, f'⚠️ Ошибка записи: {e}')
+
             person = lpr.get('person_name') or director_name or '???'
             detail = ' | '.join(filter(None, [email, phone]))
             remaining = target_count - len(found_contacts)
@@ -652,29 +671,9 @@ def _research_worker(run_id: int, config: dict):
 
             time.sleep(0.3)
 
-    # Сохранить в базу
+    # Финальное обновление статуса
     conn  = get_db()
-    saved = 0
-    today = datetime.now().strftime('%Y-%m-%d')
-    for c in found_contacts:
-        # Пропускаем если нет ни email, ни телефона, ни имени — бесполезная запись
-        if not c.get('person_name') and not c.get('email') and not c.get('phone'):
-            continue
-        try:
-            cur = conn.execute(
-                """INSERT OR IGNORE INTO contacts
-                   (company_name, website, person_name, title, email, phone,
-                    source_url, segment, region, date_found, status, run_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,'new',?)""",
-                (c.get('company_name'), c.get('website'), c.get('person_name'),
-                 c.get('title'), c.get('email') or None, c.get('phone') or None,
-                 c.get('source_url'), c.get('segment'), c.get('region'), today, run_id)
-            )
-            if cur.rowcount > 0:
-                saved += 1
-        except Exception as e:
-            _log(run_id, f'⚠️ Ошибка записи: {e}')
-
+    saved = len(found_contacts)
     conn.execute(
         "UPDATE research_runs SET status='done', completed_at=datetime('now'), found_count=? WHERE id=?",
         (saved, run_id),

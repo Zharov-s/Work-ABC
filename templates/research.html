@@ -337,6 +337,11 @@ function pollStatus() {
       updateProgressStrip(d.found_count, d.target_count, d.status);
       updateRunHistoryRow(currentRunId, d.found_count, d.target_count, d.status);
 
+      // Если строка текущего запуска раскрыта — обновляем список контактов
+      if (_openRows.has(String(currentRunId))) {
+        fetchRunContacts(String(currentRunId));
+      }
+
       if (d.status === 'done') {
         clearInterval(pollInterval);
         badge.textContent     = '✅ Завершено';
@@ -406,8 +411,11 @@ function updateRunHistoryRow(runId, found, target, status) {
   } else if (status === 'done') {
     foundCell.innerHTML  = `<strong>${found}</strong>`;
     statusCell.innerHTML = '<span class="badge badge-green">Завершён</span>';
-    // сбрасываем кеш деталей, чтобы при следующем открытии загрузились контакты
-    delete _loadedRuns[runId];
+    // Если строка открыта — делаем финальный рефреш и кешируем
+    _loadedRuns.delete(String(runId));
+    if (_openRows.has(String(runId))) {
+      fetchRunContacts(String(runId));
+    }
   }
 }
 
@@ -417,35 +425,61 @@ function escapeHtml(s) {
 }
 
 // ── Раскрытие строки истории ───────────────────────────────────────────────
-const _loadedRuns = {};
+const _loadedRuns = new Set(); // runId завершённых запусков с загруженными данными
+const _openRows   = new Set(); // runId открытых строк
+
+function isRowRunning(runId) {
+  const row = document.querySelector(`.run-row[data-run-id="${runId}"]`);
+  return row ? !!row.querySelector('.badge-yellow') : false;
+}
 
 function toggleRunDetails(row) {
-  const runId      = row.dataset.runId;
-  const detailRow  = document.getElementById('detail-' + runId);
-  const chevron    = row.querySelector('.run-chevron');
-  const isOpen     = detailRow.style.display !== 'none';
+  const runId     = row.dataset.runId;
+  const detailRow = document.getElementById('detail-' + runId);
+  const chevron   = row.querySelector('.run-chevron');
+  const isOpen    = detailRow.style.display !== 'none';
 
   if (isOpen) {
     detailRow.style.display = 'none';
-    chevron.textContent = '▶';
-    chevron.style.transform = '';
+    chevron.textContent     = '▶';
+    _openRows.delete(runId);
     return;
   }
 
   detailRow.style.display = 'table-row';
-  chevron.textContent = '▼';
+  chevron.textContent     = '▼';
+  _openRows.add(runId);
 
-  if (_loadedRuns[runId]) return;
-  _loadedRuns[runId] = true;
+  // Завершённые строки кешируем; текущие — всегда грузим свежие данные
+  if (_loadedRuns.has(runId)) return;
+  fetchRunContacts(runId);
+}
+
+function fetchRunContacts(runId) {
+  const el = document.getElementById('detail-content-' + runId);
+  if (!el) return;
+
+  const running = isRowRunning(runId);
+
+  // Показываем "Загружаем..." только если таблицы ещё нет
+  if (!el.querySelector('table')) {
+    el.innerHTML = running
+      ? '<div class="run-detail-loading">Ищем... появится сразу после первой находки</div>'
+      : '<div class="run-detail-loading">Загружаем...</div>';
+  }
 
   fetch(`/research/run/${runId}/contacts`)
     .then(r => r.json())
     .then(contacts => {
-      const el = document.getElementById('detail-content-' + runId);
       if (!contacts.length) {
-        el.innerHTML = '<div class="run-detail-empty">Контакты не привязаны к этому запуску (старые данные)</div>';
+        if (!running) {
+          el.innerHTML = '<div class="run-detail-empty">Контактов для этого запуска нет</div>';
+          _loadedRuns.add(runId);
+        }
+        // Если ещё выполняется и 0 контактов — оставляем "Ищем..."
         return;
       }
+
       const rows = contacts.map(c => `
         <tr>
           <td>${escapeHtml(c.company_name || '—')}</td>
@@ -463,10 +497,11 @@ function toggleRunDetails(row) {
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>`;
+
+      if (!running) _loadedRuns.add(runId);
     })
     .catch(() => {
-      document.getElementById('detail-content-' + runId).innerHTML =
-        '<div class="run-detail-empty">Ошибка загрузки</div>';
+      el.innerHTML = '<div class="run-detail-empty">Ошибка загрузки</div>';
     });
 }
 
