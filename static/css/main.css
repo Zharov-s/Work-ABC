@@ -394,7 +394,8 @@ body {
   flex-shrink: 0;
 }
 .accordion--open .accordion-chevron { transform: rotate(0deg); }
-.accordion:not(.accordion--open) .accordion-chevron { transform: rotate(-90deg); }
+.accordion-chevron { transform: rotate(-90deg); transition: transform 0.18s; }
+.accordion--open .accordion-chevron { transform: rotate(0deg); }
 
 .accordion-body {
   padding: 4px 14px 12px;
