@@ -41,46 +41,22 @@
 
     <!-- List items with toggle indicators -->
     <div class="glass-list">
-      <!-- item 1: pink toggle — рассылки (активная метрика) -->
       <div class="glass-list-item">
-        <span class="glass-list-icon">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-        </span>
         <span class="glass-list-label">Рассылок отправлено</span>
         <span class="glass-list-val">{{ total_sends }}</span>
         <span class="glass-toggle glass-toggle--pink"></span>
       </div>
-      <!-- item 2: blue filled — получили письмо -->
       <div class="glass-list-item">
-        <span class="glass-list-icon">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-        </span>
         <span class="glass-list-label">Получили письмо</span>
         <span class="glass-list-val">{{ total_contacts - new_contacts }}</span>
         <span class="glass-toggle glass-toggle--blue"></span>
       </div>
-      <!-- item 3: cyan outline — последний поиск -->
       <div class="glass-list-item">
-        <span class="glass-list-icon glass-list-icon--plus">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-        </span>
         <span class="glass-list-label">Найдено последним поиском</span>
         <span class="glass-list-val">{% if last_run %}{{ last_run['found_count'] }}{% else %}—{% endif %}</span>
         <span class="glass-toggle glass-toggle--cyan"></span>
       </div>
-      <!-- item 4: gray — ожидают рассылки -->
       <div class="glass-list-item">
-        <span class="glass-list-icon glass-list-icon--plus">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-        </span>
         <span class="glass-list-label">Ожидают рассылки</span>
         <span class="glass-list-val">{{ new_contacts }}</span>
         <span class="glass-toggle glass-toggle--gray"></span>
