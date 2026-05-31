@@ -149,7 +149,10 @@
       <div class="panel" id="run-panel" style="display:none">
         <div class="panel-header">
           Выполнение
-          <span class="status-badge" id="run-status-badge">Запускаем...</span>
+          <div style="display:flex; align-items:center; gap:10px">
+            <button id="pause-btn" style="display:none" class="btn-pause" onclick="clickPause()">⏸ Пауза</button>
+            <span class="status-badge" id="run-status-badge">Запускаем...</span>
+          </div>
         </div>
         <!-- Прогресс -->
         <div id="run-progress-strip" style="display:none; padding:12px 16px 0">
@@ -216,13 +219,20 @@
                   <span class="badge badge-green">Завершён</span>
                 {% elif r['status'] == 'running' %}
                   <span class="badge badge-yellow">Выполняется</span>
+                {% elif r['status'] == 'paused' %}
+                  <span class="badge badge-orange">На паузе</span>
                 {% elif r['status'] == 'interrupted' %}
                   <span class="badge badge-grey">Прервано</span>
                 {% else %}
                   <span class="badge badge-red">{{ r['status'] }}</span>
                 {% endif %}
               </td>
-              <td onclick="event.stopPropagation()">
+              <td onclick="event.stopPropagation()" class="run-actions" id="actions-{{ r['id'] }}">
+                {% if r['status'] == 'running' %}
+                  <button class="btn-icon btn-icon-pause" title="Пауза" onclick="rowPause({{ r['id'] }}, this)">⏸</button>
+                {% elif r['status'] == 'paused' %}
+                  <button class="btn-icon btn-icon-resume" title="Продолжить" onclick="rowResume({{ r['id'] }}, this)">▶</button>
+                {% endif %}
                 <button class="btn-icon-danger" title="Удалить" onclick="deleteRun({{ r['id'] }}, this)">✕</button>
               </td>
             </tr>
@@ -268,12 +278,11 @@ function markCountBtn(radio) {
 let pollInterval = null;
 let currentRunId = null;
 
-// ID запущенного таска, если есть на момент загрузки страницы
+// ID запущенного/поставленного на паузу таска при загрузке страницы
 const BOOT_RUNNING_ID = (function() {
   const row = document.querySelector('.run-row');
   if (!row) return null;
-  // Первая строка — самая свежая. Проверяем бейдж.
-  const badge = row.querySelector('.badge-yellow');
+  const badge = row.querySelector('.badge-yellow, .badge-orange');
   return badge ? parseInt(row.dataset.runId, 10) : null;
 })();
 
@@ -288,9 +297,12 @@ function showRunPanel(runId) {
 // Авто-возобновление при перезагрузке страницы
 if (BOOT_RUNNING_ID) {
   showRunPanel(BOOT_RUNNING_ID);
-  document.getElementById('start-btn').disabled    = true;
-  document.getElementById('start-btn').textContent = '⏳ Выполняется...';
-  pollStatus();  // сразу первый тик
+  const bootRow   = document.querySelector(`.run-row[data-run-id="${BOOT_RUNNING_ID}"]`);
+  const isPaused  = bootRow && bootRow.querySelector('.badge-orange');
+  const startBtn  = document.getElementById('start-btn');
+  startBtn.disabled    = true;
+  startBtn.textContent = isPaused ? '⏸ На паузе...' : '⏳ Выполняется...';
+  pollStatus();
   pollInterval = setInterval(pollStatus, 2000);
 }
 
@@ -336,6 +348,7 @@ function pollStatus() {
       logEl.innerHTML = log.map(l => `<div class="log-line">${escapeHtml(l)}</div>`).join('');
       logEl.scrollTop = logEl.scrollHeight;
 
+      updatePauseBtn(d.status);
       updateProgressStrip(d.found_count, d.target_count, d.status);
       updateRunHistoryRow(currentRunId, d.found_count, d.target_count, d.status);
 
@@ -346,6 +359,7 @@ function pollStatus() {
 
       if (d.status === 'done') {
         clearInterval(pollInterval);
+        updatePauseBtn('done');
         badge.textContent     = '✅ Завершено';
         badge.style.color     = '#16a34a';
         const summary         = document.getElementById('run-summary');
@@ -362,6 +376,10 @@ function pollStatus() {
         const btn         = document.getElementById('start-btn');
         btn.disabled      = false;
         btn.textContent   = '▶ Запустить поиск';
+      } else if (d.status === 'paused') {
+        badge.textContent = '⏸ На паузе';
+        badge.style.color = '#b45309';
+        document.getElementById('start-btn').textContent = '⏸ На паузе...';
       } else if (d.status === 'interrupted') {
         clearInterval(pollInterval);
         badge.textContent = '⚠️ Прервано';
@@ -373,6 +391,68 @@ function pollStatus() {
         if (_openRows.has(String(currentRunId))) fetchRunContacts(String(currentRunId));
       }
     });
+}
+
+// ── Кнопка паузы в панели ──────────────────────────────────────────────────
+function updatePauseBtn(status) {
+  const btn = document.getElementById('pause-btn');
+  if (!btn) return;
+  if (status === 'running') {
+    btn.style.display  = '';
+    btn.textContent    = '⏸ Пауза';
+    btn.dataset.state  = 'running';
+    btn.disabled       = false;
+    btn.classList.remove('btn-pause--resume');
+  } else if (status === 'paused') {
+    btn.style.display  = '';
+    btn.textContent    = '▶ Продолжить';
+    btn.dataset.state  = 'paused';
+    btn.disabled       = false;
+    btn.classList.add('btn-pause--resume');
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function clickPause() {
+  const btn      = document.getElementById('pause-btn');
+  const isPaused = btn.dataset.state === 'paused';
+  btn.disabled   = true;
+  fetch(`/research/run/${currentRunId}/${isPaused ? 'resume' : 'pause'}`, { method: 'POST' })
+    .then(() => { /* pollStatus обновит состояние */ });
+}
+
+// ── Пауза/возобновление из строки истории ──────────────────────────────────
+function rowPause(runId, btnEl) {
+  btnEl.disabled = true;
+  fetch(`/research/run/${runId}/pause`, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) _updateRowActions(runId, 'paused');
+    });
+}
+
+function rowResume(runId, btnEl) {
+  btnEl.disabled = true;
+  fetch(`/research/run/${runId}/resume`, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) _updateRowActions(runId, 'running');
+    });
+}
+
+function _updateRowActions(runId, status) {
+  const cell = document.getElementById(`actions-${runId}`);
+  if (!cell) return;
+  // Обновляем только кнопку паузы/возобновления, оставляем ✕
+  const dangerBtn = cell.querySelector('.btn-icon-danger');
+  let newBtn = '';
+  if (status === 'running') {
+    newBtn = `<button class="btn-icon btn-icon-pause" title="Пауза" onclick="rowPause(${runId}, this)">⏸</button>`;
+  } else if (status === 'paused') {
+    newBtn = `<button class="btn-icon btn-icon-resume" title="Продолжить" onclick="rowResume(${runId}, this)">▶</button>`;
+  }
+  cell.innerHTML = newBtn + (dangerBtn ? dangerBtn.outerHTML : '');
 }
 
 function updateProgressStrip(found, target, status) {
@@ -393,6 +473,10 @@ function updateProgressStrip(found, target, status) {
       remaining > 0
         ? `Осталось найти: ${remaining} ${pluralCompany(remaining)}`
         : 'Финальная обработка...';
+  } else if (status === 'paused') {
+    document.getElementById('progress-bar-fill').style.background = '#f59e0b';
+    document.getElementById('progress-sub').textContent =
+      `На паузе — найдено ${found} из ${target || '?'}, осталось ${remaining}`;
   } else {
     document.getElementById('progress-bar-fill').style.background = '#16a34a';
     document.getElementById('progress-sub').textContent =
@@ -419,6 +503,14 @@ function updateRunHistoryRow(runId, found, target, status) {
       `<strong>${found}</strong>` +
       (target ? `<span class="cell-sub" style="display:block">цель ${target}, осталось ${remaining}</span>` : '');
     statusCell.innerHTML = '<span class="badge badge-yellow">Выполняется</span>';
+    _updateRowActions(runId, 'running');
+  } else if (status === 'paused') {
+    const remaining = Math.max(0, (target || 0) - found);
+    foundCell.innerHTML =
+      `<strong>${found}</strong>` +
+      (target ? `<span class="cell-sub" style="display:block">цель ${target}, осталось ${remaining}</span>` : '');
+    statusCell.innerHTML = '<span class="badge badge-orange">На паузе</span>';
+    _updateRowActions(runId, 'paused');
   } else if (status === 'done') {
     foundCell.innerHTML  = `<strong>${found}</strong>`;
     statusCell.innerHTML = '<span class="badge badge-green">Завершён</span>';
@@ -553,7 +645,22 @@ function deleteRun(runId, btn) {
 </script>
 
 <style>
-.badge-grey { background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; }
+.badge-grey   { background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; }
+.badge-orange { background:#fff7ed; color:#b45309; border:1px solid #fed7aa; }
+.btn-pause {
+  padding: 4px 12px; border-radius: 6px; border: 1px solid #cbd5e1;
+  background: #fff; color: #374151; font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+}
+.btn-pause:hover { background: #f1f5f9; }
+.btn-pause--resume { background: #f0fdf4; border-color: #86efac; color: #15803d; }
+.btn-pause--resume:hover { background: #dcfce7; }
+.btn-icon {
+  background: none; border: none; cursor: pointer;
+  color: #94a3b8; font-size: 13px; padding: 2px 5px; border-radius: 4px;
+}
+.btn-icon-pause:hover  { color: #f59e0b; background: #fef3c7; }
+.btn-icon-resume:hover { color: #16a34a; background: #dcfce7; }
 .run-row { cursor: pointer; }
 .run-row:hover { background: #f8fafc; }
 .run-chevron { font-size: 10px; color: #94a3b8; transition: transform .15s; display:inline-block; }

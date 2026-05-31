@@ -13,7 +13,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from database import init_db, get_db, get_setting, set_setting, get_all_settings
 from auth import check_credentials, set_password, set_login
 from mailer import send_campaign, test_smtp, parse_addresses, TEMPLATE_META
-from researcher import start_research, get_run_status, SEGMENT_LABELS, REGION_SUFFIX
+from researcher import start_research, get_run_status, pause_research, resume_research, SEGMENT_LABELS, REGION_SUFFIX
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'abcentrum-dev-key')
@@ -267,6 +267,18 @@ def research_start():
     return jsonify({'ok': True, 'run_id': run_id})
 
 
+@app.route('/research/run/<int:run_id>/pause', methods=['POST'])
+@login_required
+def research_run_pause(run_id):
+    return jsonify({'ok': pause_research(run_id)})
+
+
+@app.route('/research/run/<int:run_id>/resume', methods=['POST'])
+@login_required
+def research_run_resume(run_id):
+    return jsonify({'ok': resume_research(run_id)})
+
+
 @app.route('/research/run/<int:run_id>/contacts')
 @login_required
 def research_run_contacts(run_id):
@@ -434,7 +446,7 @@ init_db()
 
 # При рестарте все "running" воркеры убиты — помечаем как interrupted
 _boot_conn = get_db()
-_boot_conn.execute("UPDATE research_runs SET status='interrupted' WHERE status='running'")
+_boot_conn.execute("UPDATE research_runs SET status='interrupted' WHERE status IN ('running','paused')")
 _boot_conn.commit()
 _boot_conn.close()
 

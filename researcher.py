@@ -18,6 +18,7 @@ OLLAMA_MODEL    = os.getenv('OLLAMA_MODEL', 'gemma3:4b')
 
 _runs: dict = {}
 _lock = threading.Lock()
+_pause_events: dict = {}  # run_id -> threading.Event  (set=идёт, clear=пауза)
 
 
 # ── Константы ──────────────────────────────────────────────────────────────
@@ -222,6 +223,8 @@ def _set_run_status(run_id: int, status: str, found_count: int = 0):
         if run_id in _runs:
             _runs[run_id]['status']      = status
             _runs[run_id]['found_count'] = found_count
+    if status in ('done', 'failed'):
+        _pause_events.pop(run_id, None)
     try:
         conn = get_db()
         conn.execute(
@@ -245,6 +248,40 @@ def _update_found_count(run_id: int, count: int):
         conn.close()
     except Exception:
         pass
+
+
+def pause_research(run_id: int) -> bool:
+    with _lock:
+        if run_id not in _runs or _runs[run_id]['status'] != 'running':
+            return False
+        _runs[run_id]['status'] = 'paused'
+    _pause_events.get(run_id, threading.Event()).clear()
+    try:
+        conn = get_db()
+        conn.execute("UPDATE research_runs SET status='paused' WHERE id=?", (run_id,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+    _log(run_id, '⏸ Поиск поставлен на паузу')
+    return True
+
+
+def resume_research(run_id: int) -> bool:
+    with _lock:
+        if run_id not in _runs or _runs[run_id]['status'] != 'paused':
+            return False
+        _runs[run_id]['status'] = 'running'
+    try:
+        conn = get_db()
+        conn.execute("UPDATE research_runs SET status='running' WHERE id=?", (run_id,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+    _pause_events.get(run_id, threading.Event()).set()
+    _log(run_id, '▶ Поиск возобновлён')
+    return True
 
 
 # ── Ollama ─────────────────────────────────────────────────────────────────
@@ -558,6 +595,7 @@ def _research_worker(run_id: int, config: dict):
     searched_names = set()
 
     for query, segment_label, source_tag in all_queries:
+        _pause_events[run_id].wait()  # блокируется, пока стоит на паузе
         if len(found_contacts) >= target_count:
             break
 
@@ -574,6 +612,7 @@ def _research_worker(run_id: int, config: dict):
         _log(run_id, f'   Компаний в выдаче: {len(companies)}')
 
         for company in companies:
+            _pause_events[run_id].wait()  # пауза между компаниями
             if len(found_contacts) >= target_count:
                 break
 
@@ -702,6 +741,10 @@ def start_research(config: dict) -> int:
     with _lock:
         _runs[run_id] = {'status': 'running', 'log': [], 'found_count': 0,
                          'target_count': int(config.get('count', 10))}
+
+    ev = threading.Event()
+    ev.set()
+    _pause_events[run_id] = ev
 
     t = threading.Thread(target=_research_worker, args=(run_id, config), daemon=True)
     t.start()
