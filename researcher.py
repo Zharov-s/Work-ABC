@@ -14,7 +14,7 @@ from database import get_db
 
 TAVILY_API_KEY  = os.getenv('TAVILY_API_KEY', '')
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')
-OLLAMA_MODEL    = os.getenv('OLLAMA_MODEL', 'gemma3:4b')
+OLLAMA_MODEL    = os.getenv('OLLAMA_MODEL', 'qwen2.5:1.5b')
 
 _runs: dict = {}
 _lock = threading.Lock()
@@ -287,17 +287,10 @@ def resume_research(run_id: int) -> bool:
 # ── Ollama ─────────────────────────────────────────────────────────────────
 
 def _ollama_chat(client, messages: list, expect_json: bool = False) -> str:
-    """
-    Вызов Ollama. response_format НЕ используем — gemma3:4b/llama3.2 его
-    игнорируют или возвращают пустой ответ. Вместо этого парсим JSON из
-    сырого текста через _extract_json().
-    """
-    resp = client.chat.completions.create(
-        model=OLLAMA_MODEL,
-        messages=messages,
-        temperature=0.1,
-        max_tokens=2000,
-    )
+    kwargs = dict(model=OLLAMA_MODEL, messages=messages, temperature=0.1, max_tokens=400)
+    if expect_json:
+        kwargs['response_format'] = {'type': 'json_object'}
+    resp = client.chat.completions.create(**kwargs)
     return resp.choices[0].message.content or ''
 
 
@@ -353,7 +346,7 @@ def _extract_companies(client, results_text: str, segment_label: str) -> list:
         raw = _ollama_chat(client, [
             {'role': 'system', 'content': prompt},
             {'role': 'user',   'content': f'Сегмент: {segment_label}\n\n{results_text}'},
-        ], expect_json=False)
+        ], expect_json=True)
         clean = _extract_json(raw)
         if not clean:
             return []
@@ -389,7 +382,7 @@ def _extract_lpr_from_combined(client, company: dict, combined_text: str,
                 f'Сайт: {company.get("website") or "неизвестен"}\n\n'
                 f'Собранная информация:\n{combined_text}'
             )},
-        ], expect_json=False)
+        ], expect_json=True)
         data = json.loads(_extract_json(raw))
         # Чистим "null"-строки от модели
         for field in ('person_name', 'title', 'email', 'phone', 'source_url'):
@@ -468,6 +461,22 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn) -> tuple[str | None, s
 
     combined_parts = []
     director_name  = None
+    found_email    = None
+    found_phone    = None
+
+    def _quick_scan(text: str):
+        nonlocal found_email, found_phone
+        if not found_email:
+            emails = extract_emails_from_text(text)
+            if emails:
+                found_email = emails[0]
+        if not found_phone:
+            phones = re.findall(
+                r'(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',
+                text
+            )
+            if phones:
+                found_phone = phones[0]
 
     # Проход 1: директор из российских реестров
     q1 = f'"{name}" генеральный директор'
@@ -475,6 +484,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn) -> tuple[str | None, s
         r1 = tavily.search(q1, max_results=5)
         text1 = _results_to_text(r1, 700)
         combined_parts.append(text1)
+        _quick_scan(text1)
         for item in r1.get('results', []):
             found = extract_director_name(item.get('content') or '')
             if found:
@@ -483,43 +493,36 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn) -> tuple[str | None, s
                 break
     except Exception:
         pass
-    time.sleep(0.2)
 
-    # Проход 2: личный email директора
-    if director_name:
+    # Проход 2: личный email директора (только если ещё нет email)
+    if director_name and not found_email:
         q2 = f'"{director_name}" "{name}" email'
         try:
             r2 = tavily.search(q2, max_results=4)
             text2 = _results_to_text(r2, 500)
             combined_parts.append(text2)
-            for item in r2.get('results', []):
-                emails = extract_emails_from_text(item.get('content', ''))
-                if emails:
-                    log_fn(f'   📧 Email в выдаче: {emails[0]}')
-                    break
+            _quick_scan(text2)
+            if found_email:
+                log_fn(f'   📧 Email в выдаче: {found_email}')
         except Exception:
             pass
-        time.sleep(0.2)
 
-    # Проход 3: контакты компании (email + телефон)
-    q3 = (f'site:{domain} контакты email телефон' if domain
-          else f'"{name}" контакты email телефон официальный')
-    try:
-        r3 = tavily.search(q3, max_results=4)
-        text3 = _results_to_text(r3, 600)
-        combined_parts.append(text3)
-        # Быстрая проверка на телефон в сниппетах
-        for item in r3.get('results', []):
-            phones = re.findall(r'[\+7|8][\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}', item.get('content', ''))
-            if phones:
-                log_fn(f'   📞 Телефон в выдаче: {phones[0]}')
-                break
-    except Exception:
-        pass
-    time.sleep(0.2)
+    # Проход 3: контакты компании (нужен если нет email или телефона)
+    if not (found_email and found_phone):
+        q3 = (f'site:{domain} контакты email телефон' if domain
+              else f'"{name}" контакты email телефон официальный')
+        try:
+            r3 = tavily.search(q3, max_results=4)
+            text3 = _results_to_text(r3, 600)
+            combined_parts.append(text3)
+            _quick_scan(text3)
+            if found_phone:
+                log_fn(f'   📞 Телефон в выдаче: {found_phone}')
+        except Exception:
+            pass
 
-    # Проход 4: отдельный поиск телефона директора (если нужно)
-    if director_name:
+    # Проход 4: телефон директора (только если до сих пор нет телефона)
+    if director_name and not found_phone:
         q4 = f'"{name}" телефон мобильный директор контакты'
         try:
             r4 = tavily.search(q4, max_results=3)
@@ -708,7 +711,7 @@ def _research_worker(run_id: int, config: dict):
             remaining = target_count - len(found_contacts)
             _log(run_id, f'   ✅ {person} — {detail} | найдено {len(found_contacts)}/{target_count}, осталось {remaining}')
 
-            time.sleep(0.3)
+            time.sleep(0.1)
 
     # Финальное обновление статуса
     conn  = get_db()
