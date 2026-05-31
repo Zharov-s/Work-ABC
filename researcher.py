@@ -8,7 +8,7 @@ from database import get_db
 
 TAVILY_API_KEY  = os.getenv('TAVILY_API_KEY', '')
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')
-OLLAMA_MODEL    = os.getenv('OLLAMA_MODEL', 'qwen3:4b')
+OLLAMA_MODEL    = os.getenv('OLLAMA_MODEL', 'gemma3:4b')
 
 _runs: dict = {}
 _lock = threading.Lock()
@@ -129,17 +129,25 @@ _LEGAL_PREFIX = re.compile(
 )
 
 # Regex для извлечения ФИО директора из сниппетов rusprofile/zachestnyibiznes
+_DASH   = r'[-–—]'   # дефис, en-dash U+2013, em-dash U+2014
+_FIO_3  = r'([А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+)'   # Фамилия Имя Отчество
+_FIO_IO = r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.[А-ЯЁ]\.)'              # Фамилия И.О.
+
 _DIRECTOR_PATTERNS = [
-    # "Генеральный директор ... - Фамилия Имя Отчество"
-    re.compile(r'(?:Генеральный директор|ГД).{0,60}[-—]\s*([А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+)', re.IGNORECASE),
+    # "Генеральный директор – Фамилия Имя Отчество" (любой разделитель)
+    re.compile(rf'(?:Генеральный директор|Ген\.\s*директор|ГД).{{0,80}}{_DASH}\s*{_FIO_3}', re.IGNORECASE),
     # "Директор - Фамилия Имя Отчество"
-    re.compile(r'(?:Директор|Руководитель)\s*[-—:]\s*([А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+)'),
+    re.compile(rf'(?:Директор|Руководитель|Президент)\s*{_DASH}\s*{_FIO_3}'),
+    # "Директор: Фамилия Имя Отчество"
+    re.compile(rf'(?:Директор|Руководитель)\s*:\s*{_FIO_3}'),
+    # "Генеральный директор: Фамилия Имя Отчество"
+    re.compile(rf'(?:Генеральный директор|директор)[^.{{}}]{{0,40}}:\s*{_FIO_3}', re.IGNORECASE),
     # "Директор - Фамилия И.О."
-    re.compile(r'(?:Директор|Руководитель)\s*[-—:]\s*([А-ЯЁ][а-яё]+\s+[А-ЯЁ]\.[А-ЯЁ]\.)'),
-    # "Генеральный директор: Фамилия ..."
-    re.compile(r'(?:Генеральный директор|директор)[^.]{0,30}[:]\s*([А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+)', re.IGNORECASE),
+    re.compile(rf'(?:Директор|Руководитель)\s*{_DASH}\s*{_FIO_IO}'),
     # "ГД Фамилия Имя Отчество"
-    re.compile(r'\bГД\s+([А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+ [А-ЯЁ][а-яё]+)'),
+    re.compile(rf'\bГД\s+{_FIO_3}'),
+    # "директор Фамилия Имя Отчество" в середине текста
+    re.compile(rf'директор\s+{_FIO_3}', re.IGNORECASE),
 ]
 
 # Regex для извлечения email из текста
@@ -222,11 +230,18 @@ def _set_run_status(run_id: int, status: str, found_count: int = 0):
 
 # ── Ollama ─────────────────────────────────────────────────────────────────
 
-def _ollama_chat(client, messages: list, expect_json: bool = True) -> str:
-    kwargs = dict(model=OLLAMA_MODEL, messages=messages, temperature=0.1, max_tokens=800)
-    if expect_json:
-        kwargs['response_format'] = {'type': 'json_object'}
-    resp = client.chat.completions.create(**kwargs)
+def _ollama_chat(client, messages: list, expect_json: bool = False) -> str:
+    """
+    Вызов Ollama. response_format НЕ используем — gemma3:4b/llama3.2 его
+    игнорируют или возвращают пустой ответ. Вместо этого парсим JSON из
+    сырого текста через _extract_json().
+    """
+    resp = client.chat.completions.create(
+        model=OLLAMA_MODEL,
+        messages=messages,
+        temperature=0.1,
+        max_tokens=2000,
+    )
     return resp.choices[0].message.content or ''
 
 
@@ -234,6 +249,29 @@ def _strip_think(raw: str) -> str:
     if '<think>' in raw and '</think>' in raw:
         return raw[raw.rfind('</think>') + 8:].strip()
     return raw
+
+
+def _extract_json(raw: str) -> str:
+    """
+    Надёжно извлекает JSON из ответа модели — работает с любым форматом:
+    - Чистый JSON
+    - JSON в ```json ... ``` блоке
+    - JSON с думательным блоком <think>
+    - JSON с пояснениями до/после
+    """
+    if not raw:
+        return ''
+    # 1. Убрать thinking блок
+    raw = _strip_think(raw)
+    # 2. Убрать markdown code block (```json ... ``` или ``` ... ```)
+    md = re.search(r'```(?:json)?\s*([\s\S]+?)\s*```', raw)
+    if md:
+        return md.group(1).strip()
+    # 3. Попробовать найти JSON-объект напрямую
+    obj = re.search(r'\{[\s\S]*\}', raw)
+    if obj:
+        return obj.group(0)
+    return raw.strip()
 
 
 def _check_ollama(client) -> bool:
@@ -248,18 +286,22 @@ def _check_ollama(client) -> bool:
 
 def _extract_companies(client, results_text: str, segment_label: str) -> list:
     prompt = (
-        'Ты помогаешь находить компании для аренды в промышленном технопарке класса A+ в Москве (Митино). '
-        'Объект: производство, R&D, лаборатории, шоурум, light industrial. '
-        'НЕ подходят: склады, ритейл, чистые офисы без производства, тяжёлая промышленность. '
-        'Из результатов поиска извлеки список реальных российских компаний. '
-        'Верни ТОЛЬКО JSON: {"companies": [{"name": "название", "website": "сайт или null", "description": "описание"}]}'
+        'Ты помогаешь находить компании для аренды в промышленном технопарке класса A+ в Москве. '
+        'Подходят: производство, R&D, лаборатории, шоурум, light industrial. '
+        'НЕ подходят: склады, чистый ритейл, офисы без производства. '
+        'Из результатов поиска выдели реальные российские компании. '
+        'Верни ТОЛЬКО JSON без пояснений: '
+        '{"companies": [{"name": "название компании", "website": "url или null", "description": "краткое описание"}]}'
     )
     try:
-        raw  = _ollama_chat(client, [
+        raw = _ollama_chat(client, [
             {'role': 'system', 'content': prompt},
             {'role': 'user',   'content': f'Сегмент: {segment_label}\n\n{results_text}'},
-        ])
-        return json.loads(_strip_think(raw)).get('companies', [])
+        ], expect_json=False)
+        clean = _extract_json(raw)
+        if not clean:
+            return []
+        return json.loads(clean).get('companies', [])
     except Exception:
         return []
 
@@ -291,15 +333,26 @@ def _extract_lpr_from_combined(client, company: dict, combined_text: str,
                 f'Сайт: {company.get("website") or "неизвестен"}\n\n'
                 f'Собранная информация:\n{combined_text}'
             )},
-        ])
-        data = json.loads(_strip_think(raw))
+        ], expect_json=False)
+        data = json.loads(_extract_json(raw))
         email = (data.get('email') or '').lower().strip()
         if email and is_generic_email(email):
             data['email'] = None
-        # Если директор известен но ИИ не нашёл имя — подставляем
+            email = ''
+        data['email'] = email or None
+
+        # Директор из реестра — подставляем всегда если ИИ не нашёл лучше
         if known_director and not data.get('person_name'):
             data['person_name'] = known_director
             data['title']       = data.get('title') or 'Генеральный директор'
+
+        # Также пробуем вытащить email из текста regex-ом, если ИИ не нашёл
+        if not data.get('email'):
+            regex_emails = extract_emails_from_text(combined_text)
+            if regex_emails:
+                data['email'] = regex_emails[0]
+
+        # Возвращаем если есть хотя бы имя ЛПР
         if data.get('person_name') or data.get('email') or data.get('phone'):
             data['company_name'] = company.get('name', '')
             data['website']      = company.get('website', '')
