@@ -254,6 +254,7 @@ def research():
         regions=REGION_SUFFIX,
         scales=SCALE_LABELS,
         contact_requirements=CONTACT_REQUIREMENT_LABELS,
+        research_features_version=2,
     )
 
 
@@ -284,7 +285,12 @@ def research_start():
         'active_only':   True,
     }
     run_id = start_research(config)
-    return jsonify({'ok': True, 'run_id': run_id})
+    return jsonify({
+        'ok': True,
+        'run_id': run_id,
+        'contact_requirements': contact_requirements,
+        'research_features_version': 2,
+    })
 
 
 @app.route('/research/run/<int:run_id>/pause', methods=['POST'])

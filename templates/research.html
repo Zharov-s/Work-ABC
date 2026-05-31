@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set supports_contact_requirements = research_features_version|default(0, true) >= 2 %}
 {% block title %}Research — ABCENTRUM{% endblock %}
 {% block heading %}Research — поиск ЛПР{% endblock %}
 
@@ -42,6 +43,11 @@
         Параметры поиска
         <span class="filters-panel-hint">Уточняют запросы к поисковику</span>
       </div>
+      {% if not supports_contact_requirements %}
+      <div class="alert alert-error stale-backend-alert">
+        Backend запущен в старой версии. Перезапустите сервер, иначе фильтры требований не будут применяться.
+      </div>
+      {% endif %}
       <form id="research-form">
 
         <!-- Отрасль -->
@@ -291,8 +297,8 @@
 
         <!-- Кнопка -->
         <div class="filters-action">
-          <button type="submit" class="btn btn-primary btn-full btn-large" id="start-btn">
-            ▶ Запустить поиск
+          <button type="submit" class="btn btn-primary btn-full btn-large" id="start-btn" {% if not supports_contact_requirements %}disabled{% endif %}>
+            {% if supports_contact_requirements %}▶ Запустить поиск{% else %}Перезапустите сервер{% endif %}
           </button>
           <div class="hint-text" style="text-align:center;margin-top:6px">
             Ищет только новые компании, не дублирует базу
@@ -431,6 +437,8 @@
 
 {% block scripts %}
 <script>
+const BACKEND_SUPPORTS_CONTACT_REQUIREMENTS = {{ 'true' if supports_contact_requirements else 'false' }};
+
 // ── Аккордеон ──────────────────────────────────────────────────────────────
 function toggleAccordion(header) {
   const body    = header.nextElementSibling;
@@ -540,6 +548,11 @@ if (BOOT_RUNNING_ID) {
 document.getElementById('research-form').addEventListener('submit', function(e) {
   e.preventDefault();
 
+  if (!BACKEND_SUPPORTS_CONTACT_REQUIREMENTS) {
+    alert('Backend запущен в старой версии. Перезапустите Flask-сервер, чтобы фильтры требований применялись.');
+    return;
+  }
+
   const segs = this.querySelectorAll('input[name="segments"]:checked');
   if (segs.length === 0) {
     alert('Выберите хотя бы один сегмент компаний');
@@ -579,6 +592,12 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
     .then(r => r.json())
     .then(d => {
       if (d.ok) {
+        if (!Array.isArray(d.contact_requirements)) {
+          alert('Backend не подтвердил требования к результату. Перезапустите Flask-сервер и запустите поиск заново.');
+          startBtn.disabled    = false;
+          startBtn.textContent = '▶ Запустить поиск';
+          return;
+        }
         insertRunHistoryRow(d.run_id, runConfig);
         showRunPanel(d.run_id);
         pollInterval = setInterval(pollStatus, 2000);
