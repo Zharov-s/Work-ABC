@@ -296,8 +296,8 @@
         <div class="filters-action">
           <button type="submit" class="btn btn-primary btn-full btn-large" id="start-btn" {% if not supports_contact_requirements %}disabled{% endif %}>
             {% if supports_contact_requirements %}
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 2l9 5-9 5V2z" fill="currentColor"/></svg>
-            Запустить поиск
+            <svg class="btn-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 2.5L13.5 8 4 13.5V2.5Z" fill="currentColor" stroke="currentColor" stroke-width="0.5" stroke-linejoin="round"/></svg>
+            <span id="start-btn-label">Запустить поиск</span>
             {% else %}Перезапустите сервер{% endif %}
           </button>
           <div class="hint-text" style="text-align:center;margin-top:6px">
@@ -317,12 +317,13 @@
           Выполнение
           <div style="display:flex; align-items:center; gap:10px">
             <button id="pause-btn" style="display:none" class="btn-pause" onclick="clickPause()">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>
-              Пауза
+              <svg id="pause-icon" class="btn-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3.5" y="2.5" width="3.5" height="11" rx="1.2" fill="currentColor"/><rect x="9" y="2.5" width="3.5" height="11" rx="1.2" fill="currentColor"/></svg>
+              <svg id="resume-icon" class="btn-svg" style="display:none" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 2.5L13.5 8 4 13.5V2.5Z" fill="currentColor" stroke="currentColor" stroke-width="0.5" stroke-linejoin="round"/></svg>
+              <span id="pause-btn-label">Пауза</span>
             </button>
             <button id="finish-btn" style="display:none" class="btn-finish" onclick="clickFinish()">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 4-8 4V2z" fill="currentColor"/><rect x="9" y="2" width="1.5" height="8" rx="0.5" fill="currentColor"/></svg>
-              Завершить
+              <svg class="btn-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12l6.5-7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span id="finish-btn-label">Завершить</span>
             </button>
             <span class="status-badge" id="run-status-badge">Запускаем...</span>
           </div>
@@ -554,7 +555,7 @@ if (BOOT_RUNNING_ID) {
   const isPaused  = bootRow && bootRow.querySelector('.badge-orange');
   const startBtn  = document.getElementById('start-btn');
   startBtn.disabled    = true;
-  startBtn.textContent = isPaused ? '⏸ На паузе...' : '⏳ Выполняется...';
+  document.getElementById('start-btn-label').textContent = isPaused ? 'На паузе...' : 'Выполняется...';
   pollStatus();
   pollInterval = setInterval(pollStatus, 2000);
 }
@@ -593,7 +594,7 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
 
   const startBtn = document.getElementById('start-btn');
   startBtn.disabled    = true;
-  startBtn.textContent = '⏳ Выполняется...';
+  document.getElementById('start-btn-label').textContent = 'Выполняется...';
 
   document.getElementById('run-progress-strip').style.display = 'none';
   document.getElementById('log-console').innerHTML            = '';
@@ -615,7 +616,7 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
         if (!Array.isArray(d.contact_requirements)) {
           alert('Backend не подтвердил требования к результату. Перезапустите Flask-сервер и запустите поиск заново.');
           startBtn.disabled    = false;
-          startBtn.textContent = '▶ Запустить поиск';
+          document.getElementById('start-btn-label').textContent = 'Запустить поиск';
           return;
         }
         insertRunHistoryRow(d.run_id, runConfig);
@@ -624,7 +625,7 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
       } else {
         alert('Ошибка запуска: ' + (d.error || ''));
         startBtn.disabled    = false;
-        startBtn.textContent = '▶ Запустить поиск';
+        document.getElementById('start-btn-label').textContent = 'Запустить поиск';
       }
     });
 });
@@ -661,18 +662,18 @@ function pollStatus() {
           `Сохранено в базу: ${d.found_count} новых контактов`;
         const btn         = document.getElementById('start-btn');
         btn.disabled      = false;
-        btn.textContent   = '▶ Запустить поиск';
+        document.getElementById('start-btn-label').textContent = 'Запустить поиск';
       } else if (d.status === 'failed') {
         clearInterval(pollInterval);
         badge.textContent = '❌ Ошибка (см. лог)';
         badge.style.color = '#dc2626';
         const btn         = document.getElementById('start-btn');
         btn.disabled      = false;
-        btn.textContent   = '▶ Запустить поиск';
+        document.getElementById('start-btn-label').textContent = 'Запустить поиск';
       } else if (d.status === 'paused') {
         badge.textContent = '⏸ На паузе';
         badge.style.color = '#b45309';
-        document.getElementById('start-btn').textContent = '⏸ На паузе...';
+        document.getElementById('start-btn-label').textContent = 'На паузе...';
       } else if (d.status === 'finishing') {
         badge.textContent = 'Завершаем...';
         badge.style.color = '#2563eb';
@@ -683,7 +684,7 @@ function pollStatus() {
         badge.style.color = '#b45309';
         const btn         = document.getElementById('start-btn');
         btn.disabled      = false;
-        btn.textContent   = '▶ Запустить поиск';
+        document.getElementById('start-btn-label').textContent = 'Запустить поиск';
         updateRunHistoryRow(currentRunId, d.found_count, d.target_count, 'interrupted');
         if (_openRows.has(String(currentRunId))) fetchRunContacts(String(currentRunId));
       }
@@ -697,7 +698,8 @@ function updatePauseBtn(status) {
   if (!btn || !finishBtn) return;
   if (status === 'running') {
     btn.style.display  = '';
-    btn.textContent    = '⏸ Пауза';
+    document.getElementById('pause-btn-label').textContent = 'Пауза';
+    document.getElementById('pause-icon').style.display=''; document.getElementById('resume-icon').style.display='none';
     btn.dataset.state  = 'running';
     btn.disabled       = false;
     btn.classList.remove('btn-pause--resume');
@@ -705,7 +707,8 @@ function updatePauseBtn(status) {
     finishBtn.disabled = false;
   } else if (status === 'paused') {
     btn.style.display  = '';
-    btn.textContent    = '▶ Продолжить';
+    document.getElementById('pause-btn-label').textContent = 'Продолжить';
+    document.getElementById('pause-icon').style.display='none'; document.getElementById('resume-icon').style.display='';
     btn.dataset.state  = 'paused';
     btn.disabled       = false;
     btn.classList.add('btn-pause--resume');
@@ -719,7 +722,7 @@ function updatePauseBtn(status) {
   } else {
     btn.style.display = 'none';
     finishBtn.style.display = 'none';
-    finishBtn.textContent = 'Завершить';
+    document.getElementById('finish-btn-label').textContent = 'Завершить';
   }
 }
 
