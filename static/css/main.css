@@ -2345,3 +2345,48 @@ body.login-page {
 
 /* Run log console stays dark always */
 .log-console { background: #0f172a; color: #94a3b8; }
+
+/* ══ Dashboard — action items ══ */
+.glass-top-row {
+  grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
+}
+.glass-right-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.glass-right-stack .glass-card { margin-bottom: 0; flex: 1; }
+
+/* Action list inside card */
+.dash-actions { padding: 6px 0 4px; }
+.dash-action-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 20px;
+  text-decoration: none;
+  border-bottom: 1px solid var(--border-soft);
+  transition: background 0.15s;
+  cursor: pointer;
+}
+.dash-action-item:last-child { border-bottom: none; padding-bottom: 16px; }
+.dash-action-item:hover { background: var(--surface-2); }
+.dash-action-icon {
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+.dash-action-item:hover .dash-action-icon { transform: scale(1.08); }
+.dash-action-icon--search { background: rgba(255,85,93,0.12); color: #FF555D; }
+.dash-action-icon--mail   { background: rgba(74,124,247,0.12); color: #4A7CF7; }
+.dash-action-icon--contacts { background: rgba(16,163,74,0.12); color: #16A34A; }
+[data-theme="dark"] .dash-action-icon--search   { background: rgba(255,85,93,0.18);  color: #FF8589; }
+[data-theme="dark"] .dash-action-icon--mail     { background: rgba(74,124,247,0.18); color: #93C5FD; }
+[data-theme="dark"] .dash-action-icon--contacts { background: rgba(46,204,113,0.18); color: #86EFAC; }
+.dash-action-body { flex: 1; min-width: 0; }
+.dash-action-title { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.dash-action-desc  { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.dash-action-arrow { flex-shrink: 0; color: var(--text-3); opacity: 0.7; }
+.dash-action-item:hover .dash-action-arrow { opacity: 1; color: var(--accent); }
