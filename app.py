@@ -389,7 +389,7 @@ def research_status(run_id):
 @app.route('/campaigns')
 @login_required
 def campaigns():
-    conn    = get_db()
+    conn = get_db()
     sync_mailing_recipients(conn)
     conn.commit()
     mailing_stats = get_mailing_stats(conn)
@@ -397,26 +397,98 @@ def campaigns():
         'SELECT * FROM send_history ORDER BY id DESC LIMIT 20'
     ).fetchall()
 
-    # Предзаполнение адресов если пришли с Контактов
-    preselect_ids  = request.args.get('ids', '')
-    preselect_tmpl = request.args.get('template', 'mitino')
-    preselect_addrs = ''
-    if preselect_ids:
-        ids = [int(x) for x in preselect_ids.split(',') if x.strip().isdigit()]
-        rows = conn.execute(
-            f"SELECT email FROM contacts WHERE id IN ({','.join('?'*len(ids))})", ids
-        ).fetchall()
-        preselect_addrs = '\n'.join(r['email'] for r in rows if r['email'])
-
+    preselect_ids_raw = request.args.get('ids', '')
+    preselect_tmpl    = request.args.get('template', 'mitino')
+    preselect_ids     = [int(x) for x in preselect_ids_raw.split(',')
+                         if x.strip().isdigit()] if preselect_ids_raw else []
     conn.close()
     return render_template('campaigns.html',
         history=history,
         templates=TEMPLATE_META,
-        preselect_addrs=preselect_addrs,
+        preselect_ids=json.dumps(preselect_ids),
         preselect_tmpl=preselect_tmpl,
         mailing_stats=mailing_stats,
         mailing_batch_limit=MAILING_BATCH_LIMIT,
     )
+
+
+@app.route('/api/contacts/for-campaign')
+@login_required
+def contacts_for_campaign():
+    """Возвращает список контактов для пикера получателей рассылки."""
+    template      = request.args.get('template', 'mitino')
+    status_filter = request.args.get('status', 'new')   # 'new' | 'all'
+    segment       = request.args.get('segment', '').strip()
+    search        = request.args.get('search', '').strip()
+
+    conn = get_db()
+
+    # email-адреса, которым уже отправляли именно этот шаблон
+    sent_emails: set = set()
+    if status_filter == 'new':
+        rows = conn.execute(
+            """SELECT DISTINCT lower(sr.email) AS email
+               FROM send_recipients sr
+               JOIN send_history sh ON sr.send_id = sh.id
+               WHERE sh.template = ? AND sr.status = 'sent'""",
+            (template,)
+        ).fetchall()
+        sent_emails = {r['email'] for r in rows}
+
+    # Строим запрос контактов
+    conditions = ["c.email IS NOT NULL AND c.email != ''"]
+    params: list = []
+
+    if search:
+        like = f'%{search}%'
+        conditions.append(
+            '(c.company_name LIKE ? OR c.person_name LIKE ? OR c.email LIKE ?)'
+        )
+        params.extend([like, like, like])
+
+    if segment:
+        conditions.append('c.segment = ?')
+        params.append(segment)
+
+    where = ' AND '.join(conditions)
+    contacts_raw = conn.execute(
+        f"""SELECT c.id, c.company_name, c.person_name,
+                   c.email, c.personal_email, c.generic_email, c.segment
+            FROM contacts c
+            WHERE {where}
+            ORDER BY c.company_name COLLATE NOCASE""",
+        params
+    ).fetchall()
+
+    segments = [r[0] for r in conn.execute(
+        "SELECT DISTINCT segment FROM contacts "
+        "WHERE segment IS NOT NULL AND segment != '' ORDER BY segment"
+    ).fetchall()]
+
+    conn.close()
+
+    contacts = []
+    for r in contacts_raw:
+        all_emails = {
+            (r['email']          or '').lower(),
+            (r['personal_email'] or '').lower(),
+            (r['generic_email']  or '').lower(),
+        } - {''}
+        is_sent = bool(all_emails & sent_emails)
+
+        if status_filter == 'new' and is_sent:
+            continue
+
+        contacts.append({
+            'id':      r['id'],
+            'company': r['company_name'] or '',
+            'person':  r['person_name']  or '',
+            'email':   r['email'],
+            'segment': r['segment']      or '',
+            'is_sent': is_sent,
+        })
+
+    return jsonify({'contacts': contacts, 'segments': segments})
 
 
 @app.route('/campaigns/send', methods=['POST'])

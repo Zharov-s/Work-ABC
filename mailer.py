@@ -213,18 +213,12 @@ def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, sour
 
 def send_campaign(template_key, raw_addresses, contact_ids=None):
     """
-    Ручная отправка по введённым адресам.
-    Все адреса идут в BCC, To = from_email.
-    За один ручной запуск нельзя отправить больше 29 адресов.
+    Отправка по выбранным адресам. Если адресов > 29, автоматически
+    разбивает на батчи и отправляет последовательно.
     """
     valid, invalid = parse_addresses(raw_addresses)
-
-    if len(valid) > MAILING_BATCH_LIMIT:
-        return {
-            'ok': False,
-            'error': f'Превышен лимит: {len(valid)} адресов (максимум {MAILING_BATCH_LIMIT} за раз)'
-        }
-
+    if not valid:
+        return {'ok': False, 'error': 'Нет валидных адресов для отправки'}
     return _send_addresses(template_key, valid, invalid, source='manual')
 
 
