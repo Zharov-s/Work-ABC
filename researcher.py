@@ -11,6 +11,7 @@ import time
 import threading
 from datetime import datetime
 from urllib.parse import urlparse
+import requests
 from database import get_db
 
 TAVILY_API_KEY  = os.getenv('TAVILY_API_KEY', '')
@@ -21,6 +22,8 @@ OLLAMA_MODEL    = os.getenv('OLLAMA_MODEL', 'gemma3:4b')   # улучшен с q
 GROQ_API_KEY   = os.getenv('GROQ_API_KEY', '')
 GROQ_BASE_URL  = 'https://api.groq.com/openai/v1'
 GROQ_MODEL     = 'llama-3.3-70b-versatile'
+
+TAVILY_TIMEOUT_SECONDS = 8
 
 # Активный LLM: Groq если есть ключ, иначе Ollama
 if GROQ_API_KEY:
@@ -171,6 +174,20 @@ BLOCKED_WEBSITE_DOMAIN_SUFFIXES = (
     '.wikipedia.org',
 )
 
+SOURCE_ONLY_DOMAINS = {
+    'tbank.ru', 'www.tbank.ru', 'saby.ru', 'www.saby.ru',
+    'rusprofile.ru', 'www.rusprofile.ru',
+    'zachestnyibiznes.ru', 'www.zachestnyibiznes.ru',
+    'checko.ru', 'www.checko.ru',
+    'list-org.com', 'www.list-org.com',
+    'sbis.ru', 'www.sbis.ru',
+    'audit-it.ru', 'www.audit-it.ru',
+    'spark-interfax.ru', 'www.spark-interfax.ru',
+    'kartoteka.ru', 'www.kartoteka.ru',
+    'nalog.ru', 'egrul.nalog.ru', 'www.nalog.ru',
+    '2gis.ru', 'www.2gis.ru',
+}
+
 
 def _url_domain(url: str) -> str:
     raw = (url or '').strip()
@@ -183,6 +200,109 @@ def _url_domain(url: str) -> str:
     except Exception:
         return ''
     return (parsed.netloc or '').split('@')[-1].split(':')[0].lower()
+
+
+def _domain_base(domain_or_url: str) -> str:
+    raw = (domain_or_url or '').strip().lower()
+    if not raw:
+        return ''
+    if '/' in raw or ':' in raw:
+        raw = _url_domain(raw)
+    if raw.startswith('www.'):
+        raw = raw[4:]
+    labels = [p for p in raw.split('.') if p]
+    if not labels:
+        return ''
+    if len(labels) >= 3 and labels[-2] in {'com', 'net', 'org', 'msk', 'spb'} and labels[-1] == 'ru':
+        return labels[-3]
+    if len(labels) >= 2:
+        return labels[-2]
+    return labels[0]
+
+
+_CYR_TO_LAT = str.maketrans({
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e',
+    'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+    'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+    'ф': 'f', 'х': 'h', 'ц': 'c', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch',
+    'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+})
+
+
+def _translit(value: str) -> str:
+    return (value or '').lower().translate(_CYR_TO_LAT)
+
+
+_COMPANY_TOKEN_STOPWORDS = {
+    'ооо', 'ао', 'пао', 'зао', 'оао', 'нко', 'нпп', 'нпо', 'нпц', 'фгуп',
+    'гуп', 'муп', 'ип', 'инн', 'кпп', 'огрн', 'москва', 'московская',
+    'область', 'россия', 'рф', 'г', 'город', 'в', 'из', 'компания',
+    'company', 'llc', 'jsc', 'pjsc',
+}
+
+
+def _company_tokens(name: str) -> list[str]:
+    cleaned = normalize_company_name(name)
+    cleaned = re.sub(r'\b(?:инн|кпп|огрн)\b.*$', '', cleaned, flags=re.IGNORECASE)
+    raw_tokens = re.findall(r'[a-zA-Zа-яёА-ЯЁ0-9]+', cleaned)
+    tokens = []
+    for token in raw_tokens:
+        token_l = token.lower()
+        if token_l in _COMPANY_TOKEN_STOPWORDS or token_l.isdigit():
+            continue
+        translit = re.sub(r'[^a-z0-9]', '', _translit(token_l))
+        if len(translit) >= 2:
+            tokens.append(translit)
+    return tokens
+
+
+def _source_only_domain(domain: str) -> bool:
+    domain = (domain or '').lower()
+    if domain in SOURCE_ONLY_DOMAINS:
+        return True
+    return any(domain.endswith('.' + d) for d in SOURCE_ONLY_DOMAINS if not d.startswith('www.'))
+
+
+def _domain_matches_company(name: str, domain_or_url: str) -> bool:
+    base = _domain_base(domain_or_url)
+    if len(base) < 3:
+        return False
+    tokens = _company_tokens(name)
+    if not tokens:
+        return False
+
+    joined = ''.join(tokens)
+    if len(joined) >= 3 and (base in joined or joined in base):
+        return True
+
+    acronym = ''.join(t[0] for t in tokens if t)
+    if len(acronym) >= 3 and (base == acronym or base in acronym or acronym in base):
+        return True
+
+    return any(len(t) >= 4 and (base in t or t in base) for t in tokens)
+
+
+def _company_name_in_text(name: str, text: str) -> bool:
+    haystack = re.sub(r'[^a-z0-9]+', ' ', _translit(text or '')).strip()
+    if not haystack:
+        return False
+    tokens = [t for t in _company_tokens(name) if len(t) >= 3]
+    if not tokens:
+        return False
+    hits = sum(1 for token in tokens if token in haystack)
+    return hits >= min(2, len(tokens))
+
+
+def is_company_website_url(company_name: str, url: str, evidence_text: str = '') -> bool:
+    official = normalize_official_website(url)
+    if not official or not company_name:
+        return False
+    domain = _url_domain(official)
+    if _domain_matches_company(company_name, official):
+        return True
+    if _source_only_domain(domain):
+        return False
+    return _company_name_in_text(company_name, evidence_text)
 
 
 def normalize_official_website(url: str) -> str | None:
@@ -243,7 +363,7 @@ def contact_satisfies_requirements(contact: dict, requirements) -> tuple[bool, s
 
     if 'company_name' in reqs and not company_name:
         return False, 'нет наименования компании'
-    if 'website' in reqs and not is_official_website_url(website):
+    if 'website' in reqs and not is_company_website_url(company_name, website):
         return False, 'нет официального сайта'
     if reqs.intersection({'personal_email', 'mobile_phone'}) and (not person or len(person.split()) < 2):
         return False, 'нет ФИО ЛПР для личного контакта'
@@ -251,10 +371,14 @@ def contact_satisfies_requirements(contact: dict, requirements) -> tuple[bool, s
         not personal_email or not is_valid_email_format(personal_email) or is_generic_email(personal_email)
     ):
         return False, 'нет личного email'
+    if 'personal_email' in reqs and not email_belongs_to_company(personal_email, company_name, website):
+        return False, 'личный email не относится к компании'
     if 'generic_email' in reqs and (
         not generic_email or not is_valid_email_format(generic_email) or not is_generic_email(generic_email)
     ):
         return False, 'нет общего email'
+    if 'generic_email' in reqs and not email_belongs_to_company(generic_email, company_name, website):
+        return False, 'общий email не относится к компании'
     if 'mobile_phone' in reqs and (not is_valid_phone(mobile_phone) or not is_mobile_phone(mobile_phone)):
         return False, 'нет мобильного телефона'
     if 'generic_phone' in reqs and (
@@ -506,7 +630,21 @@ def _search(tavily, query: str, max_results: int = 5) -> dict:
     Используется везде вместо прямых _search(tavily, ) вызовов.
     """
     try:
-        result = tavily.search(query, max_results=max_results)
+        result = requests.post(
+            tavily.base_url + '/search',
+            data=json.dumps({
+                'query': query,
+                'search_depth': 'basic',
+                'topic': 'general',
+                'include_answer': False,
+                'include_raw_content': False,
+                'max_results': max_results,
+            }),
+            headers=tavily.headers,
+            timeout=TAVILY_TIMEOUT_SECONDS,
+        )
+        result.raise_for_status()
+        result = result.json()
         if result.get('results'):
             return result
     except Exception:
@@ -519,16 +657,6 @@ def _ddgs_search(query: str, max_results: int = 5) -> dict:
     Поиск через DuckDuckGo — бесплатная альтернатива Tavily.
     Возвращает dict в формате Tavily (results: [{title, url, content}]).
     """
-    # Домены-мусор: агрегаторы вакансий, новостные сайты, статьи об приложениях
-    _SKIP_DOMAINS = frozenset([
-        'hh.ru', 'rabota.ru', 'superjob.ru', 'trudvsem.ru', 'zarplata.ru',
-        'avito.ru', 'youla.ru', 'ozon.ru', 'wildberries.ru',
-        'vc.ru', 'habr.com', 'pikabu.ru', 'reddit.com',
-        'wikipedia.org', 'vikipedia.org',
-        'news.', 'rbc.ru', 'kommersant.ru', 'vedomosti.ru',
-        'youtube.com', 'vk.com', 'ok.ru', 't.me',
-    ])
-
     try:
         from ddgs import DDGS
         results = []
@@ -536,10 +664,6 @@ def _ddgs_search(query: str, max_results: int = 5) -> dict:
             for item in ddgs.text(query, max_results=max_results + 5):
                 url   = item.get('href', '')
                 title = item.get('title', '')
-                # Фильтруем мусор
-                url_lower = url.lower()
-                if any(skip in url_lower for skip in _SKIP_DOMAINS):
-                    continue
                 # Пропускаем статьи, каталоги, образование и прочий нерелевантный контент
                 title_lower = title.lower()
                 if any(w in title_lower for w in [
@@ -610,6 +734,7 @@ BLOCKED_EMAIL_PREFIXES = {
     'media', 'hr', 'career', 'communications', 'comms', 'post', 'inbox',
     'noreply', 'no-reply', 'feedback', 'help', 'service', 'request',
     'quality', 'tender', 'zakupki', 'buh', 'director', 'general',
+    'business', 'welcome', 'client', 'clients', 'customer', 'personal',
 }
 
 # Юридические форм-факторы для нормализации
@@ -696,6 +821,17 @@ def is_generic_email(email: str) -> bool:
         or local.startswith(p + '.') or (local.startswith(p) and local[len(p):len(p)+1].isdigit())
         for p in BLOCKED_EMAIL_PREFIXES
     )
+
+
+def email_belongs_to_company(email: str, company_name: str, website: str | None = None) -> bool:
+    if not is_valid_email_format(email) or '@' not in email:
+        return False
+    domain = email.rsplit('@', 1)[1].lower()
+    if website:
+        website_domain = _url_domain(website)
+        if _domain_base(domain) == _domain_base(website_domain):
+            return True
+    return _domain_matches_company(company_name, domain)
 
 
 def extract_director_name(text: str) -> str | None:
@@ -949,6 +1085,15 @@ _NOT_COMPANY_WORDS = frozenset([
 ])
 
 
+def _clean_company_candidate(name: str) -> str:
+    cleaned = re.sub(r'\s+', ' ', (name or '').strip().rstrip('.,;:|–—-'))
+    cleaned = re.sub(r'\s+(?:ИНН|КПП|ОГРН)\b.*$', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\s+(?:официальный\s+сайт|сайт|контакты|реквизиты|профиль)\b.*$', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\s+(?:Москва|Московская область|Россия|РФ)\b.*$', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\s+(?:в|из)$', '', cleaned, flags=re.IGNORECASE)
+    return cleaned.strip().rstrip('.,;:|–—-')
+
+
 def _extract_companies_fast(search_results: dict) -> list[dict]:
     """
     Regex-based экстракция компаний из Tavily-результатов.
@@ -956,49 +1101,54 @@ def _extract_companies_fast(search_results: dict) -> list[dict]:
 
     Алгоритм:
     1. Ищет юр. формы (ООО/АО/...) в title + начале content
-    2. Использует URL как сайт компании
-    3. Извлекает компании из title когда нет явной юр. формы
+    2. URL выдачи сохраняет как source_url
+    3. website заполняет только если домен похож на компанию или доказан текстом
+    4. Извлекает компании из title только для не-агрегаторных доменов
     """
     companies: list[dict] = []
     seen: set[str] = set()
+    by_norm: dict[str, dict] = {}
 
     for item in search_results.get('results', []):
         title   = (item.get('title') or '').strip()
         url     = (item.get('url') or '').strip()
         content = (item.get('content') or '')[:600]
 
+        evidence_text = title + '\n' + content
         website = normalize_official_website(url)
 
-        # Пропускаем нерелевантные источники
-        url_l = url.lower()
-        if any(bd in url_l for bd in ('wikipedia', 'vikipedia', 'rabota.ru', 'hh.ru',
-                                       'avito', 'ozon', 'wildberries', 'market.ya')):
-            continue
-
-        search_text = title + '\n' + content
+        search_text = evidence_text
 
         # Ищем явные юридические формы
         found_any = False
         for pattern in (_COMPANY_QUOTED_RE, _COMPANY_PLAIN_RE):
             for m in pattern.finditer(search_text):
-                full_name = m.group(1).strip().rstrip('.,;')
+                full_name = _clean_company_candidate(m.group(1))
                 core_name = m.group(2).strip().rstrip('.,;')
                 if len(core_name) < 2 or len(full_name) > 120:
                     continue
+                found_any = True
                 norm = normalize_company_name(full_name)
-                if not norm or norm in seen:
+                official_site = website if is_company_website_url(full_name, url, evidence_text) else None
+                if not norm:
+                    continue
+                if norm in seen:
+                    if official_site and by_norm.get(norm) and not by_norm[norm].get('website'):
+                        by_norm[norm]['website'] = official_site
                     continue
                 seen.add(norm)
-                companies.append({
+                company_item = {
                     'name': full_name,
-                    'website': website,
+                    'website': official_site,
+                    'source_url': url,
                     'description': '',
-                })
-                found_any = True
+                }
+                companies.append(company_item)
+                by_norm[norm] = company_item
 
         # Если юрформы нет — пробуем title (только если у него есть сайт компании)
         # Требуем наличие реального сайта чтобы не брать мусор из DuckDuckGo
-        if not found_any and title and len(title) <= 80 and website:
+        if not found_any and title and len(title) <= 80 and website and not _source_only_domain(_url_domain(url)):
             title_l = title.lower()
             if not any(w in title_l for w in _NOT_COMPANY_WORDS):
                 short = re.split(r'\s*[|/—–]\s*', title)[0].strip().rstrip('.,;')
@@ -1006,11 +1156,14 @@ def _extract_companies_fast(search_results: dict) -> list[dict]:
                     norm = normalize_company_name(short)
                     if norm and norm not in seen and len(norm) > 2:
                         seen.add(norm)
-                        companies.append({
+                        company_item = {
                             'name': short,
-                            'website': website,
+                            'website': website if is_company_website_url(short, url, evidence_text) else None,
+                            'source_url': url,
                             'description': '',
-                        })
+                        }
+                        companies.append(company_item)
+                        by_norm[norm] = company_item
 
     return companies[:20]
 
@@ -1108,6 +1261,8 @@ def _extract_lpr_from_combined(client, company: dict, combined_text: str,
         f'{director_hint}'
         'Разделяй личные и общие контакты. Личный email: имя.фамилия@, i.ivanov@ и т.п. '
         'Общий email: info@, sales@, office@, support@ и т.п. '
+        'Игнорируй контакты банков, справочников, агрегаторов и страниц-источников, '
+        'если они не принадлежат самой компании. '
         'Мобильный телефон — номер конкретного человека, общий телефон — номер компании/офиса. '
         'Извлекай ТОЛЬКО то, что есть в тексте. Не придумывай. '
         'Верни ТОЛЬКО JSON: {"person_name": "ФИО или null", "title": "должность или null", '
@@ -1213,12 +1368,12 @@ def _resolve_official_website(tavily, company: dict, combined_text: str, log_fn)
 
     for candidate in (company.get('website'), company.get('source_url')):
         official = normalize_official_website(candidate)
-        if official:
+        if official and is_company_website_url(name, official, combined_text):
             return official
 
     for candidate in _extract_urls_from_text(combined_text):
         official = normalize_official_website(candidate)
-        if official:
+        if official and is_company_website_url(name, official, combined_text):
             return official
 
     if not name:
@@ -1233,10 +1388,14 @@ def _resolve_official_website(tavily, company: dict, combined_text: str, log_fn)
             res = _search(tavily, query, max_results=5)
         except Exception:
             continue
-        text = _results_to_text(res, 500)
-        for candidate in _extract_urls_from_text(text):
+        for item in res.get('results', []):
+            candidate = item.get('url') or ''
+            evidence = '\n'.join([
+                item.get('title') or '',
+                item.get('content') or item.get('raw_content') or '',
+            ])
             official = normalize_official_website(candidate)
-            if official:
+            if official and is_company_website_url(name, official, evidence):
                 log_fn(f'   🌐 Официальный сайт: {official}')
                 return official
     return None
@@ -1623,6 +1782,7 @@ def _research_worker(run_id: int, config: dict):
                     lpr = {
                         'company_name': company.get('name', ''),
                         'website': company.get('website', ''),
+                        'source_url': company.get('source_url'),
                     }
                 else:
                     _log(run_id, '   ⚠️  ЛПР/контакты не определены, пропускаем')
@@ -1635,7 +1795,13 @@ def _research_worker(run_id: int, config: dict):
             mobile_phone = (lpr.get('mobile_phone') or '').strip()
             generic_phone = (lpr.get('generic_phone') or '').strip()
             inn = (lpr.get('inn') or '').strip()
-            website = normalize_official_website(lpr.get('website') or company.get('website'))
+            result_company_name = _clean_company_candidate(lpr.get('company_name') or name)
+            raw_website = lpr.get('website') or company.get('website')
+            website = (
+                normalize_official_website(raw_website)
+                if is_company_website_url(result_company_name, raw_website, combined_text)
+                else None
+            )
             if 'website' in requirements and not website:
                 website = _resolve_official_website(tavily, company, combined_text, lambda m: _log(run_id, m))
 
@@ -1647,7 +1813,7 @@ def _research_worker(run_id: int, config: dict):
             inn = '' if inn in ('null', 'none') else inn
             person = '' if person in ('null', 'none') else person
 
-            lpr['company_name'] = lpr.get('company_name') or name
+            lpr['company_name'] = result_company_name
             lpr['website'] = website or None
             lpr['email'] = personal_email or generic_email or None
             lpr['phone'] = mobile_phone or generic_phone or None
@@ -1656,6 +1822,7 @@ def _research_worker(run_id: int, config: dict):
             lpr['mobile_phone'] = mobile_phone or None
             lpr['generic_phone'] = generic_phone or None
             lpr['inn'] = inn or None
+            lpr['source_url'] = lpr.get('source_url') or company.get('source_url')
 
             ok_requirements, requirement_error = contact_satisfies_requirements(lpr, requirements_list)
             if not ok_requirements:
