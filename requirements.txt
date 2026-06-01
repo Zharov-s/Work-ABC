@@ -6,3 +6,4 @@ openpyxl==3.1.5
 bcrypt==4.2.1
 gunicorn==23.0.0
 dnspython>=2.4.2
+ddgs>=9.0.0

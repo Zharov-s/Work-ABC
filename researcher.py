@@ -15,7 +15,22 @@ from database import get_db
 
 TAVILY_API_KEY  = os.getenv('TAVILY_API_KEY', '')
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434/v1')
-OLLAMA_MODEL    = os.getenv('OLLAMA_MODEL', 'qwen2.5:1.5b')
+OLLAMA_MODEL    = os.getenv('OLLAMA_MODEL', 'gemma3:4b')   # улучшен с qwen2.5:1.5b
+
+# Groq API — бесплатный, мощный (llama-3.3-70b = 70B params, 500+ t/s)
+GROQ_API_KEY   = os.getenv('GROQ_API_KEY', '')
+GROQ_BASE_URL  = 'https://api.groq.com/openai/v1'
+GROQ_MODEL     = 'llama-3.3-70b-versatile'
+
+# Активный LLM: Groq если есть ключ, иначе Ollama
+if GROQ_API_KEY:
+    ACTIVE_LLM_BASE  = GROQ_BASE_URL
+    ACTIVE_LLM_KEY   = GROQ_API_KEY
+    ACTIVE_LLM_MODEL = GROQ_MODEL
+else:
+    ACTIVE_LLM_BASE  = OLLAMA_BASE_URL
+    ACTIVE_LLM_KEY   = 'ollama'
+    ACTIVE_LLM_MODEL = OLLAMA_MODEL
 
 _runs: dict = {}
 _lock = threading.Lock()
@@ -448,6 +463,28 @@ EXTRA_DISCOVERY_QUERIES = {
     ],
 }
 
+# ── DuckDuckGo поиск (бесплатно, без API-ключа) ───────────────────────────
+
+def _ddgs_search(query: str, max_results: int = 5) -> dict:
+    """
+    Поиск через DuckDuckGo — бесплатная альтернатива Tavily.
+    Возвращает dict в формате Tavily (results: [{title, url, content}]).
+    """
+    try:
+        from ddgs import DDGS
+        results = []
+        with DDGS() as ddgs:
+            for item in ddgs.text(query, max_results=max_results):
+                results.append({
+                    'title':   item.get('title', ''),
+                    'url':     item.get('href', ''),
+                    'content': item.get('body', ''),
+                })
+        return {'results': results}
+    except Exception:
+        return {'results': []}
+
+
 # Заблокированные общие email-адреса
 BLOCKED_EMAIL_PREFIXES = {
     'info', 'sales', 'office', 'support', 'mail', 'contact', 'zakaz',
@@ -720,8 +757,9 @@ def _finish_requested(run_id: int) -> bool:
 
 # ── Ollama ─────────────────────────────────────────────────────────────────
 
-def _ollama_chat(client, messages: list, expect_json: bool = False) -> str:
-    kwargs = dict(model=OLLAMA_MODEL, messages=messages, temperature=0.1, max_tokens=400)
+def _ollama_chat(client, messages: list, expect_json: bool = False, model: str | None = None) -> str:
+    active_model = model or ACTIVE_LLM_MODEL
+    kwargs = dict(model=active_model, messages=messages, temperature=0.1, max_tokens=600)
     if expect_json:
         kwargs['response_format'] = {'type': 'json_object'}
     resp = client.chat.completions.create(**kwargs)
@@ -757,12 +795,16 @@ def _extract_json(raw: str) -> str:
     return raw.strip()
 
 
-def _check_ollama(client) -> bool:
+def _check_llm(client) -> bool:
+    """Проверяет доступность LLM — Groq или Ollama."""
     try:
         models = client.models.list()
-        return any(OLLAMA_MODEL in m.id for m in models.data)
+        return any(ACTIVE_LLM_MODEL in m.id for m in models.data)
     except Exception:
         return False
+
+def _check_ollama(client) -> bool:
+    return _check_llm(client)
 
 
 # ── Быстрый regex-экстрактор компаний (без LLM, ~0.1 мс) ──────────────────
@@ -1266,7 +1308,8 @@ def _research_worker(run_id: int, config: dict):
     from openai import OpenAI
     from tavily import TavilyClient
 
-    client = OpenAI(base_url=OLLAMA_BASE_URL, api_key='ollama')
+    # Создаём LLM-клиент: Groq (70B, быстрый) если есть ключ, иначе Ollama
+    client = OpenAI(base_url=ACTIVE_LLM_BASE, api_key=ACTIVE_LLM_KEY)
     tavily = TavilyClient(api_key=TAVILY_API_KEY)
 
     # Параметры
@@ -1307,12 +1350,23 @@ def _research_worker(run_id: int, config: dict):
     _log(run_id, f'🏷 Отрасли: {", ".join(industry_labels) if industry_labels else "все подходящие"}')
     _log(run_id, f'📏 Масштаб: {", ".join(scale_labels)}')
     _log(run_id, f'📌 Обязательные поля: {", ".join(requirement_labels)}')
-    _log(run_id, f'🤖 Модель: {OLLAMA_MODEL} (Ollama)')
+    if GROQ_API_KEY:
+        _log(run_id, f'🤖 Модель: {GROQ_MODEL} (Groq API — 70B, быстро)')
+    else:
+        _log(run_id, f'🤖 Модель: {OLLAMA_MODEL} (Ollama)')
 
-    if not _check_ollama(client):
-        _log(run_id, f'❌ Ollama недоступна. Запустите: ollama serve')
+    # Проверяем LLM доступность
+    if not GROQ_API_KEY and not _check_ollama(client):
+        _log(run_id, f'❌ Ollama недоступна. Установите GROQ_API_KEY или запустите: ollama serve')
         _set_run_status(run_id, 'failed')
         return
+    if GROQ_API_KEY:
+        try:
+            client.models.list()   # быстрая проверка Groq
+        except Exception as e:
+            _log(run_id, f'❌ Groq API недоступен: {e}')
+            _set_run_status(run_id, 'failed')
+            return
 
     # Память базы — что уже знаем
     conn_main = get_db()
@@ -1380,15 +1434,39 @@ def _research_worker(run_id: int, config: dict):
         filter_label = f'{segment_label}' + (f' / {industry_label}' if industry_label else '')
         _log(run_id, f'{icon} [{filter_label}] {query}')
 
+        # ── Поиск через Tavily ─────────────────────────────────────────────
         try:
             search_res = tavily.search(query, max_results=7)
         except Exception as e:
             _log(run_id, f'❌ Tavily: {e}')
-            continue
+            search_res = {'results': []}
 
-        # Используем быстрый regex-экстрактор (<0.5 мс) вместо LLM (~4 с)
-        companies = _extract_companies_fast(search_res)
-        _log(run_id, f'   Компаний в выдаче: {len(companies)}')
+        companies_tavily = _extract_companies_fast(search_res)
+
+        # ── Параллельный поиск через DuckDuckGo (бесплатно, без ключа) ───
+        # Запускается для основных запросов (не extra), чтобы не перегружать
+        companies_ddgs: list = []
+        if source_tag == 'tavily':
+            ddgs_res = _ddgs_search(query, max_results=5)
+            if ddgs_res['results']:
+                companies_ddgs = _extract_companies_fast(ddgs_res)
+
+        # ── Объединяем результаты, дедупликация по нормализованному имени ─
+        seen_in_batch: set[str] = set()
+        companies: list = []
+        for c in companies_tavily + companies_ddgs:
+            norm = normalize_company_name(c.get('name', ''))
+            if norm and norm not in seen_in_batch:
+                seen_in_batch.add(norm)
+                companies.append(c)
+
+        ddgs_extra = max(0, len(companies) - len(companies_tavily))
+        log_parts = [f'{len(companies)} компаний']
+        if ddgs_extra:
+            log_parts.append(f'+{ddgs_extra} из DuckDuckGo')
+        if not search_res.get('results'):
+            log_parts.append('Tavily пустой')
+        _log(run_id, f'   {" | ".join(log_parts)}')
 
         for company in companies:
             _pause_events[run_id].wait()  # пауза между компаниями
