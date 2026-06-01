@@ -22,7 +22,7 @@ from mailer import send_campaign, send_pending_campaign, test_smtp, parse_addres
 from validator import validate_email, validate_emails_batch
 from researcher import (
     start_research, get_run_status, pause_research, resume_research, finish_research,
-    SEGMENT_LABELS, REGION_SUFFIX, INDUSTRY_LABELS, SCALE_LABELS,
+    SEGMENT_LABELS, SEGMENT_VRI, REGION_SUFFIX, INDUSTRY_LABELS, SCALE_LABELS,
     CONTACT_REQUIREMENT_LABELS, normalize_contact_requirements, contact_satisfies_requirements,
     project_contact_to_requirements,
 )
@@ -258,6 +258,7 @@ def research():
     return render_template('research.html',
         runs=runs,
         segments=SEGMENT_LABELS,
+        segment_vri=SEGMENT_VRI,
         industries=INDUSTRY_LABELS,
         regions=REGION_SUFFIX,
         scales=SCALE_LABELS,
