@@ -94,25 +94,18 @@
           <div class="accordion-body filter-menu" style="display:none">
             <div class="filter-menu-list" data-filter-list="segments">
             {% for key, label in segments.items() %}
-            <label class="filter-menu-row" style="flex-direction:column; align-items:flex-start; padding:8px 14px; gap:2px">
-              <div style="display:flex; align-items:center; gap:8px; width:100%">
-                <span class="filter-menu-marker"><span class="filter-menu-dot"></span></span>
-                <span class="filter-menu-label" style="flex:1">
-                  {{ label }}
-                  {% if key == 'rd_nii' %}
-                    <span style="background:#C8E87A;color:#1C3A34;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:4px;vertical-align:middle">НОВЫЙ</span>
-                  {% endif %}
-                </span>
-                <input type="checkbox" name="segments" value="{{ key }}" data-label="{{ label }}" onchange="updateFilterSummary('segments')" style="display:none">
-                <span class="filter-menu-check"></span>
-              </div>
-              {% if segment_vri and segment_vri.get(key) %}
-              <span style="font-size:11px;color:var(--text-3);padding-left:30px;margin-top:-2px">{{ segment_vri[key] }}</span>
-              {% endif %}
+            <label class="filter-menu-row">
+              <span class="filter-menu-marker"><span class="filter-menu-dot"></span></span>
+              <span class="filter-menu-label">
+                {{ label }}
+                {% if key == 'rd_nii' %}<span style="background:#C8E87A;color:#1C3A34;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:6px;vertical-align:middle;line-height:1">НОВЫЙ</span>{% endif %}
+                {% if segment_vri and segment_vri.get(key) %}<br><small style="font-size:11px;color:var(--text-3);font-weight:400">{{ segment_vri[key] }}</small>{% endif %}
+              </span>
+              <input type="checkbox" name="segments" value="{{ key }}" data-label="{{ label }}" onchange="updateFilterSummary('segments')">
+              <span class="filter-menu-check"></span>
             </label>
             {% endfor %}
             </div>
-            <div class="filter-note">⚠ Не выбрано — поиск не запустится</div>
             <div class="filter-menu-footer">
               <label class="filter-menu-search">
                 <span>⌕</span>
@@ -576,10 +569,7 @@ document.getElementById('research-form').addEventListener('submit', function(e) 
   }
 
   const segs = this.querySelectorAll('input[name="segments"]:checked');
-  if (segs.length === 0) {
-    alert('Выберите хотя бы один сегмент компаний');
-    return;
-  }
+  // Сегменты необязательны — если не выбрано, backend использует 'electronics' по умолчанию
 
   const regs = this.querySelectorAll('input[name="regions"]:checked');
   if (regs.length === 0) {
