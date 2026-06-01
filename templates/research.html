@@ -227,18 +227,6 @@
               <span class="contact-radio-mark"></span>
               <span>Только мобильные</span>
             </label>
-            <div class="contact-check-title">
-              <span>Проверка контактов</span>
-              <span class="contact-help">?</span>
-            </div>
-            <div class="contact-segmented">
-              <button type="button" class="contact-segmented-btn contact-segmented-btn--active">Базовая</button>
-              <button type="button" class="contact-segmented-btn">Оптимальная</button>
-              <button type="button" class="contact-segmented-btn">Усиленная</button>
-            </div>
-            <div class="contact-phone-note">
-              Покажем все возможные контакты организаций, прошедшие <u>базовый отбор.</u>
-            </div>
           </div>
           <label class="contact-data-row contact-data-row--switch">
             <span>Сайты</span>
@@ -542,14 +530,6 @@ document.addEventListener('click', (event) => {
   if (!popover.contains(event.target) && !trigger.contains(event.target)) {
     closePhonePopover();
   }
-});
-
-document.querySelectorAll('.contact-segmented-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    btn.parentElement
-      .querySelectorAll('.contact-segmented-btn')
-      .forEach(item => item.classList.toggle('contact-segmented-btn--active', item === btn));
-  });
 });
 
 // ── Количество компаний ───────────────────────────────────────────────────

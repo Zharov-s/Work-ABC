@@ -567,7 +567,7 @@ body {
 
 .research-columns {
   display: grid;
-  grid-template-columns: 420px 1fr;
+  grid-template-columns: 280px 1fr;
   gap: 20px;
   align-items: start;
 }
@@ -835,63 +835,53 @@ body {
 /* Contact data capsule */
 .contact-data-card {
   position: relative;
-  margin: 12px 14px;
-  padding: 18px 22px 20px;
-  background: #fff;
-  border-radius: 22px;
-  box-shadow: none;
-}
-.contact-data-card::before {
-  content: '';
-  position: absolute;
-  left: -14px;
-  bottom: 32px;
-  width: 8px;
-  height: 72px;
-  border-radius: 0 999px 999px 0;
-  background: #3f3f3f;
+  padding: 12px 14px;
+  background: transparent;
+  border-bottom: 1px solid #e5e7eb;
 }
 .contact-data-card > input[type="checkbox"] { display: none; }
 .contact-data-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 26px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 .contact-data-title {
-  font-size: 26px;
-  line-height: 1.1;
+  font-size: 12px;
+  line-height: 1.2;
   font-weight: 700;
-  color: #222;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .contact-data-chevron {
-  font-size: 32px;
+  font-size: 16px;
   line-height: 1;
-  color: #222;
-  transform: translateY(-4px);
+  color: #9ca3af;
+  transform: translateY(-2px);
 }
 .contact-data-row {
   position: relative;
-  min-height: 58px;
+  min-height: 34px;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 12px;
   border: 0;
-  border-bottom: 1px solid #d0d0d0;
+  border-bottom: 1px solid #e5e7eb;
   background: transparent;
   padding: 0;
-  color: #222;
+  color: #1f2937;
   font: inherit;
   text-align: left;
 }
 .contact-data-row:last-child { border-bottom: 0; }
 .contact-data-row > span:first-child {
-  font-size: 24px;
+  font-size: 13px;
   line-height: 1.2;
-  font-weight: 500;
+  font-weight: 600;
 }
 .contact-data-row--menu {
   cursor: pointer;
@@ -902,72 +892,68 @@ body {
 .contact-data-row--switch input { display: none; }
 .contact-toggle {
   position: relative;
-  width: 54px;
-  height: 30px;
-  border: 2px solid #d0d0d0;
+  width: 36px;
+  height: 20px;
   border-radius: 999px;
-  background: #fff;
+  background: #d1d5db;
   flex: 0 0 auto;
-  transition: background .16s, border-color .16s;
+  transition: background .16s;
 }
 .contact-toggle::after {
   content: '';
   position: absolute;
-  width: 22px;
-  height: 22px;
-  left: 2px;
-  top: 2px;
+  width: 14px;
+  height: 14px;
+  left: 3px;
+  top: 3px;
   border-radius: 50%;
   background: #fff;
-  border: 2px solid #d0d0d0;
-  box-sizing: border-box;
-  transition: transform .16s, border-color .16s;
+  transition: transform .16s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 .contact-data-row--switch input:checked + .contact-toggle {
-  background: #3f3f3f;
-  border-color: #3f3f3f;
+  background: #2563eb;
 }
 .contact-data-row--switch input:checked + .contact-toggle::after {
-  transform: translateX(24px);
-  border-color: #fff;
+  transform: translateX(16px);
 }
 .contact-phone-popover {
   position: absolute;
   z-index: 50;
-  left: -22px;
-  top: 76px;
-  width: min(520px, calc(100vw - 48px));
-  padding: 28px 36px 30px;
-  border: 1px solid rgba(0,0,0,0.16);
-  border-radius: 20px;
+  left: 12px;
+  top: 52px;
+  width: min(280px, calc(100vw - 48px));
+  padding: 14px 16px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
   background: #fff;
-  color: #222;
-  box-shadow: 0 10px 24px rgba(0,0,0,0.18);
+  color: #1f2937;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.12);
   display: none;
 }
 .contact-phone-popover--open { display: block; }
 .contact-phone-title {
-  font-size: 28px;
-  line-height: 1.15;
+  font-size: 13.5px;
+  line-height: 1.2;
   font-weight: 700;
-  margin-bottom: 28px;
+  margin-bottom: 10px;
 }
 .contact-radio-row {
   display: flex;
   align-items: center;
-  gap: 18px;
-  min-height: 48px;
+  gap: 10px;
+  min-height: 32px;
   cursor: pointer;
-  font-size: 24px;
+  font-size: 13px;
   line-height: 1.2;
-  color: #222;
+  color: #374151;
 }
 .contact-radio-row input { display: none; }
 .contact-radio-mark {
-  width: 32px;
-  height: 32px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  border: 2px solid #d4d4d4;
+  border: 2px solid #d1d5db;
   background: #fff;
   flex: 0 0 auto;
   position: relative;
@@ -975,61 +961,9 @@ body {
 .contact-radio-row input:checked + .contact-radio-mark::after {
   content: '';
   position: absolute;
-  inset: 7px;
+  inset: 4px;
   border-radius: 50%;
-  background: #3f3f3f;
-}
-.contact-check-title {
-  margin-top: 30px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 24px;
-  line-height: 1.2;
-  font-weight: 700;
-}
-.contact-help {
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: #9f9f9f;
-  color: #fff;
-  font-size: 15px;
-  font-weight: 700;
-}
-.contact-segmented {
-  margin-top: 26px;
-  display: inline-flex;
-  max-width: 100%;
-  border-radius: 12px;
-  background: #ededed;
-  overflow: hidden;
-}
-.contact-segmented-btn {
-  min-width: 112px;
-  height: 46px;
-  border: 0;
-  background: transparent;
-  padding: 0 18px;
-  font-size: 22px;
-  color: #6e6e6e;
-  cursor: pointer;
-}
-.contact-segmented-btn--active {
-  background: #fff;
-  color: #222;
-  border: 1px solid #d0d0d0;
-  border-radius: 12px;
-}
-.contact-phone-note {
-  max-width: 430px;
-  margin-top: 24px;
-  font-size: 24px;
-  line-height: 1.25;
-  color: #222;
+  background: #2563eb;
 }
 
 /* Toggle switch */
@@ -2195,46 +2129,29 @@ input[type=checkbox], input[type=radio] { accent-color: var(--accent); }
 [data-theme="dark"] .field-switches-title                           { color: rgba(234,234,234,0.40); }
 [data-theme="dark"] .field-switch input:checked ~ .toggle-switch   { background: #FF555D; }
 [data-theme="dark"] .contact-data-card {
-  background: rgba(234,234,234,0.08);
-  box-shadow: none;
+  background: transparent;
+  border-bottom-color: rgba(234,234,234,0.08);
 }
-[data-theme="dark"] .contact-data-card::before { background: #FF555D; }
-[data-theme="dark"] .contact-data-title,
-[data-theme="dark"] .contact-data-chevron,
-[data-theme="dark"] .contact-data-row,
-[data-theme="dark"] .contact-phone-popover,
-[data-theme="dark"] .contact-phone-title,
-[data-theme="dark"] .contact-radio-row,
-[data-theme="dark"] .contact-check-title,
-[data-theme="dark"] .contact-phone-note {
-  color: #eaeaea;
-}
+[data-theme="dark"] .contact-data-title { color: rgba(234,234,234,0.40); }
+[data-theme="dark"] .contact-data-chevron { color: rgba(234,234,234,0.40); }
+[data-theme="dark"] .contact-data-row { color: rgba(234,234,234,0.88); }
 [data-theme="dark"] .contact-data-row { border-bottom-color: rgba(234,234,234,0.16); }
 [data-theme="dark"] .contact-toggle,
 [data-theme="dark"] .contact-radio-mark {
-  background: transparent;
-  border-color: rgba(234,234,234,0.28);
-}
-[data-theme="dark"] .contact-toggle::after {
+  background: rgba(234,234,234,0.08);
   border-color: rgba(234,234,234,0.28);
 }
 [data-theme="dark"] .contact-data-row--switch input:checked + .contact-toggle {
   background: #FF555D;
-  border-color: #FF555D;
 }
 [data-theme="dark"] .contact-phone-popover {
   background: #242632;
   border-color: rgba(234,234,234,0.18);
   box-shadow: 0 12px 30px rgba(0,0,0,0.40);
 }
-[data-theme="dark"] .contact-help { background: rgba(234,234,234,0.30); }
-[data-theme="dark"] .contact-segmented { background: rgba(234,234,234,0.10); }
-[data-theme="dark"] .contact-segmented-btn { color: rgba(234,234,234,0.62); }
-[data-theme="dark"] .contact-segmented-btn--active {
-  background: rgba(234,234,234,0.14);
-  color: #eaeaea;
-  border-color: rgba(234,234,234,0.22);
-}
+[data-theme="dark"] .contact-phone-title { color: rgba(234,234,234,0.90); }
+[data-theme="dark"] .contact-radio-row { color: rgba(234,234,234,0.80); }
+[data-theme="dark"] .contact-radio-row input:checked + .contact-radio-mark::after { background: #FF555D; }
 
 /* ── Filter checkbox / radio labels ── */
 [data-theme="dark"] .filter-checkbox { color: rgba(234,234,234,0.80); }
