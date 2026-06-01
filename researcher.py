@@ -765,33 +765,115 @@ def _check_ollama(client) -> bool:
         return False
 
 
+# ── Быстрый regex-экстрактор компаний (без LLM, ~0.1 мс) ──────────────────
+
+# Юрлицо + название в кавычках или без
+# Паттерн 1: ООО «Название с пробелами»
+_COMPANY_QUOTED_RE = re.compile(
+    r'\b((?:ООО|АО|ПАО|ЗАО|НКО|НПО|НПП|НПЦ|ГУП|МУП|ФГУП|ФГБОУ|ОАО|ИП|ГК)\s*'
+    r'[«"\'"„]([^«»""\']{2,60})[»"\'""])',
+    re.IGNORECASE,
+)
+# Паттерн 2: ООО Название без кавычек (до пунктуации)
+_COMPANY_PLAIN_RE = re.compile(
+    r'\b((?:ООО|АО|ПАО|ЗАО|НКО|НПО|НПП|НПЦ|ГУП|МУП|ФГУП|ОАО|ИП)\s+'
+    r'([А-ЯЁA-Z][А-ЯЁA-Za-zёа-я0-9\-]{1,40}(?:\s+[А-ЯЁA-Za-zёа-я0-9\-]{1,40}){0,4}))'
+    r'(?=\s*[,.\n\r;|–—(]|$)',
+    re.IGNORECASE,
+)
+
+# Слова, указывающие что результат не про компанию
+_NOT_COMPANY_WORDS = frozenset([
+    'новости', 'статья', 'форум', 'вакансии', 'купить', 'отзывы',
+    'wikipedia', 'vikipedia', 'рейтинг', 'список', 'каталог',
+])
+
+
+def _extract_companies_fast(search_results: dict) -> list[dict]:
+    """
+    Regex-based экстракция компаний из Tavily-результатов.
+    Замена LLM-based _extract_companies: <0.5 мс вместо ~4000 мс.
+
+    Алгоритм:
+    1. Ищет юр. формы (ООО/АО/...) в title + начале content
+    2. Использует URL как сайт компании
+    3. Извлекает компании из title когда нет явной юр. формы
+    """
+    companies: list[dict] = []
+    seen: set[str] = set()
+
+    for item in search_results.get('results', []):
+        title   = (item.get('title') or '').strip()
+        url     = (item.get('url') or '').strip()
+        content = (item.get('content') or '')[:600]
+
+        website = normalize_official_website(url)
+
+        # Пропускаем нерелевантные источники
+        url_l = url.lower()
+        if any(bd in url_l for bd in ('wikipedia', 'vikipedia', 'rabota.ru', 'hh.ru',
+                                       'avito', 'ozon', 'wildberries', 'market.ya')):
+            continue
+
+        search_text = title + '\n' + content
+
+        # Ищем явные юридические формы
+        found_any = False
+        for pattern in (_COMPANY_QUOTED_RE, _COMPANY_PLAIN_RE):
+            for m in pattern.finditer(search_text):
+                full_name = m.group(1).strip().rstrip('.,;')
+                core_name = m.group(2).strip().rstrip('.,;')
+                if len(core_name) < 2 or len(full_name) > 120:
+                    continue
+                norm = normalize_company_name(full_name)
+                if not norm or norm in seen:
+                    continue
+                seen.add(norm)
+                companies.append({
+                    'name': full_name,
+                    'website': website,
+                    'description': '',
+                })
+                found_any = True
+
+        # Если юрформы нет — пробуем title целиком (напр. "Рикор Электроникс")
+        if not found_any and title and len(title) <= 80:
+            title_l = title.lower()
+            if not any(w in title_l for w in _NOT_COMPANY_WORDS):
+                short = re.split(r'\s*[|/—–]\s*', title)[0].strip().rstrip('.,;')
+                if 3 <= len(short) <= 70:
+                    norm = normalize_company_name(short)
+                    if norm and norm not in seen and len(norm) > 2:
+                        seen.add(norm)
+                        companies.append({
+                            'name': short,
+                            'website': website,
+                            'description': '',
+                        })
+
+    return companies[:20]
+
+
 # ── AI-экстракторы ─────────────────────────────────────────────────────────
 
 def _extract_companies(client, results_text: str, segment_label: str, industry_label: str = '') -> list:
+    """Оставлен для совместимости. Не вызывается из основного цикла."""
     prompt = (
-        'Ты помогаешь находить компании для аренды в промышленном технопарке класса A+ в Москве. '
-        'Подходят: производство, R&D, лаборатории, шоурум, light industrial. '
-        'НЕ подходят: склады, чистый ритейл, офисы без производства. '
-        'Из результатов поиска выдели реальные российские компании. '
-        'Верни ТОЛЬКО JSON без пояснений: '
-        '{"companies": [{"name": "название компании", "website": "url или null", "description": "краткое описание"}]}'
+        'Из результатов поиска выдели реальные российские производственные компании. '
+        'Верни ТОЛЬКО JSON: '
+        '{"companies": [{"name": "название", "website": "url или null", "description": ""}]}'
     )
     try:
         raw = _ollama_chat(client, [
             {'role': 'system', 'content': prompt},
-            {'role': 'user',   'content': (
-                f'Сегмент: {segment_label}\n'
-                f'Отрасль: {industry_label or "не задана"}\n\n'
-                f'{results_text}'
-            )},
+            {'role': 'user',   'content': f'Сегмент: {segment_label}\n\n{results_text}'},
         ], expect_json=True)
         clean = _extract_json(raw)
         if not clean:
             return []
         companies = json.loads(clean).get('companies', [])
         for company in companies:
-            website = normalize_official_website(company.get('website'))
-            company['website'] = website
+            company['website'] = normalize_official_website(company.get('website'))
         return companies
     except Exception:
         return []
@@ -799,6 +881,59 @@ def _extract_companies(client, results_text: str, segment_label: str, industry_l
 
 def _extract_lpr_from_combined(client, company: dict, combined_text: str,
                                 known_director: str | None = None) -> dict | None:
+    """
+    Regex-first, LLM-fallback экстракция контактов ЛПР.
+
+    Fast path (~0.5 мс): если regex нашёл ФИО + email + телефон — LLM не вызывается.
+    Slow path (~4с): LLM только если regex дал неполный результат.
+    """
+    # ── FAST PATH: regex-экстракция ────────────────────────────────────────
+    personal_emails = extract_emails_from_text(combined_text)
+    generic_emails  = extract_generic_emails_from_text(combined_text)
+    all_phones      = extract_phones_from_text(combined_text)
+    inn_found       = extract_inn_from_text(combined_text) or ''
+
+    # Директор из известного или из regex-паттернов
+    person_name = known_director
+    if not person_name:
+        for pat in _DIRECTOR_PATTERNS:
+            m = pat.search(combined_text)
+            if m:
+                candidate = m.group(1).strip()
+                # Базовая валидация: 2+ слова, нет цифр
+                if len(candidate.split()) >= 2 and not re.search(r'\d', candidate):
+                    person_name = candidate
+                    break
+
+    personal_email = personal_emails[0] if personal_emails else None
+    generic_email  = generic_emails[0]  if generic_emails  else None
+    mobile_phone   = next((p for p in all_phones if is_mobile_phone(p)), None)
+    generic_phone  = next((p for p in all_phones if not is_mobile_phone(p)), None) or \
+                     (all_phones[0] if all_phones else None)
+
+    # Если regex дал полный комплект — возвращаем без LLM (экономим 4с)
+    has_contact = bool(person_name and (personal_email or generic_email or mobile_phone or generic_phone))
+    has_email   = bool(personal_email or generic_email)
+    has_phone   = bool(mobile_phone or generic_phone)
+
+    if has_contact and has_email and has_phone:
+        data = {
+            'person_name':   person_name,
+            'title':         'Генеральный директор' if known_director else None,
+            'personal_email': personal_email,
+            'generic_email':  generic_email,
+            'mobile_phone':   mobile_phone if is_valid_phone(mobile_phone) else None,
+            'generic_phone':  generic_phone if is_valid_phone(generic_phone) else None,
+            'inn':            inn_found or None,
+            'source_url':     None,
+            'company_name':   company.get('name', ''),
+            'website':        company.get('website', ''),
+        }
+        data['email'] = data['personal_email'] or data['generic_email']
+        data['phone'] = data['mobile_phone']   or data['generic_phone']
+        return data
+
+    # ── SLOW PATH: LLM-экстракция (только если regex не дал достаточно) ────
     director_hint = (
         f'Известно что директор компании: {known_director}. '
         'Найди его прямой рабочий email или телефон. '
@@ -837,61 +972,53 @@ def _extract_lpr_from_combined(client, company: dict, combined_text: str,
             if str(data.get(field, '') or '').lower() in ('null', 'none', ''):
                 data[field] = None
 
-        personal_email = (data.get('personal_email') or data.get('email') or '').lower().strip()
-        generic_email = (data.get('generic_email') or '').lower().strip()
-        if personal_email and (not is_valid_email_format(personal_email) or is_generic_email(personal_email)):
-            if is_valid_email_format(personal_email) and is_generic_email(personal_email) and not generic_email:
-                generic_email = personal_email
-            personal_email = ''
-        if generic_email and not is_valid_email_format(generic_email):
-            generic_email = ''
-        if generic_email and not is_generic_email(generic_email):
-            if not personal_email:
-                personal_email = generic_email
-            generic_email = ''
-        data['personal_email'] = personal_email or None
-        data['generic_email'] = generic_email or None
+        pe = (data.get('personal_email') or data.get('email') or '').lower().strip()
+        ge = (data.get('generic_email') or '').lower().strip()
+        if pe and (not is_valid_email_format(pe) or is_generic_email(pe)):
+            if is_valid_email_format(pe) and is_generic_email(pe) and not ge:
+                ge = pe
+            pe = ''
+        if ge and not is_valid_email_format(ge):
+            ge = ''
+        if ge and not is_generic_email(ge):
+            if not pe:
+                pe = ge
+            ge = ''
+        data['personal_email'] = pe or None
+        data['generic_email']  = ge or None
 
-        # ФИО: директор из реестра если модель не нашла
+        # ФИО из реестра если модель не нашла
         if known_director and not data.get('person_name'):
             data['person_name'] = known_director
             data['title']       = data.get('title') or 'Генеральный директор'
 
-        # Email: regex-фолбэк если модель не нашла
-        if not data.get('personal_email'):
-            regex_emails = extract_emails_from_text(combined_text)
-            if regex_emails:
-                data['personal_email'] = regex_emails[0]
-        if not data.get('generic_email'):
-            generic_emails = extract_generic_emails_from_text(combined_text)
-            if generic_emails:
-                data['generic_email'] = generic_emails[0]
+        # Regex-фолбэки для email/phone/INN
+        if not data.get('personal_email') and personal_emails:
+            data['personal_email'] = personal_emails[0]
+        if not data.get('generic_email') and generic_emails:
+            data['generic_email'] = generic_emails[0]
 
-        # Телефон: regex-фолбэк если модель не нашла
-        phone = data.get('phone')
-        mobile_phone = data.get('mobile_phone')
-        generic_phone = data.get('generic_phone')
-        if phone and not mobile_phone and is_mobile_phone(phone):
-            mobile_phone = phone
-        elif phone and not generic_phone:
-            generic_phone = phone
-        phones = extract_phones_from_text(combined_text)
-        if not is_valid_phone(mobile_phone):
-            mobile_phone = next((p for p in phones if is_mobile_phone(p)), None)
-        if not is_valid_phone(generic_phone):
-            generic_phone = next((p for p in phones if not is_mobile_phone(p)), None) or (phones[0] if phones else None)
-        data['mobile_phone'] = mobile_phone if is_valid_phone(mobile_phone) else None
-        data['generic_phone'] = generic_phone if is_valid_phone(generic_phone) else None
+        mp = data.get('mobile_phone')
+        gp = data.get('generic_phone')
+        ph = data.get('phone')
+        if ph and not mp and is_mobile_phone(ph):
+            mp = ph
+        elif ph and not gp:
+            gp = ph
+        if not is_valid_phone(mp):
+            mp = mobile_phone
+        if not is_valid_phone(gp):
+            gp = generic_phone or (all_phones[0] if all_phones else None)
+        data['mobile_phone']  = mp if is_valid_phone(mp) else None
+        data['generic_phone'] = gp if is_valid_phone(gp) else None
 
-        inn = re.sub(r'\D', '', str(data.get('inn') or ''))
-        if len(inn) not in (10, 12):
-            inn = extract_inn_from_text(combined_text) or ''
-        data['inn'] = inn or None
-
+        raw_inn = re.sub(r'\D', '', str(data.get('inn') or ''))
+        if len(raw_inn) not in (10, 12):
+            raw_inn = inn_found
+        data['inn']   = raw_inn or None
         data['email'] = data.get('personal_email') or data.get('generic_email')
-        data['phone'] = data.get('mobile_phone') or data.get('generic_phone')
+        data['phone'] = data.get('mobile_phone')   or data.get('generic_phone')
 
-        # Возвращаем если есть хотя бы имя ЛПР
         if data.get('person_name') or data.get('email') or data.get('phone') or data.get('inn'):
             data['company_name'] = company.get('name', '')
             data['website']      = company.get('website', '')
@@ -1022,18 +1149,22 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
                 director_name = found
                 log_fn(f'   📋 Директор из реестра: {director_name}')
                 break
-        # Если не нашли из первой выдачи — пробуем по другому запросу через checko
-        if not director_name:
+        # Pass 1b: резервный поиск директора только если нужен личный контакт
+        if not director_name and requirements and \
+                requirements.intersection({'personal_email', 'mobile_phone'}):
             q1b = f'"{name}" руководитель ФИО checko egrul реестр'
-            r1b = tavily.search(q1b, max_results=4)
-            text1b = _results_to_text(r1b, 500)
-            combined_parts.append(text1b)
-            for item in r1b.get('results', []):
-                found = extract_director_name(item.get('content') or '')
-                if found:
-                    director_name = found
-                    log_fn(f'   📋 Директор (доп. поиск): {director_name}')
-                    break
+            try:
+                r1b = tavily.search(q1b, max_results=4)
+                text1b = _results_to_text(r1b, 500)
+                combined_parts.append(text1b)
+                for item in r1b.get('results', []):
+                    found = extract_director_name(item.get('content') or '')
+                    if found:
+                        director_name = found
+                        log_fn(f'   📋 Директор (доп. поиск): {director_name}')
+                        break
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -1091,10 +1222,9 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
         except Exception:
             pass
 
-    # Проход 7 (2ГИС): получаем верифицированный офисный телефон из 2ГИС.
-    # 2ГИС — самый полный справочник компаний РФ, телефоны верифицируются владельцами.
-    # Запускается если до сих пор нет телефона или нет общего email.
-    if not found_phone or ('generic_email' in requirements and not found_email):
+    # Проход 7 (2ГИС): только если явно нужен телефон и его нет
+    if not found_phone and requirements and \
+            requirements.intersection({'mobile_phone', 'generic_phone'}):
         q7 = f'"{name}" 2гис телефон адрес'
         try:
             r7 = tavily.search(q7, max_results=3)
@@ -1108,9 +1238,9 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
         except Exception:
             pass
 
-    # Проход 8 (ИНН-поиск директора): если нашли ИНН но не нашли директора,
-    # ищем напрямую по ИНН в ЕГРЮЛ-прокси сайтах — это даёт высокую точность.
-    if not director_name:
+    # Проход 8 (ИНН-поиск директора): только если нужен личный контакт и директор не найден
+    if not director_name and requirements and \
+            requirements.intersection({'personal_email', 'mobile_phone'}):
         found_inn = extract_inn_from_text('\n'.join(combined_parts))
         if found_inn:
             q8 = f'ИНН {found_inn} директор руководитель rusprofile checko egrul'
@@ -1256,7 +1386,8 @@ def _research_worker(run_id: int, config: dict):
             _log(run_id, f'❌ Tavily: {e}')
             continue
 
-        companies = _extract_companies(client, _results_to_text(search_res), segment_label, industry_label)
+        # Используем быстрый regex-экстрактор (<0.5 мс) вместо LLM (~4 с)
+        companies = _extract_companies_fast(search_res)
         _log(run_id, f'   Компаний в выдаче: {len(companies)}')
 
         for company in companies:
