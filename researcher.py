@@ -364,44 +364,34 @@ SEGMENT_QUERIES = {
         'производство электроники приборостроение компания Москва руководитель',
         'электронные компоненты датчики контроллеры производитель Москва офис',
         'разработка производство электроника Москва контакты директор',
-        # 2ГИС: компании появляются в Tavily с телефонами и адресами
-        'производство электронных приборов датчиков Москва 2гис телефон',
-        'электроника приборостроение компания Москва 2гис сайт контакты',
     ],
     'medtech': [
         'медицинское оборудование производство компания Москва контакты',
         'медтех диагностика лабораторное оборудование производитель Москва',
         'фармацевтика биотехнологии пилотное производство Москва компания',
-        'медицинское оборудование Москва 2гис телефон производитель',
         'медтех биотехнологии Москва компания сайт руководитель',
     ],
     'robotics': [
         'робототехника промышленная автоматизация производство Москва компания',
         'беспилотные системы дроны производитель Москва офис',
         'мехатроника приводы сервосистемы разработка Москва',
-        'промышленная автоматизация роботы Москва 2гис телефон компания',
-        'станки ЧПУ мехатроника производство Москва 2гис руководитель',
     ],
     'it_hardware': [
         'производство серверов телекоммуникационное оборудование Москва',
         'отечественное ИТ hardware производство офис Москва',
         'вычислительная техника сетевое оборудование производитель Москва',
-        'производство серверов коммутаторов Москва 2гис телефон офис',
         'российский ИТ производитель hardware Москва компания директор',
     ],
     'laser_optics': [
         'лазерные системы оптические приборы производство Москва',
         'фотоника волоконная оптика производитель Москва',
         'лазерные технологии производство научное оборудование Москва',
-        'лазеры оптика Москва 2гис компания телефон',
         'оптические приборы фотоника Москва производитель директор',
     ],
     'light_industrial': [
         'лёгкое производство R&D шоурум технопарк Москва компания',
         'производственная компания класс А технопарк Москва',
         'сборочное производство инжиниринг сервисный центр Москва',
-        'производство Москва промышленный парк аренда 2гис компания',
-        'сборочное производство инжиниринговый центр Москва 2гис',
     ],
 }
 
@@ -470,16 +460,42 @@ def _ddgs_search(query: str, max_results: int = 5) -> dict:
     Поиск через DuckDuckGo — бесплатная альтернатива Tavily.
     Возвращает dict в формате Tavily (results: [{title, url, content}]).
     """
+    # Домены-мусор: агрегаторы вакансий, новостные сайты, статьи об приложениях
+    _SKIP_DOMAINS = frozenset([
+        'hh.ru', 'rabota.ru', 'superjob.ru', 'trudvsem.ru', 'zarplata.ru',
+        'avito.ru', 'youla.ru', 'ozon.ru', 'wildberries.ru',
+        'vc.ru', 'habr.com', 'pikabu.ru', 'reddit.com',
+        'wikipedia.org', 'vikipedia.org',
+        'news.', 'rbc.ru', 'kommersant.ru', 'vedomosti.ru',
+        'youtube.com', 'vk.com', 'ok.ru', 't.me',
+    ])
+
     try:
         from ddgs import DDGS
         results = []
         with DDGS() as ddgs:
-            for item in ddgs.text(query, max_results=max_results):
+            for item in ddgs.text(query, max_results=max_results + 5):
+                url   = item.get('href', '')
+                title = item.get('title', '')
+                # Фильтруем мусор
+                url_lower = url.lower()
+                if any(skip in url_lower for skip in _SKIP_DOMAINS):
+                    continue
+                # Пропускаем статьи-инструкции, новости, обзоры
+                title_lower = title.lower()
+                if any(w in title_lower for w in [
+                    'не работает', 'сбой', 'проблема', 'ошибка', 'обновление',
+                    'скачать', 'установить', 'почему', 'как войти', 'советы',
+                    'рейтинг', 'топ ', 'обзор', 'новости',
+                ]):
+                    continue
                 results.append({
-                    'title':   item.get('title', ''),
-                    'url':     item.get('href', ''),
+                    'title':   title,
+                    'url':     url,
                     'content': item.get('body', ''),
                 })
+                if len(results) >= max_results:
+                    break
         return {'results': results}
     except Exception:
         return {'results': []}
@@ -1398,26 +1414,27 @@ def _research_worker(run_id: int, config: dict):
                     industry_label = INDUSTRY_LABELS.get(industry_key, '') if industry_key else ''
                     industry_terms = INDUSTRY_QUERY_TERMS.get(industry_key, ['']) if industry_key else ['']
                     industry_suffix = ' '.join(industry_terms[:2])
-                    requirement_terms = []
-                    if 'website' in requirements:
-                        requirement_terms.append('официальный сайт')
-                    if 'inn' in requirements:
-                        requirement_terms.append('ИНН реквизиты')
+                    # Требования: максимум 1 ключевое слово чтобы не раздувать запрос
                     if 'personal_email' in requirements:
-                        requirement_terms.append('личный email руководитель')
-                    if 'generic_email' in requirements:
-                        requirement_terms.append('общий email контакты')
-                    if 'mobile_phone' in requirements:
-                        requirement_terms.append('мобильный телефон руководитель')
-                    if 'generic_phone' in requirements:
-                        requirement_terms.append('городской телефон контакты')
-                    requirement_suffix = ' '.join(requirement_terms)
+                        requirement_suffix = 'контакты директор email'
+                    elif 'generic_email' in requirements:
+                        requirement_suffix = 'контакты email'
+                    elif 'mobile_phone' in requirements:
+                        requirement_suffix = 'контакты телефон директор'
+                    else:
+                        requirement_suffix = 'контакты'
+
                     for q in SEGMENT_QUERIES.get(seg, []):
-                        full_q = ' '.join(filter(None, [q, industry_suffix, requirement_suffix, region_label, scale_suffix, keywords]))
+                        parts = [q, region_label]
+                        if scale_suffix and scale_suffix != 'any':
+                            parts.append(scale_suffix)
+                        # Лимит 180 символов — Tavily падает на длинных запросах
+                        full_q = ' '.join(filter(None, parts))[:180]
                         all_queries.append((full_q, segment_label, industry_label, region_label, 'tavily'))
                     # Дополнительные каналы: технопарки, выставки, импортозамещение
                     for q in EXTRA_DISCOVERY_QUERIES.get(seg, []):
-                        full_q = ' '.join(filter(None, [q, industry_suffix, requirement_suffix, region_label, scale_suffix, keywords]))
+                        parts = [q, region_label]
+                        full_q = ' '.join(filter(None, parts))[:180]
                         all_queries.append((full_q, segment_label, industry_label, region_label, 'extra'))
 
     found_contacts = []
