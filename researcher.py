@@ -124,7 +124,7 @@ CONTACT_REQUIREMENT_LABELS = {
     'inn':             'ИНН',
 }
 
-DEFAULT_CONTACT_REQUIREMENTS = ['company_name', 'personal_email']
+DEFAULT_CONTACT_REQUIREMENTS = ['personal_email']
 
 # Максимум строк в БД на одну компанию при multi-email поиске.
 # Если выбраны оба типа email (личный + общий) — сохраняется по строке на каждый тип.
