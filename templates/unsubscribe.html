@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Отписка от рассылки — ABCENTRUM</title>
+  <script>(function(){var t=localStorage.getItem('theme')||'light';document.documentElement.setAttribute('data-theme',t);})();</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/main.css">
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      font-family: 'DM Sans', sans-serif;
+    }
+    .unsub-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 48px 40px;
+      width: 420px;
+      max-width: 95vw;
+      text-align: center;
+      box-shadow: var(--shadow-lg);
+    }
+    .unsub-icon {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 28px;
+    }
+    .unsub-icon--confirm { background: rgba(28,58,52,0.08); }
+    .unsub-icon--done    { background: rgba(22,163,74,0.12); }
+    .unsub-icon--invalid { background: rgba(220,38,38,0.10); }
+    .unsub-title {
+      font-size: 20px; font-weight: 700;
+      color: var(--text); margin-bottom: 8px;
+    }
+    .unsub-email {
+      font-size: 14px; color: var(--text-2);
+      margin-bottom: 24px;
+      word-break: break-all;
+    }
+    .unsub-desc {
+      font-size: 14px; color: var(--text-2);
+      line-height: 1.6; margin-bottom: 28px;
+    }
+    .unsub-btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 12px 28px;
+      background: var(--btn-1-bg);
+      color: #fff;
+      border: none; border-radius: 99px;
+      font-size: 14px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+      transition: background 0.15s, transform 0.12s;
+      box-shadow: var(--btn-1-shadow);
+      text-decoration: none;
+    }
+    .unsub-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .unsub-btn--ghost {
+      background: transparent; color: var(--text-2);
+      border: 1px solid var(--border);
+      box-shadow: none; margin-top: 12px;
+    }
+    .unsub-btn--ghost:hover { background: var(--surface-2); transform: none; }
+    .unsub-actions { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  </style>
+</head>
+<body>
+  <div class="unsub-box">
+    {% if status == 'confirm' %}
+      <div class="unsub-icon unsub-icon--confirm">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <path d="M3 7h22v14a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" stroke="#1C3A34" stroke-width="1.8"/>
+          <path d="M3 8l11 8 11-8" stroke="#1C3A34" stroke-width="1.8" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="unsub-title">Отписаться от рассылки?</div>
+      <div class="unsub-email">{{ email }}</div>
+      <div class="unsub-desc">
+        Вы больше не будете получать письма от ABCENTRUM<br>на этот адрес.
+      </div>
+      <div class="unsub-actions">
+        <form method="post">
+          <button type="submit" class="unsub-btn">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M3 8.5l3.5 3.5 7-7.5" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Да, отписаться
+          </button>
+        </form>
+        <a href="/" class="unsub-btn unsub-btn--ghost">Отмена</a>
+      </div>
+
+    {% elif status == 'done' %}
+      <div class="unsub-icon unsub-icon--done">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <circle cx="14" cy="14" r="11" stroke="#16A34A" stroke-width="1.8"/>
+          <path d="M8.5 14l4 4 7-8" stroke="#16A34A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="unsub-title">Вы успешно отписались</div>
+      <div class="unsub-email">{{ email }}</div>
+      <div class="unsub-desc">
+        Ваш адрес удалён из списка рассылки.<br>Письма больше не будут приходить.
+      </div>
+
+    {% else %}
+      <div class="unsub-icon unsub-icon--invalid">
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+          <circle cx="14" cy="14" r="11" stroke="#DC2626" stroke-width="1.8"/>
+          <path d="M14 9v6M14 18v1" stroke="#DC2626" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="unsub-title">Ссылка недействительна</div>
+      <div class="unsub-desc">Возможно, ссылка устарела или уже была использована.</div>
+    {% endif %}
+  </div>
+</body>
+</html>

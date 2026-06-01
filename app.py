@@ -1,6 +1,8 @@
 import os
 import json
 import io
+import hashlib
+import urllib.parse
 from datetime import datetime
 from functools import wraps
 
@@ -8,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   session, jsonify, Response, flash, send_file)
+                   session, jsonify, Response, flash, send_file, make_response)
 
 from database import (
     init_db, get_db, get_setting, set_setting, get_all_settings,
@@ -17,6 +19,7 @@ from database import (
 )
 from auth import check_credentials, set_password, set_login
 from mailer import send_campaign, send_pending_campaign, test_smtp, parse_addresses, TEMPLATE_META
+from validator import validate_email, validate_emails_batch
 from researcher import (
     start_research, get_run_status, pause_research, resume_research, finish_research,
     SEGMENT_LABELS, REGION_SUFFIX, INDUSTRY_LABELS, SCALE_LABELS,
@@ -526,19 +529,191 @@ def campaign_send_pending():
 def campaign_detail(send_id):
     conn = get_db()
     send = conn.execute('SELECT * FROM send_history WHERE id=?', (send_id,)).fetchone()
+    if not send:
+        conn.close()
+        return 'Не найдено', 404
     recipients = conn.execute(
         'SELECT * FROM send_recipients WHERE send_id=?', (send_id,)
     ).fetchall()
+
+    # ── Трекинг-статистика ────────────────────────────────────────────────
+    opens_count = conn.execute(
+        'SELECT COUNT(DISTINCT token) FROM email_opens WHERE send_id=?', (send_id,)
+    ).fetchone()[0]
+    clicks_count = conn.execute(
+        'SELECT COUNT(DISTINCT token) FROM email_clicks WHERE send_id=? AND is_unsubscribe=0', (send_id,)
+    ).fetchone()[0]
+    unsub_count  = conn.execute(
+        'SELECT COUNT(DISTINCT token) FROM email_clicks WHERE send_id=? AND is_unsubscribe=1', (send_id,)
+    ).fetchone()[0]
+
+    # Кто открыл
+    openers = conn.execute(
+        """SELECT DISTINCT eo.email, eo.opened_at
+           FROM email_opens eo WHERE eo.send_id=?
+           ORDER BY eo.opened_at DESC LIMIT 50""", (send_id,)
+    ).fetchall()
+
     conn.close()
-    if not send:
-        return 'Не найдено', 404
+
     report = {}
     if send['report_json']:
         try:
             report = json.loads(send['report_json'])
         except Exception:
             pass
-    return render_template('campaign_detail.html', send=send, recipients=recipients, report=report)
+
+    total_sent = send['total_sent'] or 0
+    tracking_stats = {
+        'opens':    opens_count,
+        'clicks':   clicks_count,
+        'unsubs':   unsub_count,
+        'open_rate':  round(opens_count  / total_sent * 100, 1) if total_sent else 0,
+        'click_rate': round(clicks_count / total_sent * 100, 1) if total_sent else 0,
+        'unsub_rate': round(unsub_count  / total_sent * 100, 1) if total_sent else 0,
+        'delivered': total_sent - (send['total_failed'] or 0),
+        'failed':    send['total_failed'] or 0,
+        'delivered_rate': round((total_sent - (send['total_failed'] or 0)) / total_sent * 100, 1) if total_sent else 0,
+        'failed_rate':    round((send['total_failed'] or 0) / total_sent * 100, 1) if total_sent else 0,
+    }
+    return render_template('campaign_detail.html',
+                           send=send, recipients=recipients,
+                           report=report, stats=tracking_stats,
+                           openers=openers)
+
+
+# ── Tracking pixel & click routes (не требуют авторизации) ───────────────────
+
+# 1×1 прозрачный GIF
+_PIXEL_GIF = (
+    b'GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00'
+    b'!\xf9\x04\x00\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01'
+    b'\x00\x00\x02\x02D\x01\x00;'
+)
+
+
+@app.route('/track/o/<token>')
+def track_open(token):
+    """Трекинг-пиксель: фиксирует открытие письма."""
+    if token:
+        try:
+            conn = get_db()
+            row  = conn.execute(
+                'SELECT send_id, contact_id, email FROM send_recipients WHERE tracking_token=?',
+                (token,)
+            ).fetchone()
+            if row:
+                ip_raw = request.headers.get('X-Forwarded-For', request.remote_addr or '')
+                ip_hash = hashlib.sha256(ip_raw.encode()).hexdigest()[:16]
+                conn.execute(
+                    'INSERT INTO email_opens(token, send_id, contact_id, email, user_agent, ip_hash) VALUES(?,?,?,?,?,?)',
+                    (token, row['send_id'], row['contact_id'], row['email'],
+                     request.user_agent.string[:255] if request.user_agent else None,
+                     ip_hash)
+                )
+                conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    resp = make_response(_PIXEL_GIF)
+    resp.headers['Content-Type']  = 'image/gif'
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma']        = 'no-cache'
+    return resp
+
+
+@app.route('/track/c/<token>')
+def track_click(token):
+    """Трекинг перехода по ссылке из письма."""
+    url = request.args.get('u', '')
+    is_unsub = request.args.get('unsub', '0') == '1'
+    if token and url:
+        try:
+            decoded_url = urllib.parse.unquote(url)
+            conn = get_db()
+            row  = conn.execute(
+                'SELECT send_id, contact_id, email FROM send_recipients WHERE tracking_token=?',
+                (token,)
+            ).fetchone()
+            if row:
+                conn.execute(
+                    'INSERT INTO email_clicks(token, send_id, contact_id, email, url, is_unsubscribe, user_agent) VALUES(?,?,?,?,?,?,?)',
+                    (token, row['send_id'], row['contact_id'], row['email'],
+                     decoded_url[:500], 1 if is_unsub else 0,
+                     request.user_agent.string[:255] if request.user_agent else None)
+                )
+                conn.commit()
+            conn.close()
+            return redirect(decoded_url)
+        except Exception:
+            pass
+    return redirect(url or '/')
+
+
+@app.route('/unsubscribe/<token>', methods=['GET', 'POST'])
+def unsubscribe(token):
+    """Страница отписки от рассылки."""
+    conn = get_db()
+    row  = conn.execute(
+        'SELECT send_id, contact_id, email FROM send_recipients WHERE tracking_token=?',
+        (token,)
+    ).fetchone()
+    if not row:
+        conn.close()
+        return render_template('unsubscribe.html', status='invalid', email=None)
+
+    email = row['email']
+
+    if request.method == 'POST':
+        # Помечаем контакт как отписавшегося
+        conn.execute(
+            "UPDATE contacts SET status='unsubscribed' WHERE lower(email)=? OR lower(personal_email)=? OR lower(generic_email)=?",
+            (email, email, email)
+        )
+        conn.execute(
+            """INSERT INTO email_clicks(token, send_id, contact_id, email, url, is_unsubscribe, user_agent)
+               VALUES(?,?,?,?,'unsubscribe',1,?)""",
+            (token, row['send_id'], row['contact_id'], email,
+             request.user_agent.string[:255] if request.user_agent else None)
+        )
+        conn.commit()
+        conn.close()
+        return render_template('unsubscribe.html', status='done', email=email)
+
+    conn.close()
+    return render_template('unsubscribe.html', status='confirm', email=email, token=token)
+
+
+# ── Email validation route ────────────────────────────────────────────────────
+
+@app.route('/contacts/validate-emails', methods=['POST'])
+@login_required
+def validate_emails_route():
+    """Batch MX-валидация всех email в базе."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, email FROM contacts WHERE email IS NOT NULL AND email != ''"
+    ).fetchall()
+    conn.close()
+
+    emails = [r['email'] for r in rows if r['email']]
+    results = validate_emails_batch(emails)
+
+    # Обновляем поле email_valid
+    conn = get_db()
+    for r in rows:
+        if r['email'] in results:
+            conn.execute('UPDATE contacts SET email_valid=? WHERE id=?',
+                         (results[r['email']], r['id']))
+    conn.commit()
+
+    counts = {'valid': 0, 'invalid': 0, 'unknown': 0}
+    for s in results.values():
+        counts[s] = counts.get(s, 0) + 1
+    conn.close()
+
+    return jsonify({'ok': True, 'total': len(emails), **counts})
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────

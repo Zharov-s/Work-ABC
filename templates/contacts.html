@@ -3,6 +3,10 @@
 {% block heading %}Контакты <span class="count-badge">{{ total }}</span>{% endblock %}
 
 {% block header_actions %}
+  <button class="btn btn-secondary" id="validate-btn" onclick="validateEmails()">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5 8.5l2.5 2.5 4-4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span id="validate-label">Проверить email</span>
+  </button>
   <button class="btn btn-secondary" onclick="openModal('add-contact-modal')">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
     Добавить
@@ -179,6 +183,30 @@
 
 {% block scripts %}
 <script>
+function validateEmails() {
+  const btn   = document.getElementById('validate-btn');
+  const label = document.getElementById('validate-label');
+  btn.disabled  = true;
+  label.textContent = 'Проверяем...';
+
+  fetch('/contacts/validate-emails', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        label.textContent = `✓ ${d.valid} валидных · ${d.invalid} невалидных`;
+        setTimeout(() => {
+          label.textContent = 'Проверить email';
+          btn.disabled = false;
+          location.reload();
+        }, 3000);
+      } else {
+        label.textContent = 'Ошибка проверки';
+        btn.disabled = false;
+      }
+    })
+    .catch(() => { label.textContent = 'Проверить email'; btn.disabled = false; });
+}
+
 function updateSelection() {
   const checks = document.querySelectorAll('.row-check:checked');
   const bar    = document.getElementById('selection-bar');

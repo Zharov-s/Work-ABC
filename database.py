@@ -77,6 +77,29 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
 );
+
+CREATE TABLE IF NOT EXISTS email_opens (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    token      TEXT NOT NULL,
+    send_id    INTEGER REFERENCES send_history(id),
+    contact_id INTEGER REFERENCES contacts(id),
+    email      TEXT,
+    opened_at  TEXT DEFAULT (datetime('now')),
+    user_agent TEXT,
+    ip_hash    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS email_clicks (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    token        TEXT NOT NULL,
+    send_id      INTEGER REFERENCES send_history(id),
+    contact_id   INTEGER REFERENCES contacts(id),
+    email        TEXT,
+    url          TEXT,
+    is_unsubscribe INTEGER DEFAULT 0,
+    clicked_at   TEXT DEFAULT (datetime('now')),
+    user_agent   TEXT
+);
 """
 
 DEFAULT_SETTINGS = {
@@ -93,6 +116,7 @@ DEFAULT_SETTINGS = {
     'unsubscribe_url':  'mailto:s.zharov@abcentrum.ru?subject=%D0%9E%D1%82%D0%BF%D0%B8%D1%81%D0%BA%D0%B0',
     'app_login':        'admin',
     'app_password_hash':'',  # будет заполнен при init
+    'tracking_base_url': '',  # публичный URL для трекинг-пикселя, напр. https://myapp.railway.app
 }
 
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
@@ -133,9 +157,19 @@ def init_db():
     cols = [r[1] for r in conn.execute('PRAGMA table_info(contacts)').fetchall()]
     if 'run_id' not in cols:
         conn.execute('ALTER TABLE contacts ADD COLUMN run_id INTEGER REFERENCES research_runs(id)')
-    for col_name in ('personal_email', 'generic_email', 'mobile_phone', 'generic_phone', 'inn'):
+    for col_name in ('personal_email', 'generic_email', 'mobile_phone', 'generic_phone', 'inn', 'email_valid'):
         if col_name not in cols:
             conn.execute(f'ALTER TABLE contacts ADD COLUMN {col_name} TEXT')
+
+    # Миграция send_recipients: tracking_token
+    sr_cols = [r[1] for r in conn.execute('PRAGMA table_info(send_recipients)').fetchall()]
+    if 'tracking_token' not in sr_cols:
+        conn.execute('ALTER TABLE send_recipients ADD COLUMN tracking_token TEXT')
+
+    # Индексы для трекинга
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_email_opens_token ON email_opens(token)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_email_clicks_token ON email_clicks(token)')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_send_recipients_token ON send_recipients(tracking_token)')
     conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_mailing_recipients_email ON mailing_recipients(email)')
     conn.commit()
 

@@ -4,6 +4,9 @@ import re
 import time
 import json
 import os
+import secrets
+import hashlib
+import urllib.parse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from database import get_setting, get_db, normalize_mailing_email, sync_mailing_recipients, MAILING_BATCH_LIMIT
@@ -31,6 +34,54 @@ TEMPLATE_META = {
 
 BATCH_SIZE = MAILING_BATCH_LIMIT
 PAUSE_SEC  = 10
+
+
+# ── Tracking helpers ──────────────────────────────────────────────────────────
+
+def generate_token() -> str:
+    """Генерирует уникальный 32-символьный hex-токен."""
+    return secrets.token_hex(16)
+
+
+def inject_tracking(html: str, token: str, base_url: str, unsub_token: str) -> str:
+    """
+    Встраивает в HTML-письмо:
+    1. Трекинг-пиксель 1×1 (фиксирует открытие)
+    2. Перехватывает клики через /track/c/<token>
+    3. Заменяет ссылку отписки на /unsubscribe/<token>
+    """
+    base_url = base_url.rstrip('/')
+
+    # Переписываем ссылки — заворачиваем через трекер
+    def rewrite_href(m):
+        url = m.group(1)
+        # Не трогаем: mailto:, tel:, #, якоря, и уже трекинговые URL
+        if url.startswith(('mailto:', 'tel:', '#', base_url)):
+            return m.group(0)
+        encoded = urllib.parse.quote(url, safe='')
+        click_url = f'{base_url}/track/c/{token}?u={encoded}'
+        return f'href="{click_url}"'
+
+    html = re.sub(r'href=["\']([^"\']+)["\']', rewrite_href, html)
+
+    # Заменяем ссылки отписки (встроенные в шаблон)
+    html = re.sub(
+        r'href=["\'][^"\']*unsubscribe[^"\']*["\']',
+        f'href="{base_url}/unsubscribe/{unsub_token}"',
+        html, flags=re.IGNORECASE
+    )
+
+    # Трекинг-пиксель перед </body>
+    pixel = (
+        f'<img src="{base_url}/track/o/{token}" '
+        f'width="1" height="1" style="display:none;width:1px;height:1px" alt="" />'
+    )
+    if re.search(r'</body>', html, re.IGNORECASE):
+        html = re.sub(r'</body>', pixel + '\n</body>', html, flags=re.IGNORECASE)
+    else:
+        html += '\n' + pixel
+
+    return html
 
 
 def normalize_email(raw):
@@ -64,24 +115,25 @@ def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, sour
     if not valid:
         return {'ok': False, 'error': 'Нет валидных адресов для отправки'}
 
-    smtp_host   = get_setting('smtp_host', 'smtp.mail.ru')
-    smtp_port   = int(get_setting('smtp_port', '465'))
-    smtp_user   = get_setting('smtp_user', '')
-    smtp_pass   = get_setting('smtp_pass', '')
-    from_name   = get_setting('from_name', 'ABCENTRUM')
-    from_email  = get_setting('from_email', smtp_user)
-    reply_to    = get_setting('reply_to', from_email)
-    asset_url   = get_setting(meta['asset_key'], '')
-    unsub_url   = get_setting('unsubscribe_url', '')
+    smtp_host      = get_setting('smtp_host', 'smtp.mail.ru')
+    smtp_port      = int(get_setting('smtp_port', '465'))
+    smtp_user      = get_setting('smtp_user', '')
+    smtp_pass      = get_setting('smtp_pass', '')
+    from_name      = get_setting('from_name', 'ABCENTRUM')
+    from_email     = get_setting('from_email', smtp_user)
+    reply_to       = get_setting('reply_to', from_email)
+    asset_url      = get_setting(meta['asset_key'], '')
+    unsub_url      = get_setting('unsubscribe_url', '')
+    tracking_base  = (get_setting('tracking_base_url', '') or '').rstrip('/')
 
-    html_path   = os.path.join(TEMPLATE_DIR, meta['html_file'])
-    plain_path  = os.path.join(TEMPLATE_DIR, meta['plain_file'])
+    html_path = os.path.join(TEMPLATE_DIR, meta['html_file'])
+    plain_path = os.path.join(TEMPLATE_DIR, meta['plain_file'])
 
     if not os.path.exists(html_path):
         return {'ok': False, 'error': f'HTML-шаблон не найден: {html_path}'}
 
     with open(html_path, 'r', encoding='utf-8') as f:
-        html = f.read() \
+        html_base = f.read() \
             .replace('{{ASSET_BASE_URL}}', asset_url) \
             .replace('{{unsubscribe_url}}', unsub_url)
 
@@ -97,86 +149,134 @@ def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, sour
     subject     = meta['subject']
     from_header = f'{from_name} <{from_email}>'
 
-    batches    = [valid[i:i+BATCH_SIZE] for i in range(0, len(valid), BATCH_SIZE)]
-    ok_count   = 0
-    failed     = []
-    failed_errors = {}
+    # Карта: email → contact_id + token
+    recipients_by_email: dict = {}
+    for row in recipient_rows or []:
+        e = row['email'] if hasattr(row, 'keys') else row.get('email')
+        recipients_by_email[e] = row
 
-    def _send_batch(batch):
-        msg = MIMEMultipart('alternative')
-        msg['From']     = from_header
-        msg['To']       = from_email
-        msg['Reply-To'] = reply_to
-        msg['Subject']  = subject
-        if plain:
-            msg.attach(MIMEText(plain, 'plain', 'utf-8'))
-        msg.attach(MIMEText(html, 'html', 'utf-8'))
-        envelope = list({from_email} | set(batch))
-        with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx) as srv:
-            srv.login(smtp_user, smtp_pass)
-            srv.sendmail(smtp_user, envelope, msg.as_string())
+    failed: list[str] = []
+    failed_errors: dict[str, str] = {}
+    tokens: dict[str, str] = {}   # email → tracking_token
 
-    for i, batch in enumerate(batches, 1):
-        sent = False
-        last_error = ''
-        for attempt in range(1, 4):
-            try:
-                _send_batch(batch)
-                sent = True
-                break
-            except Exception as e:
-                last_error = str(e)
-                if attempt < 3:
-                    time.sleep(30)
-        if sent:
-            ok_count += 1
-        else:
-            failed.extend(batch)
-            for addr in batch:
+    # ── Режим A: per-recipient с трекингом ──────────────────────────────────
+    if tracking_base:
+        def _send_individual(addr: str, html_tracked: str) -> None:
+            msg = MIMEMultipart('alternative')
+            msg['From']     = from_header
+            msg['To']       = addr
+            msg['Reply-To'] = reply_to
+            msg['Subject']  = subject
+            if plain:
+                msg.attach(MIMEText(plain, 'plain', 'utf-8'))
+            msg.attach(MIMEText(html_tracked, 'html', 'utf-8'))
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx) as srv:
+                srv.login(smtp_user, smtp_pass)
+                srv.sendmail(smtp_user, [addr], msg.as_string())
+
+        for i, addr in enumerate(valid):
+            token = generate_token()
+            tokens[addr] = token
+            html_tracked = inject_tracking(html_base, token, tracking_base, token)
+            sent = False
+            last_error = ''
+            for attempt in range(1, 4):
+                try:
+                    _send_individual(addr, html_tracked)
+                    sent = True
+                    break
+                except Exception as e:
+                    last_error = str(e)
+                    if attempt < 3:
+                        time.sleep(20)
+            if not sent:
+                failed.append(addr)
                 failed_errors[addr] = last_error
-        if i < len(batches):
-            time.sleep(PAUSE_SEC)
+            # Небольшая пауза между отправками чтобы не превысить лимит SMTP
+            if i < len(valid) - 1:
+                time.sleep(0.4)
+
+        batch_count = len(valid)  # каждый — отдельный «батч»
+
+    # ── Режим B: BCC-батчи (без трекинга, исходное поведение) ──────────────
+    else:
+        batches = [valid[i:i+BATCH_SIZE] for i in range(0, len(valid), BATCH_SIZE)]
+        ok_batches = 0
+
+        def _send_batch(batch):
+            msg = MIMEMultipart('alternative')
+            msg['From']     = from_header
+            msg['To']       = from_email
+            msg['Reply-To'] = reply_to
+            msg['Subject']  = subject
+            if plain:
+                msg.attach(MIMEText(plain, 'plain', 'utf-8'))
+            msg.attach(MIMEText(html_base, 'html', 'utf-8'))
+            envelope = list({from_email} | set(batch))
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, context=ctx) as srv:
+                srv.login(smtp_user, smtp_pass)
+                srv.sendmail(smtp_user, envelope, msg.as_string())
+
+        for i, batch in enumerate(batches, 1):
+            sent = False
+            last_error = ''
+            for attempt in range(1, 4):
+                try:
+                    _send_batch(batch)
+                    sent = True
+                    break
+                except Exception as e:
+                    last_error = str(e)
+                    if attempt < 3:
+                        time.sleep(30)
+            if sent:
+                ok_batches += 1
+            else:
+                failed.extend(batch)
+                for addr in batch:
+                    failed_errors[addr] = last_error
+            if i < len(batches):
+                time.sleep(PAUSE_SEC)
+
+        batch_count = len(batches)
 
     total_sent   = len(valid) - len(failed)
     total_failed = len(failed)
 
     report = {
-        'ok':          True,
-        'template':    template_key,
-        'subject':     subject,
-        'valid':       valid,
-        'invalid':     invalid,
-        'total_sent':  total_sent,
-        'total_failed':total_failed,
-        'batch_count': len(batches),
-        'failed':      failed,
-        'source':      source,
+        'ok':           True,
+        'template':     template_key,
+        'subject':      subject,
+        'valid':        valid,
+        'invalid':      invalid,
+        'total_sent':   total_sent,
+        'total_failed': total_failed,
+        'batch_count':  batch_count,
+        'failed':       failed,
+        'source':       source,
+        'tracking':     bool(tracking_base),
     }
 
-    # Сохранить в историю
+    # ── Сохраняем в историю и send_recipients ───────────────────────────────
     conn = get_db()
-    cur = conn.execute(
+    cur  = conn.execute(
         """INSERT INTO send_history(template, subject, total_sent, total_failed, batch_count, status, report_json)
            VALUES(?,?,?,?,?,?,?)""",
-        (template_key, subject, total_sent, total_failed, len(batches),
+        (template_key, subject, total_sent, total_failed, batch_count,
          'done' if not failed else 'partial', json.dumps(report, ensure_ascii=False))
     )
     send_id = cur.lastrowid
 
-    recipients_by_email = {}
-    for row in recipient_rows or []:
-        email = row['email'] if hasattr(row, 'keys') else row.get('email')
-        recipients_by_email[email] = row
-
     for addr in valid:
         status = 'failed' if addr in failed else 'sent'
-        cid = None
-        row = recipients_by_email.get(addr)
+        cid    = None
+        row    = recipients_by_email.get(addr)
         if row:
             cid = row['contact_id'] if hasattr(row, 'keys') else row.get('contact_id')
+        token  = tokens.get(addr)
         conn.execute(
-            'INSERT INTO send_recipients(send_id, contact_id, email, status) VALUES(?,?,?,?)',
-            (send_id, cid, addr, status)
+            'INSERT INTO send_recipients(send_id, contact_id, email, status, tracking_token) VALUES(?,?,?,?,?)',
+            (send_id, cid, addr, status, token)
         )
         if addr not in failed:
             conn.execute(
@@ -188,9 +288,7 @@ def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, sour
                 """INSERT INTO mailing_recipients(email, contact_id, status, sent_at, last_error)
                    VALUES(?,?, 'sent', datetime('now'), NULL)
                    ON CONFLICT(email) DO UPDATE SET
-                     status='sent',
-                     sent_at=datetime('now'),
-                     last_error=NULL,
+                     status='sent', sent_at=datetime('now'), last_error=NULL,
                      contact_id=COALESCE(mailing_recipients.contact_id, excluded.contact_id)""",
                 (addr, cid)
             )
@@ -199,8 +297,7 @@ def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, sour
                 """INSERT INTO mailing_recipients(email, contact_id, status, last_error)
                    VALUES(?,?, 'failed', ?)
                    ON CONFLICT(email) DO UPDATE SET
-                     status='failed',
-                     last_error=excluded.last_error,
+                     status='failed', last_error=excluded.last_error,
                      contact_id=COALESCE(mailing_recipients.contact_id, excluded.contact_id)""",
                 (addr, cid, failed_errors.get(addr, 'Ошибка отправки'))
             )

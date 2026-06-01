@@ -63,10 +63,40 @@
         <input type="url" name="asset_url_grekova" value="{{ s.get('asset_url_grekova','') }}">
       </div>
       <div class="form-group form-group--full">
-        <label>URL отписки</label>
+        <label>URL отписки <span class="label-hint">(используется если трекинг отключён)</span></label>
         <input type="text" name="unsubscribe_url" value="{{ s.get('unsubscribe_url','') }}">
       </div>
     </div>
+  </div>
+
+  <!-- Трекинг -->
+  <div class="panel">
+    <div class="panel-header">
+      Трекинг открытий и кликов
+    </div>
+    <div class="form-grid">
+      <div class="form-group form-group--full">
+        <label>
+          Публичный URL приложения
+          <span class="label-hint">— для трекинг-пикселя и ссылок отписки</span>
+        </label>
+        <input type="url" name="tracking_base_url"
+               placeholder="https://myapp.railway.app"
+               value="{{ s.get('tracking_base_url','') }}">
+        <span class="hint-text">
+          Если оставить пустым — трекинг отключён, письма отправляются через BCC (быстрее).
+          При заполнении — каждый получатель получает индивидуальное письмо с пикселем,
+          статистика открытий отображается в деталях рассылки.
+        </span>
+      </div>
+    </div>
+    {% if s.get('tracking_base_url') %}
+    <div class="form-actions" style="border-top:none; background:transparent; padding-top:0">
+      <span class="hint-text">
+        ✓ Трекинг активен. Пиксель: <code>{{ s['tracking_base_url'] }}/track/o/&lt;token&gt;</code>
+      </span>
+    </div>
+    {% endif %}
   </div>
 
   <!-- Доступ -->

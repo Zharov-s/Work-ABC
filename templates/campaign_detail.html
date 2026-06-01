@@ -9,48 +9,258 @@
   </a>
 {% endblock %}
 
+{% block extra_css %}
+<style>
+/* ── Tracking stats layout ── */
+.ts-layout {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 40px;
+  align-items: center;
+  padding: 28px 32px;
+  flex-wrap: wrap;
+}
+
+/* Large donut */
+.ts-donut-wrap { position: relative; flex-shrink: 0; }
+.ts-donut-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.ts-donut-num  { font-size: 26px; font-weight: 700; color: var(--text); line-height: 1; }
+.ts-donut-txt  { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+
+/* Legend */
+.ts-legend { display: flex; flex-direction: column; gap: 14px; }
+.ts-leg-row { display: flex; align-items: center; gap: 10px; }
+.ts-leg-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.ts-leg-val  { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1; }
+.ts-leg-lbl  { font-size: 12.5px; color: var(--text-2); }
+
+/* 4 circular metrics */
+.ts-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px 32px;
+}
+.ts-metric { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.ts-ring-wrap { position: relative; }
+.ts-ring-label {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600;
+}
+.ts-metric-num { font-size: 22px; font-weight: 700; color: var(--text); }
+.ts-metric-lbl { font-size: 12px; color: var(--text-2); text-align: center; }
+
+/* Recipients table */
+.ts-table-panel { margin-top: 20px; }
+.open-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(22,163,74,0.10); color: #15803D;
+  border: 1px solid rgba(22,163,74,0.25);
+  border-radius: 99px; padding: 2px 8px; font-size: 12px;
+}
+[data-theme="dark"] .open-badge { background: rgba(134,239,172,0.12); color: #86EFAC; border-color: rgba(134,239,172,0.25); }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="panel">
-  <div class="panel-header">Детали рассылки</div>
-  <div class="info-list">
-    <div class="info-row"><span class="info-key">Дата</span><span class="info-val">{{ send['sent_at'] or '—' }}</span></div>
-    <div class="info-row"><span class="info-key">Шаблон</span>
-      <span class="info-val">
-        {% if send['template'] == 'mitino' %}<span class="badge badge-blue">Митино</span>
-        {% else %}<span class="badge badge-green">Грекова</span>{% endif %}
-      </span>
-    </div>
-    <div class="info-row"><span class="info-key">Тема</span><span class="info-val">{{ send['subject'] or '—' }}</span></div>
-    <div class="info-row"><span class="info-key">Отправлено</span><span class="info-val"><strong>{{ send['total_sent'] }}</strong></span></div>
-    <div class="info-row"><span class="info-key">Ошибок</span><span class="info-val">{{ send['total_failed'] }}</span></div>
-    <div class="info-row"><span class="info-key">Этапов</span><span class="info-val">{{ send['batch_count'] }}</span></div>
-    <div class="info-row"><span class="info-key">Статус</span>
-      <span class="info-val">
-        {% if send['status'] == 'done' %}<span class="badge badge-green">Готово</span>
-        {% elif send['status'] == 'partial' %}<span class="badge badge-yellow">Частично</span>
-        {% else %}<span class="badge badge-red">{{ send['status'] }}</span>{% endif %}
-      </span>
-    </div>
+
+{% set total = send['total_sent'] or 0 %}
+{% set delivered = stats.delivered %}
+{% set failed    = stats.failed %}
+
+<!-- ── Tracking stats card ── -->
+<div class="panel" style="margin-bottom:20px">
+  <div class="panel-header">
+    Статистика рассылки
+    {% if send['template'] == 'mitino' %}
+      <span class="badge badge-blue">Митино</span>
+    {% else %}
+      <span class="badge badge-green">Грекова</span>
+    {% endif %}
+    {% if send['status'] == 'done' %}
+      <span class="badge badge-green">Готово</span>
+    {% elif send['status'] == 'partial' %}
+      <span class="badge badge-yellow">Частично</span>
+    {% else %}
+      <span class="badge badge-red">Ошибка</span>
+    {% endif %}
   </div>
+
+  <div class="ts-layout">
+
+    <!-- Большой бублик: Отправлено / Доставлено / Ошибки -->
+    {% set circ = 439.82 %}
+    {% set del_pct  = (delivered / total * 100) if total else 0 %}
+    {% set fail_pct = (failed    / total * 100) if total else 0 %}
+    {% set del_dash  = (del_pct  / 100 * circ) | round(2) %}
+    {% set fail_dash = (fail_pct / 100 * circ) | round(2) %}
+    {% set fail_off  = circ - del_dash %}
+
+    <div class="ts-donut-wrap">
+      <svg width="180" height="180" viewBox="0 0 180 180">
+        <!-- Фон -->
+        <circle cx="90" cy="90" r="70" fill="none" stroke="var(--border)" stroke-width="22"/>
+        <!-- Доставлено (зелёный) -->
+        <circle cx="90" cy="90" r="70" fill="none"
+                stroke="#22C55E" stroke-width="22"
+                stroke-dasharray="{{ del_dash }} {{ circ - del_dash }}"
+                stroke-linecap="round"
+                transform="rotate(-90 90 90)"/>
+        <!-- Ошибки (красный), начинается после зелёного -->
+        {% if failed > 0 %}
+        <circle cx="90" cy="90" r="70" fill="none"
+                stroke="#EF4444" stroke-width="22"
+                stroke-dasharray="{{ fail_dash }} {{ circ - fail_dash }}"
+                stroke-dashoffset="{{ -(del_dash) }}"
+                stroke-linecap="round"
+                transform="rotate(-90 90 90)"/>
+        {% endif %}
+      </svg>
+      <div class="ts-donut-label">
+        <span class="ts-donut-num">{{ '{:,}'.format(total).replace(',', ' ') }}</span>
+        <span class="ts-donut-txt">Отправлено</span>
+      </div>
+    </div>
+
+    <!-- Легенда: Доставлено / Не доставлено -->
+    <div class="ts-legend">
+      <div class="ts-leg-row">
+        <span class="ts-leg-dot" style="background:#22C55E"></span>
+        <div>
+          <div class="ts-leg-val">{{ '{:,}'.format(delivered).replace(',', ' ') }}</div>
+          <div class="ts-leg-lbl">Доставлено</div>
+        </div>
+      </div>
+      <div class="ts-leg-row">
+        <span class="ts-leg-dot" style="background:#EF4444"></span>
+        <div>
+          <div class="ts-leg-val">{{ '{:,}'.format(failed).replace(',', ' ') }}</div>
+          <div class="ts-leg-lbl">Не доставлено</div>
+        </div>
+      </div>
+      <div style="font-size:12px; color:var(--text-3); margin-top:4px">
+        {{ send['sent_at'][:16] if send['sent_at'] else '—' }}
+      </div>
+    </div>
+
+    <!-- 4 маленьких кольца -->
+    {% macro ring(pct, color, num, label) %}
+    {% set r = 28 %}{% set circ2 = 175.93 %}
+    {% set filled = (pct / 100 * circ2) | round(2) %}
+    <div class="ts-metric">
+      <div class="ts-ring-wrap">
+        <svg width="70" height="70" viewBox="0 0 70 70">
+          <circle cx="35" cy="35" r="{{ r }}" fill="none" stroke="var(--border)" stroke-width="6"/>
+          <circle cx="35" cy="35" r="{{ r }}" fill="none"
+                  stroke="{{ color }}" stroke-width="6"
+                  stroke-dasharray="{{ filled }} {{ circ2 - filled }}"
+                  stroke-linecap="round"
+                  transform="rotate(-90 35 35)"/>
+        </svg>
+        <div class="ts-ring-label" style="color:{{ color }}; font-size:11px">{{ pct }}%</div>
+      </div>
+      <div class="ts-metric-num">{{ num }}</div>
+      <div class="ts-metric-lbl">{{ label }}</div>
+    </div>
+    {% endmacro %}
+
+    <div class="ts-metrics">
+      {{ ring(stats.open_rate,  '#F59E0B', stats.opens,  'Уникальных просмотров') }}
+      {{ ring(stats.click_rate, '#8B5CF6', stats.clicks, 'Уникальных переходов') }}
+      {{ ring(stats.unsub_rate, '#3B82F6', stats.unsubs, 'Отписались') }}
+      {{ ring(0, '#9CA3AF', 0, 'Нажали спам') }}
+    </div>
+
+  </div><!-- /ts-layout -->
+
+  {% if not stats.opens and not stats.clicks %}
+  <div style="padding:0 32px 20px; font-size:13px; color:var(--text-3)">
+    {% if report.get('tracking') %}
+      Письма с трекингом отправлены. Статистика появится по мере открытий.
+    {% else %}
+      Трекинг не активен. Добавьте Tracking URL в Настройках для отслеживания открытий.
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 
-<div class="panel">
-  <div class="panel-header">Получатели ({{ recipients | length }})</div>
+<!-- ── Кто открыл ── -->
+{% if openers %}
+<div class="panel" style="margin-bottom:20px">
+  <div class="panel-header">
+    Открыли письмо
+    <span class="count-badge">{{ openers | length }}</span>
+  </div>
   <table class="table">
-    <thead><tr><th>Email</th><th>Статус</th></tr></thead>
+    <thead><tr><th>Email</th><th>Когда</th></tr></thead>
+    <tbody>
+      {% for o in openers %}
+      <tr>
+        <td>{{ o['email'] }}</td>
+        <td>{{ o['opened_at'][:16] if o['opened_at'] else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- ── Все получатели ── -->
+<div class="panel ts-table-panel">
+  <div class="panel-header">
+    Получатели
+    <span class="count-badge">{{ recipients | length }}</span>
+  </div>
+  {% if recipients %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Email</th>
+        <th>Статус отправки</th>
+        <th>Открытие</th>
+      </tr>
+    </thead>
     <tbody>
       {% for r in recipients %}
       <tr>
         <td>{{ r['email'] }}</td>
         <td>
-          {% if r['status'] == 'sent' %}<span class="badge badge-green">Отправлено</span>
-          {% else %}<span class="badge badge-red">{{ r['status'] }}</span>{% endif %}
+          {% if r['status'] == 'sent' %}
+            <span class="badge badge-green">Отправлено</span>
+          {% else %}
+            <span class="badge badge-red">Ошибка</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r['tracking_token'] %}
+            {% set opened = r['email'] in (openers | map(attribute='email') | list) %}
+            {% if opened %}
+              <span class="open-badge">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 6s1.8-3.5 5-3.5S11 6 11 6s-1.8 3.5-5 3.5S1 6 1 6z" stroke="currentColor" stroke-width="1.2"/><circle cx="6" cy="6" r="1.5" stroke="currentColor" stroke-width="1.2"/></svg>
+                Открыто
+              </span>
+            {% else %}
+              <span style="color:var(--text-3); font-size:12px">—</span>
+            {% endif %}
+          {% else %}
+            <span style="color:var(--text-3); font-size:12px">нет трекинга</span>
+          {% endif %}
         </td>
       </tr>
-      {% else %}
-      <tr><td colspan="2" class="empty-state">Получатели не найдены</td></tr>
       {% endfor %}
     </tbody>
   </table>
+  {% else %}
+    <div class="empty-state">Нет данных</div>
+  {% endif %}
 </div>
+
 {% endblock %}

@@ -5,3 +5,4 @@ tavily-python==0.5.1
 openpyxl==3.1.5
 bcrypt==4.2.1
 gunicorn==23.0.0
+dnspython>=2.4.2
