@@ -270,9 +270,7 @@ def research():
 @app.route('/research/start', methods=['POST'])
 @login_required
 def research_start():
-    segments = request.form.getlist('segments')
-    if not segments:
-        return jsonify({'ok': False, 'error': 'Выберите хотя бы один сегмент'})
+    segments = request.form.getlist('segments') or ['electronics']
     regions = request.form.getlist('regions') or [request.form.get('region', 'moscow')]
     company_scales = request.form.getlist('company_scales') or [request.form.get('company_scale', 'any')]
     contact_requirements = request.form.getlist('contact_requirements')
