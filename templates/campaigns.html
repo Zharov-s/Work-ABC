@@ -185,10 +185,10 @@ const PRESELECT_IDS = {{ preselect_ids|default('[]')|safe }};
 // ── Picker state ──
 let allContacts   = [];
 let selectedMap   = {};   // id → { id, email, name }
-let pickerStatus  = 'new';
-let pickerSegment = '';
-let pickerSearch  = '';
-let searchTimer   = null;
+let pickerStatus   = 'new';
+let pickerSegments = new Set();   // мульти-селект сегментов
+let pickerSearch   = '';
+let searchTimer    = null;
 
 // ── Init (скрипт в конце body — DOM уже готов) ──
 (function init() {
@@ -209,7 +209,7 @@ function loadContacts(tmpl) {
   const params = new URLSearchParams({
     template: tmpl,
     status:   pickerStatus,
-    segment:  pickerSegment,
+    segments: [...pickerSegments].join(','),
     search:   pickerSearch,
   });
   document.getElementById('cp-list').innerHTML = '<div class="cp-loading">Загрузка...</div>';
@@ -248,7 +248,7 @@ function loadContacts(tmpl) {
 function renderSegments(segments) {
   const el = document.getElementById('cp-segs');
   el.innerHTML = segments.map(s => `
-    <button class="cp-seg${pickerSegment === s ? ' active' : ''}"
+    <button class="cp-seg${pickerSegments.has(s) ? ' active' : ''}"
             onclick="setSegment('${escapeHtml(s)}')">${escapeHtml(s)}</button>
   `).join('');
 }
@@ -408,7 +408,11 @@ function setPickerStatus(status) {
 }
 
 function setSegment(seg) {
-  pickerSegment = pickerSegment === seg ? '' : seg;
+  if (pickerSegments.has(seg)) {
+    pickerSegments.delete(seg);
+  } else {
+    pickerSegments.add(seg);
+  }
   loadContacts();
 }
 

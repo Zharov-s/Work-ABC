@@ -418,7 +418,8 @@ def contacts_for_campaign():
     """Возвращает список контактов для пикера получателей рассылки."""
     template      = request.args.get('template', 'mitino')
     status_filter = request.args.get('status', 'new')   # 'new' | 'all'
-    segment       = request.args.get('segment', '').strip()
+    segments_raw  = request.args.get('segments', '').strip()
+    segments      = [s.strip() for s in segments_raw.split(',') if s.strip()]
     search        = request.args.get('search', '').strip()
 
     conn = get_db()
@@ -446,9 +447,10 @@ def contacts_for_campaign():
         )
         params.extend([like, like, like])
 
-    if segment:
-        conditions.append('c.segment = ?')
-        params.append(segment)
+    if segments:
+        placeholders = ','.join('?' * len(segments))
+        conditions.append(f'c.segment IN ({placeholders})')
+        params.extend(segments)
 
     where = ' AND '.join(conditions)
     contacts_raw = conn.execute(
