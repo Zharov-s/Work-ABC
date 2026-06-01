@@ -98,6 +98,11 @@ CONTACT_REQUIREMENT_LABELS = {
 
 DEFAULT_CONTACT_REQUIREMENTS = ['company_name', 'website', 'personal_email', 'mobile_phone']
 
+# Максимум строк в БД на одну компанию при multi-email поиске.
+# Если выбраны оба типа email (личный + общий) — сохраняется по строке на каждый тип.
+# При выборе только одного типа — одна строка. Ограничение: не более MAX_EMAILS_PER_COMPANY строк.
+MAX_EMAILS_PER_COMPANY = 5
+
 BLOCKED_WEBSITE_DOMAINS = {
     'rusprofile.ru', 'www.rusprofile.ru',
     'zachestnyibiznes.ru', 'www.zachestnyibiznes.ru',
@@ -200,8 +205,10 @@ def contact_satisfies_requirements(contact: dict, requirements) -> tuple[bool, s
     company_name = (contact.get('company_name') or '').strip()
     website = (contact.get('website') or '').strip()
     person = (contact.get('person_name') or '').strip()
-    personal_email = (contact.get('personal_email') or contact.get('email') or '').lower().strip()
-    generic_email = (contact.get('generic_email') or '').lower().strip()
+    # Намеренно НЕ используем fallback на 'email': личный и общий должны лежать
+    # в своих полях. Fallback мог бы дать generic при проверке personal_email.
+    personal_email = (contact.get('personal_email') or '').lower().strip()
+    generic_email  = (contact.get('generic_email') or '').lower().strip()
     mobile_phone = (contact.get('mobile_phone') or '').strip()
     generic_phone = (contact.get('generic_phone') or '').strip()
     inn = re.sub(r'\D', '', str(contact.get('inn') or ''))
@@ -252,6 +259,87 @@ def project_contact_to_requirements(contact: dict, requirements) -> dict:
     projected['email'] = projected.get('personal_email') or projected.get('generic_email') or None
     projected['phone'] = projected.get('mobile_phone') or projected.get('generic_phone') or None
     return projected
+
+def _build_contact_rows_for_save(
+    lpr: dict,
+    requirements_list: list,
+) -> list[tuple[str | None, dict]]:
+    """
+    Из одного LPR-словаря строит список (email_key, contact_row) для INSERT в БД.
+
+    Правила:
+    • Выбраны personal_email И generic_email →
+        создаём ДВЕ строки (по одной на каждый тип).
+        Если хотя бы один из них не найден — возвращаем [] (компания пропускается).
+    • Выбран только personal_email →
+        одна строка с личным email; если не найден — [].
+    • Выбран только generic_email →
+        одна строка с общим email; если не найден — [].
+    • Email не требуется →
+        одна строка, email = лучший из найденных.
+
+    Не более MAX_EMAILS_PER_COMPANY строк на компанию.
+    Каждая строка имеет поле 'email' равное её основному адресу.
+    """
+    reqs = set(normalize_contact_requirements(requirements_list))
+
+    personal = (lpr.get('personal_email') or '').lower().strip()
+    generic  = (lpr.get('generic_email')  or '').lower().strip()
+
+    want_personal = 'personal_email' in reqs
+    want_generic  = 'generic_email'  in reqs
+
+    rows: list[tuple[str | None, dict]] = []
+
+    if want_personal and want_generic:
+        # Оба типа нужны — оба обязаны присутствовать
+        if not personal or not generic:
+            return []          # не можем выполнить требование → пропустить компанию
+
+        base = project_contact_to_requirements(lpr, requirements_list)
+
+        # Строка 1: личный email
+        r1 = dict(base)
+        r1['email']          = personal
+        r1['personal_email'] = personal
+        r1['generic_email']  = None   # эта строка посвящена личному email
+        r1['phone'] = r1.get('mobile_phone') or r1.get('generic_phone')
+        rows.append((personal, r1))
+
+        # Строка 2: общий email
+        r2 = dict(base)
+        r2['email']          = generic
+        r2['personal_email'] = None   # эта строка посвящена общему email
+        r2['generic_email']  = generic
+        r2['phone'] = r2.get('mobile_phone') or r2.get('generic_phone')
+        rows.append((generic, r2))
+
+    elif want_personal:
+        if not personal:
+            return []
+        projected = project_contact_to_requirements(lpr, requirements_list)
+        projected['email'] = personal
+        projected['phone'] = projected.get('mobile_phone') or projected.get('generic_phone')
+        rows.append((personal, projected))
+
+    elif want_generic:
+        if not generic:
+            return []
+        projected = project_contact_to_requirements(lpr, requirements_list)
+        projected['email'] = generic
+        projected['phone'] = projected.get('mobile_phone') or projected.get('generic_phone')
+        rows.append((generic, projected))
+
+    else:
+        # Email-требований нет — одна строка, лучший из найденных
+        projected = project_contact_to_requirements(lpr, requirements_list)
+        best_email = projected.get('personal_email') or projected.get('generic_email') or None
+        projected['email'] = best_email
+        projected['phone'] = projected.get('mobile_phone') or projected.get('generic_phone')
+        rows.append((best_email, projected))
+
+    return rows[:MAX_EMAILS_PER_COMPANY]
+
 
 # ── Поисковые запросы ───────────────────────────────────────────────────────
 
@@ -1136,51 +1224,79 @@ def _research_worker(run_id: int, config: dict):
                 _log(run_id, f'   ⛔  {requirement_error} — компания не засчитывается, ищем дальше')
                 continue
 
-            lpr = project_contact_to_requirements(lpr, requirements_list)
-            primary_email = lpr.get('email')
-            primary_phone = lpr.get('phone')
-            inn = lpr.get('inn') or ''
-
-            # Email уже в базе
-            if primary_email and primary_email in existing_emails:
-                _log(run_id, f'   ⏭  {primary_email} — уже в базе')
+            # Строим список строк для сохранения (1 или 2 при multi-email)
+            contact_rows = _build_contact_rows_for_save(lpr, requirements_list)
+            if not contact_rows:
+                reqs_set = set(requirements_list)
+                if 'personal_email' in reqs_set and 'generic_email' in reqs_set:
+                    _log(run_id, '   ⛔  требуются оба типа email, но не оба найдены — пропускаем')
+                else:
+                    _log(run_id, '   ⛔  email не найден — пропускаем')
                 continue
 
-            if primary_email:
-                existing_emails.add(primary_email)
-            existing_companies.add(norm)
-
-            lpr['segment'] = segment_label
-            lpr['region']  = region_label
-            found_contacts.append(lpr)
-            _update_found_count(run_id, len(found_contacts))
-
-            # Сохраняем сразу — чтобы контакт был виден в UI до завершения запуска
             today_str = datetime.now().strftime('%Y-%m-%d')
-            try:
-                conn_now = get_db()
-                conn_now.execute(
-                    """INSERT OR IGNORE INTO contacts
-                       (company_name, website, person_name, title, email, personal_email, generic_email,
-                        phone, mobile_phone, generic_phone, inn, source_url, segment, region,
-                        date_found, status, run_id)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?)""",
-                    (lpr.get('company_name'), lpr.get('website'), lpr.get('person_name'),
-                     lpr.get('title'), lpr.get('email') or None, lpr.get('personal_email') or None,
-                     lpr.get('generic_email') or None, lpr.get('phone') or None,
-                     lpr.get('mobile_phone') or None, lpr.get('generic_phone') or None,
-                     lpr.get('inn') or None, lpr.get('source_url'), lpr.get('segment'), lpr.get('region'),
-                     today_str, run_id)
-                )
-                conn_now.commit()
-                conn_now.close()
-            except Exception as e:
-                _log(run_id, f'⚠️ Ошибка записи: {e}')
+            any_saved  = False
 
-            person = lpr.get('person_name') or director_name or '???'
-            detail = ' | '.join(filter(None, [primary_email, primary_phone, f'ИНН {inn}' if inn else '']))
-            remaining = target_count - len(found_contacts)
-            _log(run_id, f'   ✅ {person} — {detail} | найдено {len(found_contacts)}/{target_count}, осталось {remaining}')
+            for row_email, contact_row in contact_rows:
+                if len(found_contacts) >= target_count:
+                    break
+
+                if row_email and row_email in existing_emails:
+                    _log(run_id, f'   ⏭  {row_email} — уже в базе')
+                    continue
+
+                if row_email:
+                    existing_emails.add(row_email)
+
+                contact_row['segment'] = segment_label
+                contact_row['region']  = region_label
+                found_contacts.append(contact_row)
+                _update_found_count(run_id, len(found_contacts))
+
+                # Сохраняем сразу — виден в UI до завершения запуска
+                try:
+                    conn_now = get_db()
+                    conn_now.execute(
+                        """INSERT OR IGNORE INTO contacts
+                           (company_name, website, person_name, title,
+                            email, personal_email, generic_email,
+                            phone, mobile_phone, generic_phone,
+                            inn, source_url, segment, region,
+                            date_found, status, run_id)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?)""",
+                        (contact_row.get('company_name'),
+                         contact_row.get('website'),
+                         contact_row.get('person_name'),
+                         contact_row.get('title'),
+                         contact_row.get('email')          or None,
+                         contact_row.get('personal_email') or None,
+                         contact_row.get('generic_email')  or None,
+                         contact_row.get('phone')          or None,
+                         contact_row.get('mobile_phone')   or None,
+                         contact_row.get('generic_phone')  or None,
+                         contact_row.get('inn')            or None,
+                         contact_row.get('source_url'),
+                         contact_row.get('segment'),
+                         contact_row.get('region'),
+                         today_str, run_id)
+                    )
+                    conn_now.commit()
+                    conn_now.close()
+                    any_saved = True
+                except Exception as e:
+                    _log(run_id, f'⚠️ Ошибка записи: {e}')
+
+                person_log  = contact_row.get('person_name') or director_name or '???'
+                phone_log   = contact_row.get('phone') or ''
+                inn_log     = contact_row.get('inn') or ''
+                detail = ' | '.join(filter(None, [
+                    row_email, phone_log, f'ИНН {inn_log}' if inn_log else ''
+                ]))
+                remaining = target_count - len(found_contacts)
+                _log(run_id, f'   ✅ {person_log} — {detail} | найдено {len(found_contacts)}/{target_count}, осталось {remaining}')
+
+            if any_saved:
+                existing_companies.add(norm)
 
             time.sleep(0.1)
 
