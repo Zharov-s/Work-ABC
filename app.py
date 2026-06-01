@@ -13,6 +13,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from database import (
     init_db, get_db, get_setting, set_setting, get_all_settings,
     sync_mailing_recipients, get_mailing_stats, MAILING_BATCH_LIMIT,
+    normalize_mailing_email,
 )
 from auth import check_credentials, set_password, set_login
 from mailer import send_campaign, send_pending_campaign, test_smtp, parse_addresses, TEMPLATE_META
@@ -482,12 +483,13 @@ def contacts_for_campaign():
             continue
 
         contacts.append({
-            'id':      r['id'],
-            'company': r['company_name'] or '',
-            'person':  r['person_name']  or '',
-            'email':   r['email'],
-            'segment': r['segment']      or '',
-            'is_sent': is_sent,
+            'id':       r['id'],
+            'company':  r['company_name'] or '',
+            'person':   r['person_name']  or '',
+            'email':    r['email'],
+            'segment':  r['segment']      or '',
+            'is_sent':  is_sent,
+            'is_valid': normalize_mailing_email(r['email']) is not None,
         })
 
     return jsonify({'contacts': contacts, 'segments': segments})

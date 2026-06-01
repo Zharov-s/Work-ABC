@@ -1470,3 +1470,55 @@ body.login-page {
 .cp-count-none { color: #9ca3af; font-weight: 400; }
 .cp-count-ok   { color: #16a34a; }
 .cp-batch      { color: #6b7280; }
+
+/* ── Invalid contacts section in picker ── */
+.cp-invalid-wrap {
+  border-top: 1px solid #fed7aa;
+  background: #fffbeb;
+}
+.cp-invalid-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  color: #92400e;
+  cursor: pointer;
+  user-select: none;
+}
+.cp-invalid-header:hover { background: #fef3c7; }
+.cp-invalid-badge {
+  background: #f59e0b;
+  color: #fff;
+  border-radius: 99px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.cp-invalid-chevron { margin-left: auto; font-size: 11px; color: #b45309; }
+.cp-invalid-body { background: #fffbeb; }
+.cp-invalid-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  border-top: 1px solid #fef3c7;
+  font-size: 13px;
+}
+.cp-invalid-info { flex: 1; min-width: 0; }
+.cp-invalid-name { font-weight: 500; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-invalid-email { font-size: 11.5px; color: #dc2626; font-family: monospace; }
+.cp-delete-btn {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: #dc2626;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s;
+}
+.cp-delete-btn:hover { background: #fef2f2; border-color: #f87171; }
+.cp-delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }

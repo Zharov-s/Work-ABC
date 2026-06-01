@@ -104,6 +104,17 @@
           <div class="cp-loading">Загрузка контактов...</div>
         </div>
 
+        <!-- Секция невалидных email -->
+        <div class="cp-invalid-wrap" id="cp-invalid-wrap" style="display:none">
+          <div class="cp-invalid-header" onclick="toggleInvalidSection()">
+            ⚠️ Неверный email:
+            <span class="cp-invalid-badge" id="cp-invalid-badge">0</span>
+            <span id="cp-invalid-label">контактов — нажмите чтобы исправить или удалить</span>
+            <span class="cp-invalid-chevron" id="cp-invalid-chevron">▼</span>
+          </div>
+          <div class="cp-invalid-body" id="cp-invalid-body" style="display:none"></div>
+        </div>
+
         <!-- Выбранные (chips) + счётчик -->
         <div class="cp-selected-area">
           <div class="cp-chips" id="cp-chips">
@@ -255,13 +266,19 @@ function renderSegments(segments) {
 
 // ── Render contact list ──
 function renderContactList(contacts) {
-  const list = document.getElementById('cp-list');
-  document.getElementById('cp-head-count').textContent = `(${contacts.length})`;
+  const list    = document.getElementById('cp-list');
+  const valid   = contacts.filter(c => c.is_valid);
+  const invalid = contacts.filter(c => !c.is_valid);
 
-  if (!contacts.length) {
+  renderInvalidSection(invalid);
+  document.getElementById('cp-head-count').textContent = `(${valid.length})`;
+
+  if (!valid.length) {
     list.innerHTML = '<div class="cp-empty">Нет контактов по выбранным фильтрам</div>';
     return;
   }
+  // replace contacts with only valid ones for the rest of the render
+  contacts = valid;
 
   list.innerHTML = contacts.map(c => {
     const checked   = !!selectedMap[c.id];
@@ -282,6 +299,70 @@ function renderContactList(contacts) {
         ${c.segment ? `<span class="cp-contact-seg">${escapeHtml(c.segment)}</span>` : ''}
       </label>`;
   }).join('');
+}
+
+// ── Invalid contacts section ──
+function renderInvalidSection(invalid) {
+  const wrap  = document.getElementById('cp-invalid-wrap');
+  const badge = document.getElementById('cp-invalid-badge');
+  const label = document.getElementById('cp-invalid-label');
+  const body  = document.getElementById('cp-invalid-body');
+
+  if (!invalid.length) { wrap.style.display = 'none'; return; }
+
+  wrap.style.display = '';
+  badge.textContent  = invalid.length;
+  label.textContent  = invalid.length === 1
+    ? 'контакт с неверным email'
+    : 'контактов с неверным email — нажмите чтобы удалить';
+
+  body.innerHTML = invalid.map(c => `
+    <div class="cp-invalid-row" id="cp-inv-row-${c.id}">
+      <div class="cp-invalid-info">
+        <div class="cp-invalid-name">${escapeHtml(c.person || c.company || '—')}</div>
+        <div class="cp-invalid-email">⚠️ ${escapeHtml(c.email || '(пусто)')}</div>
+      </div>
+      ${c.company && c.person ? `<span style="font-size:11.5px;color:#9ca3af;flex-shrink:0">${escapeHtml(c.company)}</span>` : ''}
+      <button class="cp-delete-btn" onclick="deleteInvalidContact(${c.id}, this)">
+        🗑 Удалить
+      </button>
+    </div>`).join('');
+}
+
+function toggleInvalidSection() {
+  const body    = document.getElementById('cp-invalid-body');
+  const chevron = document.getElementById('cp-invalid-chevron');
+  const open    = body.style.display === 'none';
+  body.style.display    = open ? '' : 'none';
+  chevron.textContent   = open ? '▲' : '▼';
+}
+
+function deleteInvalidContact(id, btn) {
+  if (!confirm('Удалить этот контакт из базы навсегда?')) return;
+  btn.disabled    = true;
+  btn.textContent = '...';
+  fetch(`/contacts/${id}/delete`, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        const row = document.getElementById(`cp-inv-row-${id}`);
+        if (row) row.remove();
+        // Update badge count
+        const remaining = document.querySelectorAll('[id^="cp-inv-row-"]').length;
+        const badge = document.getElementById('cp-invalid-badge');
+        if (badge) badge.textContent = remaining;
+        if (remaining === 0) document.getElementById('cp-invalid-wrap').style.display = 'none';
+      } else {
+        btn.disabled    = false;
+        btn.textContent = '🗑 Удалить';
+        alert('Ошибка удаления');
+      }
+    })
+    .catch(() => {
+      btn.disabled    = false;
+      btn.textContent = '🗑 Удалить';
+      alert('Сетевая ошибка');
+    });
 }
 
 // ── Toggle single contact ──
