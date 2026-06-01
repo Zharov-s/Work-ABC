@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% set supports_contact_requirements = research_features_version|default(0, true) >= 2 %}
-{% block title %}Research — ABCENTRUM{% endblock %}
-{% block heading %}Research — поиск ЛПР{% endblock %}
+{% block title %}Поиск — ABCENTRUM{% endblock %}
+{% block content_class %}glass-bg{% endblock %}
+{% block heading %}Поиск ЛПР{% endblock %}
 
 {% block content %}
 {% set industry_options = industries|default({
@@ -294,7 +295,10 @@
         <!-- Кнопка -->
         <div class="filters-action">
           <button type="submit" class="btn btn-primary btn-full btn-large" id="start-btn" {% if not supports_contact_requirements %}disabled{% endif %}>
-            {% if supports_contact_requirements %}▶ Запустить поиск{% else %}Перезапустите сервер{% endif %}
+            {% if supports_contact_requirements %}
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 2l9 5-9 5V2z" fill="currentColor"/></svg>
+            Запустить поиск
+            {% else %}Перезапустите сервер{% endif %}
           </button>
           <div class="hint-text" style="text-align:center;margin-top:6px">
             Ищет только новые компании, не дублирует базу
@@ -312,8 +316,14 @@
         <div class="panel-header">
           Выполнение
           <div style="display:flex; align-items:center; gap:10px">
-            <button id="pause-btn" style="display:none" class="btn-pause" onclick="clickPause()">⏸ Пауза</button>
-            <button id="finish-btn" style="display:none" class="btn-finish" onclick="clickFinish()">Завершить</button>
+            <button id="pause-btn" style="display:none" class="btn-pause" onclick="clickPause()">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>
+              Пауза
+            </button>
+            <button id="finish-btn" style="display:none" class="btn-finish" onclick="clickFinish()">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 2l8 4-8 4V2z" fill="currentColor"/><rect x="9" y="2" width="1.5" height="8" rx="0.5" fill="currentColor"/></svg>
+              Завершить
+            </button>
             <span class="status-badge" id="run-status-badge">Запускаем...</span>
           </div>
         </div>

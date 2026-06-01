@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Рассылка #{{ send['id'] }} — ABCENTRUM{% endblock %}
+{% block content_class %}glass-bg{% endblock %}
 {% block heading %}Рассылка #{{ send['id'] }}{% endblock %}
 
 {% block header_actions %}
-  <a href="{{ url_for('campaigns') }}" class="btn btn-link">← Назад</a>
+  <a href="{{ url_for('campaigns') }}" class="btn btn-link">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 2L4 7l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    Назад
+  </a>
 {% endblock %}
 
 {% block content %}

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Настройки — ABCENTRUM{% endblock %}
+{% block content_class %}glass-bg{% endblock %}
 {% block heading %}Настройки{% endblock %}
 
 {% block content %}
@@ -9,7 +10,10 @@
   <div class="panel">
     <div class="panel-header">
       SMTP / Отправитель
-      <button type="button" class="btn btn-secondary btn-sm" onclick="testSmtp()">⚡ Проверить соединение</button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="testSmtp()">
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M7 1L2 7h4.5L6 12l5-6H7L7 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+        Проверить соединение
+      </button>
     </div>
     <div id="smtp-test-result"></div>
     <div class="form-grid">
@@ -29,7 +33,7 @@
         <label>Пароль приложения <span class="label-hint">(внешний пароль Mail.ru)</span></label>
         <div class="password-field">
           <input type="password" name="smtp_pass" id="smtp_pass" value="{{ s.get('smtp_pass','') }}" autocomplete="new-password">
-          <button type="button" class="btn-icon" onclick="togglePass('smtp_pass')" title="Показать/скрыть">👁</button>
+          <button type="button" class="btn-icon" onclick="togglePass('smtp_pass')" title="Показать/скрыть"><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M1 7.5C2.5 4 4.8 2.5 7.5 2.5s5 1.5 6.5 5c-1.5 3.5-3.8 5-6.5 5s-5-1.5-6.5-5z" stroke="currentColor" stroke-width="1.3"/><circle cx="7.5" cy="7.5" r="2" stroke="currentColor" stroke-width="1.3"/></svg></button>
         </div>
       </div>
       <div class="form-group">
@@ -85,7 +89,10 @@
   </div>
 
   <div class="form-actions" style="margin-top:0">
-    <button type="submit" class="btn btn-primary btn-large">💾 Сохранить настройки</button>
+    <button type="submit" class="btn btn-primary btn-large">
+      <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 2h9l2 2v9a1 1 0 01-1 1H2a1 1 0 01-1-1V3a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/><rect x="4" y="1" width="5" height="4" rx="0.5" stroke="currentColor" stroke-width="1.3"/><rect x="3.5" y="8" width="8" height="5" rx="0.5" stroke="currentColor" stroke-width="1.3"/></svg>
+      Сохранить настройки
+    </button>
   </div>
 
 </form>
