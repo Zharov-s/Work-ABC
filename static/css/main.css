@@ -1522,3 +1522,46 @@ body.login-page {
 }
 .cp-delete-btn:hover { background: #fef2f2; border-color: #f87171; }
 .cp-delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Manual email input in picker ── */
+.cp-manual-wrap {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 0 4px;
+  border-top: 1px dashed #e5e7eb;
+  margin-top: 6px;
+}
+.cp-manual-icon { color: #9ca3af; flex-shrink: 0; }
+.cp-manual-input {
+  flex: 1;
+  border: none;
+  border-bottom: 1.5px solid #d1d5db;
+  outline: none;
+  font-size: 13px;
+  font-family: inherit;
+  color: #374151;
+  padding: 3px 0;
+  background: transparent;
+  transition: border-color 0.15s;
+  min-width: 0;
+}
+.cp-manual-input::placeholder { color: #b0b5be; }
+.cp-manual-input:focus  { border-bottom-color: #2563eb; }
+.cp-manual-input.cp-manual-ok  { border-bottom-color: #16a34a; }
+.cp-manual-input.cp-manual-err { border-bottom-color: #dc2626; }
+.cp-manual-input.cp-manual-dup { border-bottom-color: #f59e0b; }
+.cp-manual-hint {
+  font-size: 11.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  color: #9ca3af;
+  min-width: 70px;
+  text-align: right;
+}
+/* Manual-added chips — зелёный оттенок */
+.cp-chip-manual {
+  background: #f0fdf4;
+  color: #166534;
+  border-color: #bbf7d0;
+}

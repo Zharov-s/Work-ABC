@@ -115,11 +115,27 @@
           <div class="cp-invalid-body" id="cp-invalid-body" style="display:none"></div>
         </div>
 
-        <!-- Выбранные (chips) + счётчик -->
+        <!-- Выбранные (chips) + ручной ввод + счётчик -->
         <div class="cp-selected-area">
           <div class="cp-chips" id="cp-chips">
             <span class="cp-no-sel">Выберите получателей из списка выше</span>
           </div>
+
+          <!-- Ручной ввод email -->
+          <div class="cp-manual-wrap">
+            <svg class="cp-manual-icon" width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.3"/>
+              <path d="M7 4.5v5M4.5 7h5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+            <input type="text" id="cp-manual-input" class="cp-manual-input"
+                   placeholder="Добавить email вручную — Enter или запятая"
+                   autocomplete="off" autocorrect="off" spellcheck="false"
+                   oninput="onManualInput(this)"
+                   onkeydown="onManualKey(event)"
+                   onpaste="onManualPaste(event)">
+            <span class="cp-manual-hint" id="cp-manual-hint"></span>
+          </div>
+
           <div class="cp-footer">
             <span class="cp-count cp-count-none" id="cp-count">0 выбрано</span>
             <span class="cp-batch" id="cp-batch"></span>
@@ -417,25 +433,130 @@ function updateChips() {
     chips.innerHTML = '<span class="cp-no-sel">Выберите получателей из списка выше</span>';
     return;
   }
-  chips.innerHTML = sel.map(c => `
-    <span class="cp-chip">
-      <span class="cp-chip-text">${escapeHtml(c.name || c.email)}</span>
-      <button class="cp-chip-rm" onclick="removeContact(${c.id})" title="Убрать">×</button>
-    </span>`).join('');
+  chips.innerHTML = sel.map(c => {
+    const label   = escapeHtml(c.name || c.email);
+    const emailSafe = escapeHtml(c.email).replace(/'/g, '&#39;');
+    const cls     = c.manual ? 'cp-chip cp-chip-manual' : 'cp-chip';
+    return `<span class="${cls}">
+      <span class="cp-chip-text" title="${escapeHtml(c.email)}">${label}</span>
+      <button class="cp-chip-rm" onclick="removeChip('${emailSafe}')" title="Убрать">×</button>
+    </span>`;
+  }).join('');
 }
 
-function removeContact(id) {
-  delete selectedMap[id];
-  const row = document.querySelector(`.cp-contact-row[data-id="${id}"]`);
-  if (row) {
-    row.classList.remove('selected');
-    const cb = row.querySelector('input[type=checkbox]');
-    if (cb) cb.checked = false;
+// Универсальное удаление по email (DB и ручные)
+function removeChip(email) {
+  const key = Object.keys(selectedMap).find(
+    k => selectedMap[k].email.toLowerCase() === email.toLowerCase()
+  );
+  if (!key) return;
+  const c = selectedMap[key];
+  delete selectedMap[key];
+  if (!c.manual) {
+    const row = document.querySelector(`.cp-contact-row[data-id="${c.id}"]`);
+    if (row) {
+      row.classList.remove('selected');
+      const cb = row.querySelector('input[type=checkbox]');
+      if (cb) cb.checked = false;
+    }
+    updateSelectAllHead();
   }
-  updateSelectAllHead();
   updateChips();
   updateFooter();
   updateSendBtn();
+}
+
+// Обратная совместимость — removeContact по числовому id
+function removeContact(id) {
+  const c = selectedMap[id];
+  if (c) removeChip(c.email);
+}
+
+// ── Ручной ввод email ──
+const EMAIL_RE_JS = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+function addManualEmail(raw) {
+  const email = raw.trim();
+  if (!EMAIL_RE_JS.test(email)) return false;
+  const dup = Object.values(selectedMap).some(
+    c => c.email.toLowerCase() === email.toLowerCase()
+  );
+  if (dup) return false;
+  const key = 'm_' + email.toLowerCase();
+  selectedMap[key] = { id: key, email, name: email, manual: true };
+  updateChips();
+  updateFooter();
+  updateSendBtn();
+  return true;
+}
+
+function onManualInput(input) {
+  const val  = input.value.trim();
+  const hint = document.getElementById('cp-manual-hint');
+  if (!val) {
+    input.className = 'cp-manual-input';
+    hint.textContent = '';
+    return;
+  }
+  const dup = Object.values(selectedMap).some(
+    c => c.email.toLowerCase() === val.toLowerCase()
+  );
+  if (dup) {
+    input.className = 'cp-manual-input cp-manual-dup';
+    hint.textContent = 'уже добавлен';
+  } else if (EMAIL_RE_JS.test(val)) {
+    input.className = 'cp-manual-input cp-manual-ok';
+    hint.textContent = 'Enter ↵';
+  } else if (val.includes('@')) {
+    input.className = 'cp-manual-input cp-manual-err';
+    hint.textContent = 'неверный email';
+  } else {
+    input.className = 'cp-manual-input';
+    hint.textContent = '';
+  }
+}
+
+function onManualKey(e) {
+  if (e.key === 'Enter' || e.key === ',' || e.key === 'Tab') {
+    e.preventDefault();
+    const input = e.target;
+    const val   = input.value.replace(/,\s*$/, '').trim();
+    if (addManualEmail(val)) {
+      input.value = '';
+      input.className = 'cp-manual-input';
+      document.getElementById('cp-manual-hint').textContent = '';
+    }
+  } else if (e.key === 'Backspace' && !e.target.value) {
+    // Удалить последний chip при Backspace в пустом поле
+    const keys = Object.keys(selectedMap);
+    if (keys.length) {
+      const last = selectedMap[keys[keys.length - 1]];
+      removeChip(last.email);
+    }
+  }
+}
+
+// Вставка нескольких email сразу (Ctrl+V)
+function onManualPaste(e) {
+  e.preventDefault();
+  const text   = (e.clipboardData || window.clipboardData).getData('text');
+  const parts  = text.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+  if (parts.length <= 1) {
+    // Одиночный — просто вставить в поле
+    const input = e.target;
+    input.value = parts[0] || '';
+    onManualInput(input);
+    return;
+  }
+  let added = 0;
+  parts.forEach(p => { if (addManualEmail(p)) added++; });
+  e.target.value = '';
+  document.getElementById('cp-manual-hint').textContent =
+    added ? `+${added} добавлено` : '';
+  setTimeout(() => {
+    const h = document.getElementById('cp-manual-hint');
+    if (h) h.textContent = '';
+  }, 2500);
 }
 
 // ── Footer: count + batch info ──
