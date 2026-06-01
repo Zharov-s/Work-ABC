@@ -499,6 +499,21 @@ EXTRA_DISCOVERY_QUERIES = {
 
 # ── DuckDuckGo поиск (бесплатно, без API-ключа) ───────────────────────────
 
+def _search(tavily, query: str, max_results: int = 5) -> dict:
+    """
+    Универсальный поиск с автоматическим fallback:
+    Tavily (если работает) → DuckDuckGo (всегда бесплатно).
+    Используется везде вместо прямых _search(tavily, ) вызовов.
+    """
+    try:
+        result = _search(tavily, query, max_results=max_results)
+        if result.get('results'):
+            return result
+    except Exception:
+        pass
+    return _ddgs_search(query, max_results=max_results)
+
+
 def _ddgs_search(query: str, max_results: int = 5) -> dict:
     """
     Поиск через DuckDuckGo — бесплатная альтернатива Tavily.
@@ -525,12 +540,17 @@ def _ddgs_search(query: str, max_results: int = 5) -> dict:
                 url_lower = url.lower()
                 if any(skip in url_lower for skip in _SKIP_DOMAINS):
                     continue
-                # Пропускаем статьи-инструкции, новости, обзоры
+                # Пропускаем статьи, каталоги, образование и прочий нерелевантный контент
                 title_lower = title.lower()
                 if any(w in title_lower for w in [
                     'не работает', 'сбой', 'проблема', 'ошибка', 'обновление',
                     'скачать', 'установить', 'почему', 'как войти', 'советы',
-                    'рейтинг', 'топ ', 'обзор', 'новости',
+                    'рейтинг', 'топ ', 'обзор', 'новости', 'статья', 'блог',
+                    'все о ', 'все об ', 'что такое', 'как выбрать', 'каталог',
+                    'купить', 'цена', 'стоимость', 'отзывы', 'форум',
+                    'колледж', 'университет', 'академия',
+                    'поступление', 'абитуриент', 'учебный', 'курсы',
+                    'контрольно-измерительн', 'датчики давления',
                 ]):
                     continue
                 results.append({
@@ -938,8 +958,9 @@ def _extract_companies_fast(search_results: dict) -> list[dict]:
                 })
                 found_any = True
 
-        # Если юрформы нет — пробуем title целиком (напр. "Рикор Электроникс")
-        if not found_any and title and len(title) <= 80:
+        # Если юрформы нет — пробуем title (только если у него есть сайт компании)
+        # Требуем наличие реального сайта чтобы не брать мусор из DuckDuckGo
+        if not found_any and title and len(title) <= 80 and website:
             title_l = title.lower()
             if not any(w in title_l for w in _NOT_COMPANY_WORDS):
                 short = re.split(r'\s*[|/—–]\s*', title)[0].strip().rstrip('.,;')
@@ -1171,7 +1192,7 @@ def _resolve_official_website(tavily, company: dict, combined_text: str, log_fn)
     ]
     for query in queries:
         try:
-            res = tavily.search(query, max_results=5)
+            res = _search(tavily, query, max_results=5)
         except Exception:
             continue
         text = _results_to_text(res, 500)
@@ -1241,7 +1262,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
         f'rusprofile.ru zachestnyibiznes.ru checko.ru list-org.com'
     )
     try:
-        r1 = tavily.search(q1, max_results=6)
+        r1 = _search(tavily, q1, max_results=6)
         text1 = _results_to_text(r1, 800)
         combined_parts.append(text1)
         _quick_scan(text1)
@@ -1256,7 +1277,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
                 requirements.intersection({'personal_email', 'mobile_phone'}):
             q1b = f'"{name}" руководитель ФИО checko egrul реестр'
             try:
-                r1b = tavily.search(q1b, max_results=4)
+                r1b = _search(tavily, q1b, max_results=4)
                 text1b = _results_to_text(r1b, 500)
                 combined_parts.append(text1b)
                 for item in r1b.get('results', []):
@@ -1274,7 +1295,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
     if director_name and not found_email:
         q2 = f'"{director_name}" "{name}" email'
         try:
-            r2 = tavily.search(q2, max_results=4)
+            r2 = _search(tavily, q2, max_results=4)
             text2 = _results_to_text(r2, 500)
             combined_parts.append(text2)
             _quick_scan(text2)
@@ -1288,7 +1309,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
         q3 = (f'site:{domain} контакты email телефон' if domain
               else f'"{name}" контакты email телефон официальный')
         try:
-            r3 = tavily.search(q3, max_results=4)
+            r3 = _search(tavily, q3, max_results=4)
             text3 = _results_to_text(r3, 600)
             combined_parts.append(text3)
             _quick_scan(text3)
@@ -1301,7 +1322,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
     if director_name and not found_phone:
         q4 = f'"{name}" телефон мобильный директор контакты'
         try:
-            r4 = tavily.search(q4, max_results=3)
+            r4 = _search(tavily, q4, max_results=3)
             combined_parts.append(_results_to_text(r4, 400))
         except Exception:
             pass
@@ -1310,7 +1331,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
     if 'inn' in requirements:
         q5 = f'"{name}" ИНН реквизиты'
         try:
-            r5 = tavily.search(q5, max_results=3)
+            r5 = _search(tavily, q5, max_results=3)
             combined_parts.append(_results_to_text(r5, 500))
         except Exception:
             pass
@@ -1319,7 +1340,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
         q6 = (f'site:{domain} реквизиты контакты email телефон' if domain
               else f'"{name}" реквизиты контакты email телефон')
         try:
-            r6 = tavily.search(q6, max_results=3)
+            r6 = _search(tavily, q6, max_results=3)
             combined_parts.append(_results_to_text(r6, 500))
         except Exception:
             pass
@@ -1329,7 +1350,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
             requirements.intersection({'mobile_phone', 'generic_phone'}):
         q7 = f'"{name}" 2гис телефон адрес'
         try:
-            r7 = tavily.search(q7, max_results=3)
+            r7 = _search(tavily, q7, max_results=3)
             text7 = _results_to_text(r7, 400)
             combined_parts.append(text7)
             if not found_phone:
@@ -1347,7 +1368,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
         if found_inn:
             q8 = f'ИНН {found_inn} директор руководитель rusprofile checko egrul'
             try:
-                r8 = tavily.search(q8, max_results=4)
+                r8 = _search(tavily, q8, max_results=4)
                 text8 = _results_to_text(r8, 500)
                 combined_parts.append(text8)
                 for item in r8.get('results', []):
@@ -1497,7 +1518,7 @@ def _research_worker(run_id: int, config: dict):
 
         # ── Поиск через Tavily ─────────────────────────────────────────────
         try:
-            search_res = tavily.search(query, max_results=7)
+            search_res = _search(tavily, query, max_results=7)
         except Exception as e:
             _log(run_id, f'❌ Tavily: {e}')
             search_res = {'results': []}
