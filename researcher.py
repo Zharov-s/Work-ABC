@@ -12,6 +12,7 @@ import threading
 from datetime import datetime
 from urllib.parse import urlparse
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from database import get_db
 
 TAVILY_API_KEY  = os.getenv('TAVILY_API_KEY', '')
@@ -595,6 +596,10 @@ EXTRA_DISCOVERY_QUERIES = {
         # checko.ru/list-org — ЕГРЮЛ-прокси с данными о директорах
         'checko.ru электроника приборостроение Москва компания руководитель ИНН',
         'list-org.com производство электронных компонентов Москва директор',
+        # rusprofile ОКВЭД: прямые запросы к ЕГРЮЛ-прокси
+        'rusprofile.ru "ОКВЭД 26.51" Москва производство электроника директор ИНН',
+        'rusprofile.ru "ОКВЭД 26.11" электронные компоненты Москва директор',
+        'site:rusprofile.ru производство приборов электроники Москва руководитель',
     ],
     'medtech': [
         'резиденты технопарка Москва медицинское оборудование производство',
@@ -604,6 +609,9 @@ EXTRA_DISCOVERY_QUERIES = {
         'site:2gis.ru медицинское оборудование производство Москва',
         'checko.ru медтех производство медицинские изделия Москва руководитель',
         'list-org.com биотехнологии медоборудование Москва компания директор',
+        'rusprofile.ru "ОКВЭД 26.60" медицинское оборудование Москва директор ИНН',
+        'rusprofile.ru "ОКВЭД 32.50" медицинские изделия производство Москва',
+        'site:rusprofile.ru биотехнологии лабораторное диагностика Москва директор',
     ],
     'robotics': [
         'технопарк Москва робототехника автоматизация резидент компания',
@@ -613,6 +621,9 @@ EXTRA_DISCOVERY_QUERIES = {
         'site:2gis.ru промышленная автоматизация робототехника Москва',
         'checko.ru станки ЧПУ робототехника автоматизация Москва директор ИНН',
         'list-org.com мехатроника сервоприводы производство Москва руководитель',
+        'rusprofile.ru "ОКВЭД 28.41" станки ЧПУ промышленное оборудование Москва',
+        'rusprofile.ru "ОКВЭД 28.99" специализированное оборудование Москва ИНН',
+        'site:rusprofile.ru робототехника промышленная автоматизация Москва директор',
     ],
     'it_hardware': [
         'резиденты технопарка Москва производство ИТ оборудование серверы',
@@ -622,6 +633,9 @@ EXTRA_DISCOVERY_QUERIES = {
         'site:2gis.ru производство вычислительной техники серверов Москва',
         'checko.ru производство телекоммуникационного оборудования Москва директор',
         'list-org.com ИТ hardware серверы коммутаторы Москва производитель',
+        'rusprofile.ru "ОКВЭД 26.20" производство компьютеров серверов Москва ИНН',
+        'rusprofile.ru "ОКВЭД 26.30" телекоммуникационное оборудование Москва',
+        'site:rusprofile.ru отечественное ИТ hardware производство Москва ИНН',
     ],
     'laser_optics': [
         'технопарк Москва лазерные оптические системы производство резидент',
@@ -629,6 +643,8 @@ EXTRA_DISCOVERY_QUERIES = {
         'импортозамещение лазеры оптика производство Москва компания',
         'site:2gis.ru лазерные оптические технологии производство Москва',
         'checko.ru лазерные системы оптические приборы Москва директор ИНН',
+        'rusprofile.ru "ОКВЭД 26.70" оптические приборы фотоника Москва директор',
+        'site:rusprofile.ru лазерные технологии волоконная оптика Москва руководитель',
     ],
     'rd_nii': [
         'резиденты технопарка НИИ научные организации разработки Москва',
@@ -638,6 +654,9 @@ EXTRA_DISCOVERY_QUERIES = {
         'site:2gis.ru научно-производственное предприятие Москва',
         'checko.ru ОКВЭД 72 НИИ КБ Москва директор ИНН',
         'list-org.com научные исследования разработки Москва руководитель',
+        'rusprofile.ru "ОКВЭД 72.19" НИОКР НИИ КБ Москва директор ИНН',
+        'rusprofile.ru "ОКВЭД 72.11" биотехнологии исследования Москва',
+        'site:rusprofile.ru научно-производственное предприятие НПП НПО Москва',
     ],
     'light_industrial': [
         'резиденты промышленного технопарка Москва лёгкое производство R&D',
@@ -647,6 +666,9 @@ EXTRA_DISCOVERY_QUERIES = {
         'site:2gis.ru производство инжиниринг сборка Москва компания',
         'checko.ru промышленное производство сборка Москва ИНН директор',
         'list-org.com лёгкое производство R&D Москва компания руководитель',
+        'rusprofile.ru "ОКВЭД 33.12" ремонт монтаж машин Москва директор ИНН',
+        'rusprofile.ru "ОКВЭД 27.11" электродвигатели трансформаторы Москва',
+        'site:rusprofile.ru сборочное производство инжиниринг технопарк Москва',
     ],
 }
 
@@ -768,7 +790,41 @@ BLOCKED_EMAIL_PREFIXES = {
     'noreply', 'no-reply', 'feedback', 'help', 'service', 'request',
     'quality', 'tender', 'zakupki', 'buh', 'director', 'general',
     'business', 'welcome', 'client', 'clients', 'customer', 'personal',
+    # дополнительные общие адреса
+    'manager', 'managers', 'tech', 'job', 'jobs', 'work', 'connect',
+    'team', 'news', 'events', 'promo', 'dealer', 'dealers',
+    'partner', 'partners', 'agent', 'agents', 'torg', 'opt', 'optom',
+    'price', 'prices', 'order', 'orders', 'secretary', 'kancel',
+    'ceo', 'cto', 'cfo', 'coo', 'ask', 'send',
+    'contract', 'contracts', 'doc', 'docs', 'document', 'documents',
+    'consult', 'consulting', 'legal', 'law', 'accounting', 'finance',
+    'buy', 'purchase', 'wholesale', 'retail', 'logistics', 'supply',
+    'recruitment', 'cv', 'resume', 'vacancy', 'vacancies',
+    'production', 'manufacture', 'export', 'import', 'shipping',
 }
+
+# Бесплатные почтовые домены — не принадлежат конкретной компании
+_FREEMAIL_DOMAINS: frozenset[str] = frozenset({
+    'gmail.com', 'googlemail.com',
+    'mail.ru', 'bk.ru', 'inbox.ru', 'list.ru', 'internet.ru',
+    'yandex.ru', 'yandex.com', 'ya.ru',
+    'rambler.ru', 'lenta.ru', 'ro.ru',
+    'hotmail.com', 'hotmail.ru', 'outlook.com', 'live.com',
+    'yahoo.com', 'yahoo.ru',
+    'icloud.com', 'me.com', 'mac.com',
+    'protonmail.com', 'proton.me',
+    'tutanota.com',
+    'mail.com', 'email.com', 'fastmail.com',
+    'ukr.net',
+})
+
+
+def is_freemail_domain(email: str) -> bool:
+    """True если email на публичном почтовом сервисе (gmail, mail.ru и т.п.)."""
+    if not email or '@' not in email:
+        return False
+    domain = email.rsplit('@', 1)[1].lower().strip()
+    return domain in _FREEMAIL_DOMAINS
 
 # Юридические форм-факторы для нормализации
 _LEGAL_PREFIX = re.compile(
@@ -860,6 +916,9 @@ def email_belongs_to_company(email: str, company_name: str, website: str | None 
     if not is_valid_email_format(email) or '@' not in email:
         return False
     domain = email.rsplit('@', 1)[1].lower()
+    # Бесплатные почтовые сервисы — не корпоративные адреса
+    if domain in _FREEMAIL_DOMAINS:
+        return False
     if website:
         website_domain = _url_domain(website)
         if _domain_base(domain) == _domain_base(website_domain):
@@ -1442,6 +1501,99 @@ def is_valid_phone(phone: str) -> bool:
     return len(digits) >= 7
 
 
+
+# ── ЕГРЮЛ: прямой API nalog.ru (Pass 0) ───────────────────────────────────
+
+def _fetch_egrul_nalog(company_name: str, timeout: int = 5) -> dict | None:
+    """
+    Pass 0: прямой запрос к официальному ЕГРЮЛ (egrul.nalog.ru).
+    Протокол: POST / → токен, затем GET /search-result/{token}.
+    Поля ответа: i=ИНН, g=должность+ФИО директора, n=полное название, o=ОГРН.
+    Graceful fallback: при любой ошибке возвращает None.
+    """
+    try:
+        if not company_name or len(company_name.strip()) < 3:
+            return None
+        s = requests.Session()
+        s.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Referer': 'https://egrul.nalog.ru/',
+            'Origin': 'https://egrul.nalog.ru',
+        })
+        # Шаг 1: получаем токен поиска
+        r1 = s.post(
+            'https://egrul.nalog.ru/',
+            data={'query': company_name.strip(), 'regionCode': '', 'pg': ''},
+            timeout=timeout,
+        )
+        if r1.status_code != 200:
+            return None
+        token_data = r1.json()
+        if token_data.get('captchaRequired'):
+            return None
+        token = token_data.get('t', '')
+        if not token:
+            return None
+        # Шаг 2: получаем результаты — nalog.ru обрабатывает поиск асинхронно,
+        # нужен polling с паузой. Формат URL: /search-result/{token}
+        import time as _time
+        rows = []
+        for _attempt in range(3):
+            _time.sleep(0.3)
+            r2 = s.get(f'https://egrul.nalog.ru/search-result/{token}', timeout=timeout)
+            if r2.status_code != 200:
+                break
+            rows = r2.json().get('rows', [])
+            if rows:
+                break
+        if not rows:
+            return None
+
+        name_norm = normalize_company_name(company_name)
+        best = None
+        for row in rows[:5]:
+            if row.get('e'):  # е = дата ликвидации, непустое = ликвидирована
+                continue
+            # n = полное название, c = краткое (в этом API c = краткое имя, i = ИНН)
+            row_name = row.get('n') or row.get('c') or ''
+            row_norm = normalize_company_name(row_name)
+            if row_norm == name_norm:
+                best = row
+                break
+            if not best and _company_name_in_text(company_name, row_name):
+                best = row
+        if not best:
+            best = next((r for r in rows[:3] if not r.get('e')), None)
+        if not best:
+            return None
+
+        # i = ИНН (10 или 12 цифр)
+        inn = re.sub(r'\D', '', best.get('i') or '')
+        ogrn = re.sub(r'\D', '', best.get('o') or '')
+
+        # g = "ДОЛЖНОСТЬ: Фамилия Имя Отчество" — парсим ФИО
+        director_raw = (best.get('g') or '').strip()
+        director = None
+        if director_raw:
+            # Убираем должность: "ГЕНЕРАЛЬНЫЙ ДИРЕКТОР: Садриев Хурсандджон..."
+            fio_part = re.sub(r'^[А-ЯЁABCDEFGHIJKLMNOPQRSTUVWXYZ\s]+:\s*', '', director_raw).strip()
+            if not fio_part:
+                fio_part = director_raw
+            # Валидируем: 2+ слова, кириллица
+            if len(fio_part.split()) >= 2 and re.search(r'[а-яё]', fio_part, re.IGNORECASE):
+                director = fio_part
+
+        return {
+            'inn':      inn if len(inn) in (10, 12) else None,
+            'ogrn':     ogrn or None,
+            'director': director,
+            'address':  (best.get('a') or '').strip() or None,
+        }
+    except Exception:
+        return None
+
 # ── Многопроходный поиск ЛПР ──────────────────────────────────────────────
 
 def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str] | None = None) -> tuple[str | None, str]:
@@ -1485,41 +1637,78 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
             if phones:
                 found_phone = phones[0]
 
-    # Проход 1: директор из ЕГРЮЛ-прокси сайтов (rusprofile, zachestnyibiznes, checko, list-org)
-    # Улучшено: явно таргетируем несколько бесплатных ЕГРЮЛ-источников
-    q1 = (
-        f'"{name}" директор руководитель '
-        f'rusprofile.ru zachestnyibiznes.ru checko.ru list-org.com'
-    )
-    try:
-        r1 = _search(tavily, q1, max_results=6)
-        text1 = _results_to_text(r1, 800)
-        combined_parts.append(text1)
-        _quick_scan(text1)
-        for item in r1.get('results', []):
+    # ── Pass 0: ЕГРЮЛ API (nalog.ru) — без Tavily, ~1с ─────────────────────
+    egrul = _fetch_egrul_nalog(name)
+    if egrul:
+        if egrul.get('director'):
+            director_name = egrul['director']
+            log_fn(f'   📋 Директор из ЕГРЮЛ (nalog.ru): {director_name}')
+        if egrul.get('inn'):
+            combined_parts.append(f'ИНН из ЕГРЮЛ: {egrul["inn"]}')
+        if egrul.get('address'):
+            combined_parts.append(f'Адрес: {egrul["address"]}')
+    else:
+        egrul = {}
+
+    # ── Passes 1 + 3 параллельно (экономим ~8с на компанию) ─────────────────
+    def _run_pass1():
+        q = (f'"{name}" директор руководитель '
+             f'rusprofile.ru zachestnyibiznes.ru checko.ru list-org.com')
+        r = _search(tavily, q, max_results=6)
+        return _results_to_text(r, 800), r.get('results', [])
+
+    def _run_pass3():
+        q = (f'site:{domain} контакты email телефон' if domain
+             else f'"{name}" контакты email телефон официальный')
+        r = _search(tavily, q, max_results=4)
+        return _results_to_text(r, 600)
+
+    _pass1_text, _pass1_results = '', []
+    _pass3_text = ''
+    _par_timeout = TAVILY_TIMEOUT_SECONDS + 3
+
+    with ThreadPoolExecutor(max_workers=2) as exc:
+        f1 = exc.submit(_run_pass1)
+        f3 = exc.submit(_run_pass3)
+        try:
+            _pass1_text, _pass1_results = f1.result(timeout=_par_timeout)
+        except Exception:
+            _pass1_text, _pass1_results = '', []
+        try:
+            _pass3_text = f3.result(timeout=_par_timeout)
+        except Exception:
+            _pass3_text = ''
+
+    # Обрабатываем Pass 1
+    combined_parts.append(_pass1_text)
+    _quick_scan(_pass1_text)
+    if not director_name:
+        # ЕГРЮЛ не дал директора — ищем через регекс в результатах Tavily
+        for item in _pass1_results:
             found = extract_director_name(item.get('content') or '')
             if found:
                 director_name = found
                 log_fn(f'   📋 Директор из реестра: {director_name}')
                 break
-        # Pass 1b: резервный поиск директора только если нужен личный контакт
-        if not director_name and requirements and \
-                requirements.intersection({'personal_email', 'mobile_phone'}):
-            q1b = f'"{name}" руководитель ФИО checko egrul реестр'
-            try:
-                r1b = _search(tavily, q1b, max_results=4)
-                text1b = _results_to_text(r1b, 500)
-                combined_parts.append(text1b)
-                for item in r1b.get('results', []):
-                    found = extract_director_name(item.get('content') or '')
-                    if found:
-                        director_name = found
-                        log_fn(f'   📋 Директор (доп. поиск): {director_name}')
-                        break
-            except Exception:
-                pass
-    except Exception:
-        pass
+    else:
+        log_fn(f'   ✓ Директор подтверждён через ЕГРЮЛ: {director_name}')
+
+    # Pass 1b: резервный поиск директора только если нужен личный контакт
+    if not director_name and requirements and \
+            requirements.intersection({'personal_email', 'mobile_phone'}):
+        q1b = f'"{name}" руководитель ФИО checko egrul реестр'
+        try:
+            r1b = _search(tavily, q1b, max_results=4)
+            text1b = _results_to_text(r1b, 500)
+            combined_parts.append(text1b)
+            for item in r1b.get('results', []):
+                found = extract_director_name(item.get('content') or '')
+                if found:
+                    director_name = found
+                    log_fn(f'   📋 Директор (доп. поиск): {director_name}')
+                    break
+        except Exception:
+            pass
 
     # Проход 2: личный email директора (только если ещё нет email)
     if director_name and not found_email:
@@ -1534,19 +1723,11 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
         except Exception:
             pass
 
-    # Проход 3: контакты компании (нужен если нет email или телефона)
-    if not (found_email and found_phone):
-        q3 = (f'site:{domain} контакты email телефон' if domain
-              else f'"{name}" контакты email телефон официальный')
-        try:
-            r3 = _search(tavily, q3, max_results=4)
-            text3 = _results_to_text(r3, 600)
-            combined_parts.append(text3)
-            _quick_scan(text3)
-            if found_phone:
-                log_fn(f'   📞 Телефон в выдаче: {found_phone}')
-        except Exception:
-            pass
+    # Обрабатываем Pass 3 (был запущен параллельно с Pass 1)
+    combined_parts.append(_pass3_text)
+    _quick_scan(_pass3_text)
+    if found_phone:
+        log_fn(f'   📞 Телефон в выдаче: {found_phone}')
 
     # Проход 4: телефон директора (только если до сих пор нет телефона)
     if director_name and not found_phone:
@@ -1559,12 +1740,17 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
 
     requirements = requirements or set()
     if 'inn' in requirements:
-        q5 = f'"{name}" ИНН реквизиты'
-        try:
-            r5 = _search(tavily, q5, max_results=3)
-            combined_parts.append(_results_to_text(r5, 500))
-        except Exception:
-            pass
+        # Если ИНН уже получен из ЕГРЮЛ в Pass 0 — Tavily не нужен
+        inn_from_egrul = egrul.get('inn')
+        if inn_from_egrul:
+            log_fn(f'   🔢 ИНН из ЕГРЮЛ: {inn_from_egrul} (Tavily Pass 5 пропущен)')
+        else:
+            q5 = f'"{name}" ИНН реквизиты'
+            try:
+                r5 = _search(tavily, q5, max_results=3)
+                combined_parts.append(_results_to_text(r5, 500))
+            except Exception:
+                pass
 
     if 'email' in requirements or 'phone' in requirements or 'generic_email' in requirements or 'generic_phone' in requirements:
         q6 = (f'site:{domain} реквизиты контакты email телефон' if domain
@@ -1594,7 +1780,8 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
     # Проход 8 (ИНН-поиск директора): только если нужен личный контакт и директор не найден
     if not director_name and requirements and \
             requirements.intersection({'personal_email', 'mobile_phone'}):
-        found_inn = extract_inn_from_text('\n'.join(combined_parts))
+        # Приоритет: ИНН из ЕГРЮЛ (Pass 0) → затем из текста
+        found_inn = egrul.get('inn') or extract_inn_from_text('\n'.join(combined_parts))
         if found_inn:
             q8 = f'ИНН {found_inn} директор руководитель rusprofile checko egrul'
             try:
