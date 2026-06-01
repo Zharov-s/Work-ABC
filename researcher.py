@@ -506,7 +506,7 @@ def _search(tavily, query: str, max_results: int = 5) -> dict:
     Используется везде вместо прямых _search(tavily, ) вызовов.
     """
     try:
-        result = _search(tavily, query, max_results=max_results)
+        result = tavily.search(query, max_results=max_results)
         if result.get('results'):
             return result
     except Exception:
@@ -563,6 +563,44 @@ def _ddgs_search(query: str, max_results: int = 5) -> dict:
         return {'results': results}
     except Exception:
         return {'results': []}
+
+
+def _compact_search_query(parts: list[str], max_len: int = 180) -> str:
+    query_parts: list[str] = []
+    for part in parts:
+        normalized = ' '.join(str(part or '').split())
+        if not normalized:
+            continue
+        current = ' '.join(query_parts)
+        if current and normalized.lower() in current.lower():
+            continue
+        candidate = ' '.join(query_parts + [normalized])
+        if len(candidate) <= max_len:
+            query_parts.append(normalized)
+            continue
+
+        remaining = max_len - len(current) - (1 if current else 0)
+        if remaining > 20:
+            trimmed = normalized[:remaining].rsplit(' ', 1)[0] or normalized[:remaining]
+            query_parts.append(trimmed)
+        break
+    return ' '.join(query_parts)
+
+
+def _requirement_query_suffix(requirements: set[str]) -> str:
+    if 'personal_email' in requirements:
+        return 'личный email руководитель'
+    if 'generic_email' in requirements:
+        return 'общий email контакты'
+    if 'mobile_phone' in requirements:
+        return 'мобильный телефон руководитель'
+    if 'generic_phone' in requirements:
+        return 'городской телефон контакты'
+    if 'inn' in requirements:
+        return 'ИНН реквизиты'
+    if 'website' in requirements:
+        return 'официальный сайт'
+    return 'контакты'
 
 
 # Заблокированные общие email-адреса
@@ -1468,6 +1506,7 @@ def _research_worker(run_id: int, config: dict):
 
     # Строим список запросов: основные + дополнительные каналы
     all_queries = []
+    seen_queries = set()
     for seg in segments_list:
         segment_label = SEGMENT_LABELS.get(seg, seg)
         industry_keys = industries_list or [None]
@@ -1479,28 +1518,26 @@ def _research_worker(run_id: int, config: dict):
                     industry_label = INDUSTRY_LABELS.get(industry_key, '') if industry_key else ''
                     industry_terms = INDUSTRY_QUERY_TERMS.get(industry_key, ['']) if industry_key else ['']
                     industry_suffix = ' '.join(industry_terms[:2])
-                    # Требования: максимум 1 ключевое слово чтобы не раздувать запрос
-                    if 'personal_email' in requirements:
-                        requirement_suffix = 'контакты директор email'
-                    elif 'generic_email' in requirements:
-                        requirement_suffix = 'контакты email'
-                    elif 'mobile_phone' in requirements:
-                        requirement_suffix = 'контакты телефон директор'
-                    else:
-                        requirement_suffix = 'контакты'
+                    requirement_suffix = _requirement_query_suffix(requirements)
 
-                    for q in SEGMENT_QUERIES.get(seg, []):
-                        parts = [q, region_label]
+                    def add_query(raw_query: str, source_tag: str):
+                        parts = [raw_query, industry_suffix, requirement_suffix, region_label]
                         if scale_suffix and scale_suffix != 'any':
                             parts.append(scale_suffix)
-                        # Лимит 180 символов — Tavily падает на длинных запросах
-                        full_q = ' '.join(filter(None, parts))[:180]
-                        all_queries.append((full_q, segment_label, industry_label, region_label, 'tavily'))
+                        parts.append(keywords)
+                        full_q = _compact_search_query(parts)
+                        dedupe_key = full_q.lower()
+                        if full_q and dedupe_key not in seen_queries:
+                            seen_queries.add(dedupe_key)
+                            all_queries.append(
+                                (full_q, segment_label, industry_label, region_label, source_tag)
+                            )
+
+                    for q in SEGMENT_QUERIES.get(seg, []):
+                        add_query(q, 'tavily')
                     # Дополнительные каналы: технопарки, выставки, импортозамещение
                     for q in EXTRA_DISCOVERY_QUERIES.get(seg, []):
-                        parts = [q, region_label]
-                        full_q = ' '.join(filter(None, parts))[:180]
-                        all_queries.append((full_q, segment_label, industry_label, region_label, 'extra'))
+                        add_query(q, 'extra')
 
     found_contacts = []
     searched_names = set()
