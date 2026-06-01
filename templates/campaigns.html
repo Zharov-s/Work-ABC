@@ -180,7 +180,7 @@
 {% block scripts %}
 <script>
 const BATCH_LIMIT   = {{ mailing_batch_limit }};
-const PRESELECT_IDS = {{ preselect_ids|safe }};
+const PRESELECT_IDS = {{ preselect_ids|default('[]')|safe }};
 
 // ── Picker state ──
 let allContacts   = [];
@@ -190,11 +190,11 @@ let pickerSegment = '';
 let pickerSearch  = '';
 let searchTimer   = null;
 
-// ── Init ──
-document.addEventListener('DOMContentLoaded', () => {
+// ── Init (скрипт в конце body — DOM уже готов) ──
+(function init() {
   const tmpl = document.querySelector('input[name="template"]:checked')?.value || 'mitino';
   loadContacts(tmpl);
-});
+})();
 
 // ── Template change ──
 function selectTemplate(radio) {
