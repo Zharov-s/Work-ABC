@@ -28,8 +28,10 @@
 {% set contact_requirement_options = contact_requirements|default({
   'company_name': 'Наименование компании',
   'website': 'Сайт',
+  'email': 'Почты',
   'generic_email': 'Email общий',
   'personal_email': 'Email личный',
+  'phone': 'Телефоны',
   'generic_phone': 'Телефон общий',
   'mobile_phone': 'Телефон мобильный',
   'inn': 'ИНН',
@@ -194,99 +196,69 @@
           </div>
         </div>
 
-        <!-- Обязательные реквизиты -->
-        <div class="field-switches">
-          <div class="field-switches-title">Обязательные реквизиты</div>
-          <label class="field-switch">
-            <input type="checkbox"
-                   name="contact_requirements"
-                   value="company_name"
-                   data-label="Наименование компании"
-                   onchange="updateFilterSummary('contact_requirements')">
-            <span class="field-switch-text">
-              <span>Наименование компании</span>
-              <small>Без названия компания не попадёт в результат</small>
-            </span>
-            <span class="toggle-switch"></span>
-          </label>
-          <label class="field-switch">
+        <!-- Контактные данные -->
+        <div class="contact-data-card">
+          <input type="checkbox"
+                 id="contact-phone-requirement"
+                 name="contact_requirements"
+                 value="phone"
+                 data-label="Телефоны"
+                 onchange="updateFilterSummary('contact_requirements')">
+          <div class="contact-data-header">
+            <div class="contact-data-title">Контактные данные</div>
+            <span class="contact-data-chevron">⌃</span>
+          </div>
+          <button class="contact-data-row contact-data-row--menu"
+                  type="button"
+                  id="phone-filter-trigger"
+                  aria-expanded="false"
+                  onclick="togglePhonePopover(event)">
+            <span>Телефоны</span>
+          </button>
+          <div class="contact-phone-popover" id="phone-filter-popover" aria-hidden="true">
+            <div class="contact-phone-title">Наличие телефонов</div>
+            <label class="contact-radio-row">
+              <input type="radio" name="phone_filter_mode" value="phone" onchange="selectPhoneRequirement('phone')">
+              <span class="contact-radio-mark"></span>
+              <span>Мобильные или городские</span>
+            </label>
+            <label class="contact-radio-row">
+              <input type="radio" name="phone_filter_mode" value="mobile_phone" onchange="selectPhoneRequirement('mobile_phone')">
+              <span class="contact-radio-mark"></span>
+              <span>Только мобильные</span>
+            </label>
+            <div class="contact-check-title">
+              <span>Проверка контактов</span>
+              <span class="contact-help">?</span>
+            </div>
+            <div class="contact-segmented">
+              <button type="button" class="contact-segmented-btn contact-segmented-btn--active">Базовая</button>
+              <button type="button" class="contact-segmented-btn">Оптимальная</button>
+              <button type="button" class="contact-segmented-btn">Усиленная</button>
+            </div>
+            <div class="contact-phone-note">
+              Покажем все возможные контакты организаций, прошедшие <u>базовый отбор.</u>
+            </div>
+          </div>
+          <label class="contact-data-row contact-data-row--switch">
+            <span>Сайты</span>
             <input type="checkbox"
                    name="contact_requirements"
                    value="website"
-                   data-label="Сайт"
+                   data-label="Сайты"
                    onchange="updateFilterSummary('contact_requirements')">
-            <span class="field-switch-text">
-              <span>Сайт</span>
-              <small>Ссылка на сайт будет обязательной в результате</small>
-            </span>
-            <span class="toggle-switch"></span>
+            <span class="contact-toggle"></span>
           </label>
-          <label class="field-switch">
+          <label class="contact-data-row contact-data-row--switch">
+            <span>Почты</span>
             <input type="checkbox"
                    name="contact_requirements"
-                   value="inn"
-                   data-label="ИНН"
+                   value="email"
+                   data-label="Почты"
+                   checked
                    onchange="updateFilterSummary('contact_requirements')">
-            <span class="field-switch-text">
-              <span>ИНН</span>
-              <small>Организация засчитывается только с найденным ИНН</small>
-            </span>
-            <span class="toggle-switch"></span>
+            <span class="contact-toggle"></span>
           </label>
-        </div>
-
-        <!-- Требования к контакту -->
-        <div class="accordion">
-          <div class="accordion-header" onclick="toggleAccordion(this)">
-            <div>
-              <div class="accordion-title">Требования к контакту</div>
-              <div class="accordion-desc" data-summary-for="contact_requirements">Email личный (рекомендуется)</div>
-            </div>
-            <span class="accordion-chevron">▾</span>
-          </div>
-          <div class="accordion-body filter-menu" style="display:none">
-            {% set req_hints = {
-              'personal_email':  ('Email личный ЛПР',       '🟢 Находится в ~60% случаев'),
-              'generic_email':   ('Email общий компании',   '🟢 Находится в ~70% случаев'),
-              'mobile_phone':    ('Телефон мобильный',      '🔴 Сложно — только +79xx, редко публикуют'),
-              'generic_phone':   ('Телефон общий компании', '🟢 Находится в ~65% случаев'),
-              'website':         ('Официальный сайт',       '🟢 Находится в ~80% случаев'),
-              'inn':             ('ИНН',                    '🟢 Находится в ~85% случаев'),
-            } %}
-            <div class="filter-note" style="margin:8px 14px 4px;font-size:12px">
-              💡 Чем меньше требований — тем больше найдётся. Рекомендуем: <b>Email личный</b>
-            </div>
-            <div class="filter-menu-list" data-filter-list="contact_requirements">
-            {% for val, label in contact_requirement_options.items() %}
-            {% if val not in ['company_name'] %}
-            <label class="filter-menu-row">
-              <span class="filter-menu-marker"><span class="filter-menu-dot"></span></span>
-              <span class="filter-menu-label">
-                {{ req_hints.get(val, (label,''))[0] if req_hints.get(val) else label }}
-                {% if req_hints.get(val) and req_hints[val][1] %}
-                <br><small style="font-size:11px;color:var(--text-3);font-weight:400">{{ req_hints[val][1] }}</small>
-                {% endif %}
-              </span>
-              <input type="checkbox"
-                     name="contact_requirements"
-                     value="{{ val }}"
-                     data-label="{{ label }}"
-                     {% if val == 'personal_email' %}checked{% endif %}
-                     onchange="updateFilterSummary('contact_requirements')">
-              <span class="filter-menu-check"></span>
-            </label>
-            {% endif %}
-            {% endfor %}
-            </div>
-
-            <div class="filter-menu-footer">
-              <label class="filter-menu-search">
-                <span>⌕</span>
-                <input type="search" placeholder="Поиск" oninput="filterMenuOptions(this, 'contact_requirements')">
-              </label>
-              <button type="button" class="filter-menu-done" onclick="closeAccordion(this)">Готово</button>
-            </div>
-          </div>
         </div>
 
         <!-- Ключевые слова -->
@@ -534,6 +506,51 @@ function handleScaleChange(input) {
   }
   updateFilterSummary('company_scales');
 }
+
+function togglePhonePopover(event) {
+  event.stopPropagation();
+  const popover = document.getElementById('phone-filter-popover');
+  const trigger = document.getElementById('phone-filter-trigger');
+  const isOpen = popover.classList.contains('contact-phone-popover--open');
+  popover.classList.toggle('contact-phone-popover--open', !isOpen);
+  popover.setAttribute('aria-hidden', isOpen ? 'true' : 'false');
+  trigger.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+}
+
+function closePhonePopover() {
+  const popover = document.getElementById('phone-filter-popover');
+  const trigger = document.getElementById('phone-filter-trigger');
+  if (!popover || !trigger) return;
+  popover.classList.remove('contact-phone-popover--open');
+  popover.setAttribute('aria-hidden', 'true');
+  trigger.setAttribute('aria-expanded', 'false');
+}
+
+function selectPhoneRequirement(value) {
+  const input = document.getElementById('contact-phone-requirement');
+  if (!input) return;
+  input.value = value;
+  input.dataset.label = 'Телефоны';
+  input.checked = true;
+  updateFilterSummary('contact_requirements');
+}
+
+document.addEventListener('click', (event) => {
+  const popover = document.getElementById('phone-filter-popover');
+  const trigger = document.getElementById('phone-filter-trigger');
+  if (!popover || !trigger) return;
+  if (!popover.contains(event.target) && !trigger.contains(event.target)) {
+    closePhonePopover();
+  }
+});
+
+document.querySelectorAll('.contact-segmented-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    btn.parentElement
+      .querySelectorAll('.contact-segmented-btn')
+      .forEach(item => item.classList.toggle('contact-segmented-btn--active', item === btn));
+  });
+});
 
 // ── Количество компаний ───────────────────────────────────────────────────
 function getResearchCount(form) {
@@ -1015,8 +1032,8 @@ function fetchRunContacts(runId) {
         : null;
       const hasRequirement = (name) => !requirements || requirements.includes(name);
       const showWebsite = hasRequirement('website');
-      const showEmail = hasRequirement('personal_email') || hasRequirement('generic_email');
-      const showPhone = hasRequirement('mobile_phone') || hasRequirement('generic_phone');
+      const showEmail = hasRequirement('email') || hasRequirement('personal_email') || hasRequirement('generic_email');
+      const showPhone = hasRequirement('phone') || hasRequirement('mobile_phone') || hasRequirement('generic_phone');
       const showInn = hasRequirement('inn');
 
       const columns = [

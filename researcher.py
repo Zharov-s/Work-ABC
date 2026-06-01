@@ -120,14 +120,16 @@ SCALE_SUFFIX = {
 CONTACT_REQUIREMENT_LABELS = {
     'company_name':    'Наименование компании',
     'website':         'Сайт',
+    'email':           'Почты',
     'generic_email':   'Email общий',
     'personal_email':  'Email личный',
+    'phone':           'Телефоны',
     'generic_phone':   'Телефон общий',
     'mobile_phone':    'Телефон мобильный',
     'inn':             'ИНН',
 }
 
-DEFAULT_CONTACT_REQUIREMENTS = ['personal_email']
+DEFAULT_CONTACT_REQUIREMENTS = ['email']
 
 # Максимум строк в БД на одну компанию при multi-email поиске.
 # Если выбраны оба типа email (личный + общий) — сохраняется по строке на каждый тип.
@@ -379,12 +381,29 @@ def contact_satisfies_requirements(contact: dict, requirements) -> tuple[bool, s
         return False, 'нет общего email'
     if 'generic_email' in reqs and not email_belongs_to_company(generic_email, company_name, website):
         return False, 'общий email не относится к компании'
+    if 'email' in reqs:
+        valid_personal = (
+            personal_email and is_valid_email_format(personal_email)
+            and not is_generic_email(personal_email)
+            and email_belongs_to_company(personal_email, company_name, website)
+        )
+        valid_generic = (
+            generic_email and is_valid_email_format(generic_email)
+            and is_generic_email(generic_email)
+            and email_belongs_to_company(generic_email, company_name, website)
+        )
+        if not (valid_personal or valid_generic):
+            return False, 'нет почты компании'
+        if valid_personal and (not person or len(person.split()) < 2):
+            return False, 'нет ФИО ЛПР для личного контакта'
     if 'mobile_phone' in reqs and (not is_valid_phone(mobile_phone) or not is_mobile_phone(mobile_phone)):
         return False, 'нет мобильного телефона'
     if 'generic_phone' in reqs and (
         not is_valid_phone(generic_phone) or is_mobile_phone(generic_phone)
     ):
         return False, 'нет общего телефона'
+    if 'phone' in reqs and not (is_valid_phone(mobile_phone) or is_valid_phone(generic_phone)):
+        return False, 'нет телефона'
     if 'inn' in reqs and len(inn) not in (10, 12):
         return False, 'нет ИНН'
     return True, ''
@@ -397,13 +416,13 @@ def project_contact_to_requirements(contact: dict, requirements) -> dict:
 
     if 'website' not in reqs:
         projected['website'] = None
-    if 'personal_email' not in reqs:
+    if 'email' not in reqs and 'personal_email' not in reqs:
         projected['personal_email'] = None
-    if 'generic_email' not in reqs:
+    if 'email' not in reqs and 'generic_email' not in reqs:
         projected['generic_email'] = None
-    if 'mobile_phone' not in reqs:
+    if 'phone' not in reqs and 'mobile_phone' not in reqs:
         projected['mobile_phone'] = None
-    if 'generic_phone' not in reqs:
+    if 'phone' not in reqs and 'generic_phone' not in reqs:
         projected['generic_phone'] = None
     if 'inn' not in reqs:
         projected['inn'] = None
@@ -440,6 +459,7 @@ def _build_contact_rows_for_save(
 
     want_personal = 'personal_email' in reqs
     want_generic  = 'generic_email'  in reqs
+    want_any_email = 'email' in reqs
 
     rows: list[tuple[str | None, dict]] = []
 
@@ -481,6 +501,15 @@ def _build_contact_rows_for_save(
         projected['email'] = generic
         projected['phone'] = projected.get('mobile_phone') or projected.get('generic_phone')
         rows.append((generic, projected))
+
+    elif want_any_email:
+        best_email = personal or generic
+        if not best_email:
+            return []
+        projected = project_contact_to_requirements(lpr, requirements_list)
+        projected['email'] = best_email
+        projected['phone'] = projected.get('mobile_phone') or projected.get('generic_phone')
+        rows.append((best_email, projected))
 
     else:
         # Email-требований нет — одна строка, лучший из найденных
@@ -712,6 +741,8 @@ def _compact_search_query(parts: list[str], max_len: int = 180) -> str:
 
 
 def _requirement_query_suffix(requirements: set[str]) -> str:
+    if 'email' in requirements:
+        return 'email контакты'
     if 'personal_email' in requirements:
         return 'личный email руководитель'
     if 'generic_email' in requirements:
@@ -720,6 +751,8 @@ def _requirement_query_suffix(requirements: set[str]) -> str:
         return 'мобильный телефон руководитель'
     if 'generic_phone' in requirements:
         return 'городской телефон контакты'
+    if 'phone' in requirements:
+        return 'телефон контакты'
     if 'inn' in requirements:
         return 'ИНН реквизиты'
     if 'website' in requirements:
@@ -1533,7 +1566,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
         except Exception:
             pass
 
-    if 'generic_email' in requirements or 'generic_phone' in requirements:
+    if 'email' in requirements or 'phone' in requirements or 'generic_email' in requirements or 'generic_phone' in requirements:
         q6 = (f'site:{domain} реквизиты контакты email телефон' if domain
               else f'"{name}" реквизиты контакты email телефон')
         try:
@@ -1544,7 +1577,7 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
 
     # Проход 7 (2ГИС): только если явно нужен телефон и его нет
     if not found_phone and requirements and \
-            requirements.intersection({'mobile_phone', 'generic_phone'}):
+            requirements.intersection({'phone', 'mobile_phone', 'generic_phone'}):
         q7 = f'"{name}" 2гис телефон адрес'
         try:
             r7 = _search(tavily, q7, max_results=3)
