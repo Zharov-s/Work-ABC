@@ -882,6 +882,15 @@ init_db()
 # При рестарте все "running" воркеры убиты — помечаем как interrupted
 _boot_conn = get_db()
 _boot_conn.execute("UPDATE research_runs SET status='interrupted' WHERE status IN ('running','paused','finishing')")
+# Удаляем старые спам-уведомления (созданные до введения фильтрации спама)
+_boot_conn.execute(
+    """DELETE FROM notifications
+       WHERE type='bounce'
+         AND (details_json LIKE '%спам/политика%'
+              OR details_json LIKE '%Bounce: спам%'
+              OR summary LIKE '%отклонено как спам%'
+              OR summary LIKE '%помечен как недействительный%')"""
+)
 _boot_conn.commit()
 _boot_conn.close()
 

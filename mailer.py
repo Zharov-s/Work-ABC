@@ -655,23 +655,22 @@ def check_bounces() -> dict:
                 (send_row['send_id'],)
             )
 
-        # Уведомление: адрес нерабочий, удалён
-        summary = f'{addr}{company_str} — адрес не существует. Удалён из базы рассылки.'
-        details = {
-            'from_email':  addr,
-            'company':     company,
-            'action_done': 'Адрес удалён из базы рассылки (bounce: не существует)',
-            'body_preview': f'Bounce: адрес не существует\n{addr}{company_str}',
-        }
-        conn.execute(
-            """INSERT OR IGNORE INTO notifications
-               (type, contact_id, company_name, from_email, summary, details_json)
-               VALUES ('bounce', ?, ?, ?, ?, ?)""",
-            (contact.get('id'), company, addr, summary,
-             json.dumps(details, ensure_ascii=False))
-        )
-
+        # Уведомление только при первом обнаружении — без дублей при повторных запусках
         if was_new:
+            summary = f'{addr}{company_str} — адрес не существует. Удалён из базы рассылки.'
+            details = {
+                'from_email':   addr,
+                'company':      company,
+                'action_done':  'Адрес удалён из базы рассылки',
+                'body_preview': f'Bounce: адрес не существует\n{addr}{company_str}',
+            }
+            conn.execute(
+                """INSERT INTO notifications
+                   (type, contact_id, company_name, from_email, summary, details_json)
+                   VALUES ('bounce', ?, ?, ?, ?, ?)""",
+                (contact.get('id'), company, addr, summary,
+                 json.dumps(details, ensure_ascii=False))
+            )
             new_count += 1
         bounced_list.append({'email': addr, 'company': company, 'reason': reason})
 
@@ -798,7 +797,10 @@ def scan_replies() -> dict:
     except Exception as e:
         return {'ok': False, 'error': f'IMAP: {e}'}
 
-    # Собираем ID сообщений: ответы на нашу рассылку (Re:) + автоответы
+    # Собираем ID сообщений: ответы на нашу рассылку + автоответы + все непрочитанные за 7 дней
+    import datetime as _dt
+    since_7d = (_dt.datetime.now() - _dt.timedelta(days=7)).strftime('%d-%b-%Y')
+
     msg_ids: set = set()
     search_terms = [
         b'SUBJECT "Re: ' + _OUR_SUBJECT.encode() + b'"',
@@ -807,6 +809,8 @@ def scan_replies() -> dict:
         b'SUBJECT "out of office"',
         b'SUBJECT "Auto-Reply"',
         b'SUBJECT "Undeliverable"',
+        # Все непрочитанные за 7 дней — поймаем "ушёл из компании" с любой темой
+        f'UNSEEN SINCE {since_7d}'.encode(),
     ]
     for crit in search_terms:
         try:
@@ -865,9 +869,12 @@ def scan_replies() -> dict:
             contact = contacts_by_email.get(from_raw)
             company_name = contact['company_name'] if contact else None
 
-            # Если From: не в базе — пропускаем только если нет темы нашей рассылки
+            # Пропускаем если: отправитель не в базе И нет нашей темы И нет gone/ooo-ключей в теле
             if not contact and _OUR_SUBJECT not in subj.lower():
-                continue
+                body_lower = body.lower()
+                has_relevant = any(k in body_lower for k in _GONE_KEYWORDS + _OOO_KEYWORDS)
+                if not has_relevant:
+                    continue
 
             # Извлекаем новые контакты из тела письма
             extracted = _extract_contacts_from_text(body, exclude_emails={from_raw})
