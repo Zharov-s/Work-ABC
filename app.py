@@ -18,7 +18,7 @@ from database import (
     normalize_mailing_email,
 )
 from auth import check_credentials, set_password, set_login
-from mailer import send_campaign, send_pending_campaign, test_smtp, parse_addresses, TEMPLATE_META
+from mailer import send_campaign, send_pending_campaign, retry_failed_send, test_smtp, parse_addresses, TEMPLATE_META
 from validator import validate_email, validate_emails_batch
 from researcher import (
     start_research, get_run_status, pause_research, resume_research, finish_research,
@@ -522,6 +522,17 @@ def campaign_send_pending():
     result['mailing_stats'] = get_mailing_stats()
     return jsonify(result)
 
+
+
+
+@app.route('/campaigns/<int:send_id>/retry', methods=['POST'])
+@login_required
+def campaign_retry(send_id):
+    """Повторная отправка неотправленным получателям рассылки send_id."""
+    result = retry_failed_send(send_id)
+    if result.get('mailing_stats') is None:
+        result['mailing_stats'] = get_mailing_stats()
+    return jsonify(result)
 
 @app.route('/campaigns/<int:send_id>')
 @login_required

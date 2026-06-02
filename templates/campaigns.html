@@ -191,7 +191,19 @@
               <span class="badge badge-red">Ошибка</span>
             {% endif %}
           </td>
-          <td><a href="{{ url_for('campaign_detail', send_id=h['id']) }}" class="link">детали</a></td>
+          <td style="white-space:nowrap">
+            <a href="{{ url_for('campaign_detail', send_id=h['id']) }}" class="link">детали</a>
+            {%- if h['total_failed'] and h['total_failed'] > 0 %}
+            &nbsp;·&nbsp;
+            <button class="btn btn-link retry-hist-btn"
+                    style="font-size:13px;padding:0;color:var(--accent)"
+                    data-send-id="{{ h['id'] }}"
+                    data-failed="{{ h['total_failed'] }}"
+                    onclick="retryFromHistory(this)">
+              ↻ {{ h['total_failed'] }}
+            </button>
+            {%- endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -744,6 +756,28 @@ function escapeHtml(s) {
   return String(s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+function retryFromHistory(btn) {
+  const sendId = btn.dataset.sendId;
+  const failed = btn.dataset.failed;
+  if (!confirm('Повторить отправку ' + failed + ' неотправленным адресам?')) return;
+  btn.disabled = true;
+  btn.textContent = '⏳';
+  fetch('/campaigns/' + sendId + '/retry', {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.new_send_id) {
+        window.location.href = '/campaigns/' + d.new_send_id;
+      } else if (d.ok === false) {
+        alert(d.error || 'Ошибка отправки');
+        btn.disabled = false;
+        btn.textContent = '↻ ' + failed;
+      } else {
+        window.location.reload();
+      }
+    })
+    .catch(() => { btn.disabled = false; btn.textContent = '↻ ' + failed; });
 }
 </script>
 {% endblock %}

@@ -345,6 +345,47 @@ def send_pending_campaign(template_key, requested_count=None):
     return _send_addresses(template_key, addresses, [], recipient_rows=rows, source='queue')
 
 
+def retry_failed_send(send_id: int):
+    """
+    Повторная отправка только тем получателям из рассылки send_id,
+    у которых status='failed'. Создаёт новую запись в send_history.
+    """
+    conn = get_db()
+    orig = conn.execute(
+        'SELECT template FROM send_history WHERE id=?', (send_id,)
+    ).fetchone()
+    if not orig:
+        conn.close()
+        return {'ok': False, 'error': f'Рассылка #{send_id} не найдена'}
+
+    template_key = orig['template']
+
+    rows = conn.execute(
+        """SELECT sr.email, sr.contact_id
+           FROM send_recipients sr
+           WHERE sr.send_id = ? AND sr.status = 'failed'
+           ORDER BY sr.id""",
+        (send_id,)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return {'ok': False, 'error': 'Нет неотправленных адресов в этой рассылке'}
+
+    addresses = [r['email'] for r in rows]
+    result = _send_addresses(
+        template_key, addresses, [],
+        recipient_rows=rows, source=f'retry:{send_id}'
+    )
+    # Добавляем id новой записи чтобы UI мог перейти на неё
+    conn2 = get_db()
+    new_id = conn2.execute(
+        'SELECT id FROM send_history ORDER BY id DESC LIMIT 1'
+    ).fetchone()
+    conn2.close()
+    if new_id:
+        result['new_send_id'] = new_id['id']
+    return result
 def test_smtp():
     """Проверяет соединение — отправляет тестовое письмо самому себе."""
     smtp_host  = get_setting('smtp_host', 'smtp.mail.ru')
