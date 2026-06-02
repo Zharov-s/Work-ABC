@@ -207,11 +207,11 @@
             {%- if h['total_failed'] and h['total_failed'] > 0 %}
             &nbsp;·&nbsp;
             <button class="btn btn-link retry-hist-btn"
-                    style="font-size:13px;padding:0;color:var(--accent)"
+                    style="font-size:13px;padding:0;color:var(--accent);display:inline-flex;align-items:center;gap:4px"
                     data-send-id="{{ h['id'] }}"
                     data-failed="{{ h['total_failed'] }}"
                     onclick="retryFromHistory(this)">
-              ↻ {{ h['total_failed'] }}
+              {{ icon("refresh", size=14) }} {{ h['total_failed'] }}
             </button>
             {%- endif %}
           </td>
