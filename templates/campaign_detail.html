@@ -184,8 +184,8 @@
 
   {%- if stats.failed > 0 %}
   <div style="padding:0 32px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap">
-    <button id="btn-retry" class="btn btn-primary">
-      ↻ Повторить неотправленным ({{ stats.failed }})
+    <button id="btn-retry" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px">
+      {{ icon("refresh") }} Повторить неотправленным ({{ stats.failed }})
     </button>
     <span id="retry-msg" style="font-size:13px; color:var(--text-2)"></span>
   </div>
