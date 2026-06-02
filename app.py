@@ -15,7 +15,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from database import (
     init_db, get_db, get_setting, set_setting, get_all_settings,
     sync_mailing_recipients, get_mailing_stats, MAILING_BATCH_LIMIT,
-    normalize_mailing_email,
+    normalize_mailing_email, update_contact_verified,
 )
 from auth import check_credentials, set_password, set_login
 from mailer import send_campaign, send_pending_campaign, retry_failed_send, check_bounces, scan_replies, test_smtp, parse_addresses, TEMPLATE_META
@@ -648,6 +648,9 @@ def track_open(token):
                      request.user_agent.string[:255] if request.user_agent else None,
                      ip_hash)
                 )
+                # Пункт 3: email открыт — контакт активен, обновляем freshness
+                if row['contact_id']:
+                    update_contact_verified(conn, row['contact_id'])
                 conn.commit()
             conn.close()
         except Exception:

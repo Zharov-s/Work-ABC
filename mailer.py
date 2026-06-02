@@ -11,7 +11,9 @@ import email as emaillib
 import urllib.parse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from database import get_setting, get_db, normalize_mailing_email, sync_mailing_recipients, MAILING_BATCH_LIMIT
+from database import (get_setting, get_db, normalize_mailing_email,
+                       sync_mailing_recipients, MAILING_BATCH_LIMIT,
+                       compute_freshness_score, update_contact_verified)
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), 'email_templates')
 
@@ -631,53 +633,75 @@ def check_bounces() -> dict:
         company = contact.get('company_name') or ''
         company_str = f' ({company})' if company else ''
 
-        was_new = (contact.get('status') != 'bounced')
+        current_status  = contact.get('status', '')
+        bounce_count    = contact.get('bounce_count') or 0
+        was_confirmed   = (current_status == 'bounced')
 
-        # Удаляем из базы рассылки
-        conn.execute(
-            "UPDATE contacts SET status='bounced' WHERE lower(email)=?", (addr,)
-        )
-        conn.execute(
-            "UPDATE mailing_recipients SET status='bounced' WHERE lower(email)=? AND status != 'bounced'",
-            (addr,)
-        )
+        # ── Правило двух сигналов ──────────────────────────────────────────
+        # Сигнал 1: текущий hard bounce (адрес не существует)
+        # Сигнал 2: либо предыдущий bounce (bounce_count > 0), либо мёртвый MX домена
+        domain = addr.split('@')[1] if '@' in addr else ''
+        from validator import _check_mx_dns
+        mx_alive = _check_mx_dns(domain) if domain else True
 
-        # Корректируем статистику последней рассылки
-        send_row = conn.execute(
-            """SELECT sr.id, sr.send_id FROM send_recipients sr
-               WHERE lower(sr.email)=? AND sr.status='sent'
-               ORDER BY sr.send_id DESC LIMIT 1""",
-            (addr,)
-        ).fetchone()
-        if send_row:
+        two_signals = (bounce_count > 0) or (not mx_alive)
+
+        if two_signals:
+            # Подтверждённый INACTIVE — удаляем из рассылки
+            new_status = 'bounced'
             conn.execute(
-                "UPDATE send_recipients SET status='bounced' WHERE id=?",
-                (send_row['id'],)
+                "UPDATE contacts SET status='bounced', bounce_count=bounce_count+1 WHERE lower(email)=?",
+                (addr,)
             )
             conn.execute(
-                """UPDATE send_history
-                   SET total_failed = total_failed + 1, status = 'partial'
-                   WHERE id = ?""",
-                (send_row['send_id'],)
+                "UPDATE mailing_recipients SET status='bounced' WHERE lower(email)=? AND status!='bounced'",
+                (addr,)
             )
-
-        # Уведомление только при первом обнаружении — без дублей при повторных запусках
-        if was_new:
-            summary = f'{addr}{company_str} — адрес не существует. Удалён из базы рассылки.'
-            details = {
-                'from_email':   addr,
-                'company':      company,
-                'action_done':  'Адрес удалён из базы рассылки',
-                'body_preview': f'Bounce: адрес не существует\n{addr}{company_str}',
-            }
+            send_row = conn.execute(
+                """SELECT sr.id, sr.send_id FROM send_recipients sr
+                   WHERE lower(sr.email)=? AND sr.status='sent'
+                   ORDER BY sr.send_id DESC LIMIT 1""", (addr,)
+            ).fetchone()
+            if send_row:
+                conn.execute("UPDATE send_recipients SET status='bounced' WHERE id=?", (send_row['id'],))
+                conn.execute(
+                    "UPDATE send_history SET total_failed=total_failed+1, status='partial' WHERE id=?",
+                    (send_row['send_id'],)
+                )
+            if not was_confirmed:
+                reason_extra = '' if mx_alive else ' (домен не отвечает)'
+                summary = f'{addr}{company_str} — адрес подтверждён как нерабочий{reason_extra}. Удалён из базы рассылки.'
+                details = {
+                    'from_email':   addr, 'company': company,
+                    'action_done':  'Адрес удалён из базы рассылки (2 сигнала)',
+                    'body_preview': f'Bounce: адрес не существует (bounce #{bounce_count+1}){reason_extra}',
+                }
+                conn.execute(
+                    "INSERT INTO notifications (type,contact_id,company_name,from_email,summary,details_json) VALUES('bounce',?,?,?,?,?)",
+                    (contact.get('id'), company, addr, summary, json.dumps(details, ensure_ascii=False))
+                )
+                new_count += 1
+        else:
+            # Только один сигнал — помечаем как вероятно нерабочий, ждём подтверждения
             conn.execute(
-                """INSERT INTO notifications
-                   (type, contact_id, company_name, from_email, summary, details_json)
-                   VALUES ('bounce', ?, ?, ?, ?, ?)""",
-                (contact.get('id'), company, addr, summary,
-                 json.dumps(details, ensure_ascii=False))
+                "UPDATE contacts SET bounce_count=1 WHERE lower(email)=?", (addr,)
             )
-            new_count += 1
+            conn.execute(
+                "UPDATE mailing_recipients SET status='probable_bounce' WHERE lower(email)=? AND status NOT IN ('bounced','probable_bounce')",
+                (addr,)
+            )
+            if current_status not in ('bounced', 'probable_bounce'):
+                summary = f'{addr}{company_str} — bounce получен, адрес под наблюдением. Повторный bounce подтвердит удаление.'
+                details = {
+                    'from_email':   addr, 'company': company,
+                    'action_done':  'Помечен для проверки (1 сигнал из 2)',
+                    'body_preview': f'Bounce: адрес не существует (сигнал 1/2)\n{addr}{company_str}',
+                }
+                conn.execute(
+                    "INSERT INTO notifications (type,contact_id,company_name,from_email,summary,details_json) VALUES('bounce',?,?,?,?,?)",
+                    (contact.get('id'), company, addr, summary, json.dumps(details, ensure_ascii=False))
+                )
+                new_count += 1
         bounced_list.append({'email': addr, 'company': company, 'reason': reason})
 
     conn.commit()
@@ -805,6 +829,39 @@ def _get_message_body(msg) -> str:
         except Exception:
             pass
     return body
+
+
+_SIG_MARKERS = re.compile(
+    r'^\s*(-{2,}|_{2,}|С уважением[,.]?|Best regards[,.]?|Regards[,.]?|Sincerely[,.]?|Спасибо[,.]?)\s*$',
+    re.I | re.M
+)
+_SIG_PHONE_RE = re.compile(r'(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}')
+_SIG_TITLE_RE = re.compile(
+    r'^[\s•\-]*([А-ЯЁA-Z][а-яёa-z\s,А-ЯЁA-Z]{5,60}(?:директор|менеджер|руководитель|начальник|'
+    r'специалист|бухгалтер|юрист|аналитик|coordinator|manager|director|head|chief)[а-яёa-z\s,А-ЯЁA-Z]{0,40})',
+    re.I | re.M
+)
+
+
+def _parse_signature(body: str) -> dict:
+    """
+    Извлекает из подписи письма: телефон и должность.
+    Ищет блок после стандартных маркеров подписи (---, С уважением, и т.п.)
+    """
+    result: dict = {'phone': None, 'title': None}
+    # Ищем начало подписи
+    m = _SIG_MARKERS.search(body)
+    sig_block = body[m.start():] if m else body[-600:]  # последние 600 символов как fallback
+
+    phone_m = _SIG_PHONE_RE.search(sig_block)
+    if phone_m:
+        result['phone'] = re.sub(r'[^\d+]', '', phone_m.group())
+
+    title_m = _SIG_TITLE_RE.search(sig_block)
+    if title_m:
+        result['title'] = title_m.group(1).strip()
+
+    return result
 
 
 def scan_replies() -> dict:
@@ -1042,6 +1099,38 @@ def scan_replies() -> dict:
                                  f'Добавлен из {"автоответа" if reply_type=="ooo" else "ответа"} {from_raw}')
                             )
                             actions.append(f'добавлен email: {new_email}')
+
+                # Пункт 6: Парсинг подписи — обновляем телефон и должность контакта
+                if contact:
+                    sig = _parse_signature(body)
+                    sig_updates = []
+                    if sig['phone']:
+                        existing = conn2.execute(
+                            "SELECT mobile_phone, generic_phone FROM contacts WHERE id=?",
+                            (contact['id'],)
+                        ).fetchone()
+                        if existing and not existing['mobile_phone'] and not existing['generic_phone']:
+                            conn2.execute(
+                                "UPDATE contacts SET mobile_phone=? WHERE id=?",
+                                (sig['phone'], contact['id'])
+                            )
+                            sig_updates.append(f'телефон из подписи: {sig["phone"]}')
+                    if sig['title']:
+                        existing_title = conn2.execute(
+                            "SELECT title FROM contacts WHERE id=?", (contact['id'],)
+                        ).fetchone()
+                        if existing_title and not existing_title['title']:
+                            conn2.execute(
+                                "UPDATE contacts SET title=? WHERE id=?",
+                                (sig['title'], contact['id'])
+                            )
+                            sig_updates.append(f'должность из подписи: {sig["title"]}')
+                    if sig_updates:
+                        actions.extend(sig_updates)
+
+                # Пункт 3: Обновляем last_verified_at — человек активен (ответил на письмо)
+                if contact and reply_type in ('ooo', 'reply'):
+                    update_contact_verified(conn2, contact['id'])
 
                 # Обновляем details с тем, что реально сделали
                 details['actions'] = actions

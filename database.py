@@ -160,6 +160,17 @@ def init_db():
     for col_name in ('personal_email', 'generic_email', 'mobile_phone', 'generic_phone', 'inn', 'email_valid'):
         if col_name not in cols:
             conn.execute(f'ALTER TABLE contacts ADD COLUMN {col_name} TEXT')
+    # Пункт 2: счётчик попыток bounce (правило двух сигналов)
+    if 'bounce_count' not in cols:
+        conn.execute('ALTER TABLE contacts ADD COLUMN bounce_count INTEGER DEFAULT 0')
+    # Пункт 3: свежесть контакта
+    if 'last_verified_at' not in cols:
+        conn.execute('ALTER TABLE contacts ADD COLUMN last_verified_at TEXT')
+        conn.execute(
+            "UPDATE contacts SET last_verified_at=date_found WHERE last_verified_at IS NULL AND date_found IS NOT NULL"
+        )
+    if 'freshness_score' not in cols:
+        conn.execute('ALTER TABLE contacts ADD COLUMN freshness_score REAL DEFAULT 1.0')
 
     # Миграция send_recipients: tracking_token
     sr_cols = [r[1] for r in conn.execute('PRAGMA table_info(send_recipients)').fetchall()]
@@ -283,6 +294,32 @@ def get_mailing_stats(conn=None):
     if own_conn:
         conn.close()
     return stats
+
+
+def compute_freshness_score(last_verified_at: str | None) -> float:
+    """
+    Свежесть контакта: 1.0 = только что проверен, 0.0 = не проверялся или >4 лет назад.
+    Decay rate ~25% в год. Используется для приоритизации повторного ресёрча.
+    """
+    if not last_verified_at:
+        return 0.0
+    try:
+        from datetime import datetime
+        verified = datetime.strptime(last_verified_at[:10], '%Y-%m-%d')
+        days = max(0, (datetime.now() - verified).days)
+        return round(max(0.0, 1.0 - (days / 365) * 0.25), 3)
+    except Exception:
+        return 0.5
+
+
+def update_contact_verified(conn, contact_id: int) -> None:
+    """Отмечает контакт как только что проверенный (email открыт, ответ получен и т.п.)."""
+    from datetime import datetime
+    today = datetime.now().strftime('%Y-%m-%d')
+    conn.execute(
+        "UPDATE contacts SET last_verified_at=?, freshness_score=1.0 WHERE id=?",
+        (today, contact_id)
+    )
 
 
 def get_setting(key, default=None):
