@@ -1,3 +1,4 @@
+{% from "macros/icon.html" import icon %}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -178,33 +179,23 @@
       </div>
       <nav class="sidebar-nav">
         <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
-          <span class="nav-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1.5 7.5L8 2.5l6.5 5v5.5a1 1 0 01-1 1H10V10H6v4.5H2.5a1 1 0 01-1-1V7.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
-          </span>
+          <span class="nav-icon">{{ icon("home") }}</span>
           Главная
         </a>
         <a href="{{ url_for('research') }}" class="nav-item {% if request.endpoint == 'research' %}active{% endif %}">
-          <span class="nav-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          </span>
+          <span class="nav-icon">{{ icon("search") }}</span>
           Поиск
         </a>
         <a href="{{ url_for('contacts') }}" class="nav-item {% if request.endpoint == 'contacts' %}active{% endif %}">
-          <span class="nav-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="5.5" r="2.5" stroke="currentColor" stroke-width="1.5"/><path d="M2.5 14c0-2.485 2.462-4.5 5.5-4.5s5.5 2.015 5.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          </span>
+          <span class="nav-icon">{{ icon("contact") }}</span>
           Контакты
         </a>
         <a href="{{ url_for('campaigns') }}" class="nav-item {% if request.endpoint == 'campaigns' %}active{% endif %}">
-          <span class="nav-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="3.5" width="13" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M1.5 5.5l6.5 4 6.5-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
+          <span class="nav-icon">{{ icon("mail") }}</span>
           Рассылки
         </a>
         <a href="{{ url_for('settings') }}" class="nav-item {% if request.endpoint == 'settings' %}active{% endif %}">
-          <span class="nav-icon">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87l.22.127c.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124l-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87l-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124l.22-.128c.332-.183.582-.495.644-.869l.214-1.28z"/><circle cx="12" cy="12" r="3"/></svg>
-          </span>
+          <span class="nav-icon">{{ icon("settings") }}</span>
           Настройки
         </a>
       </nav>
@@ -213,14 +204,9 @@
         <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn" title="Переключить тему">
           <span class="t-icon">
             <!-- Sun: shown in dark mode -->
-            <svg class="icon-sun" width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M8 1.5V3M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            </svg>
+            <span class="icon-sun">{{ icon("sun") }}</span>
             <!-- Moon: shown in light mode -->
-            <svg class="icon-moon" width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M13.5 10A6 6 0 016 2.5a6.5 6.5 0 100 11 6 6 0 007.5-3.5z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+            <span class="icon-moon">{{ icon("moon") }}</span>
           </span>
           <span id="theme-label">Тёмная тема</span>
         </button>
@@ -228,17 +214,12 @@
         <!-- Bell notifications -->
         <div class="notif-bell-wrap" id="notif-wrap">
           <button class="notif-bell-btn" id="notif-bell" onclick="toggleNotifPanel()" title="Уведомления">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M8 1.5a4.5 4.5 0 00-4.5 4.5v2.5l-1 1.5v.5h11V10l-1-1.5V6A4.5 4.5 0 008 1.5z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
-              <path d="M6.5 13.5a1.5 1.5 0 003 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-            </svg>
+            {{ icon("bell") }}
             <span class="notif-count" id="notif-count" style="display:none">0</span>
           </button>
         </div>
         <a href="{{ url_for('logout') }}" class="nav-item logout">
-          <span class="nav-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6.5 2.5H3.5a1 1 0 00-1 1v9a1 1 0 001 1h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M10.5 11l3-3-3-3M13.5 8H6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </span>
+          <span class="nav-icon">{{ icon("logout") }}</span>
           Выйти
         </a>
       </div>

@@ -2591,3 +2591,6 @@ body.login-page {
   box-shadow: 0 0 0 2px rgba(28,58,52,0.12);
   outline: none;
 }
+
+/* HugeIcons: size fix for theme toggle */
+.icon-sun svg, .icon-moon svg { display: block; }
