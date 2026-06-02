@@ -248,9 +248,11 @@
         list.innerHTML = items.map(function(n) {
           var det = n.details || {};
           var extra = [];
-          if (det.new_emails && det.new_emails.length) extra.push('📧 ' + det.new_emails.join(', '));
+          if (det.actions && det.actions.length) { det.actions.forEach(function(a){ extra.push('✓ ' + a); }); }
+          else {
+            if (det.new_emails && det.new_emails.length) extra.push('📧 ' + det.new_emails.join(', '));
           if (det.new_phones && det.new_phones.length) extra.push('📞 ' + det.new_phones.join(', '));
-          if (det.new_name) extra.push('👤 ' + det.new_name);
+          if (det.new_name) extra.push('👤 ' + det.new_name); }
           return '<div class="notif-item ' + (n.read_at ? '' : 'unread') + '" onclick="markRead(' + n.id + ', this)">'
             + '<div class="notif-dot ' + (n.read_at ? 'read' : '') + '"></div>'
             + '<div class="notif-body">'

@@ -731,7 +731,7 @@ def scan_replies() -> dict:
     contacts_by_email = {
         r['email'].lower(): dict(r)
         for r in conn.execute(
-            "SELECT id, email, company_name, person_name FROM contacts WHERE email IS NOT NULL"
+            "SELECT id, email, company_name, person_name, website, segment, region, mobile_phone, generic_phone FROM contacts WHERE email IS NOT NULL"
         ).fetchall()
     }
     existing_msg_ids = {
@@ -804,9 +804,108 @@ def scan_replies() -> dict:
                 'body_preview': body[:400].strip(),
             }
 
-            # Сохраняем уведомление в БД
+            # ── Обновляем базу контактов ────────────────────────────────────
+            actions = []   # что реально сделали — для details
             conn2 = get_db()
             try:
+                today = __import__('datetime').datetime.now().strftime('%Y-%m-%d')
+
+                if reply_type == 'gone' and contact:
+                    # Помечаем ушедшего как bounced
+                    conn2.execute(
+                        "UPDATE contacts SET status='bounced' WHERE id=?",
+                        (contact['id'],)
+                    )
+                    conn2.execute(
+                        "UPDATE mailing_recipients SET status='bounced' WHERE lower(email)=?",
+                        (from_raw,)
+                    )
+                    actions.append(f'email {from_raw} помечен как недействительный')
+
+                    # Добавляем новые контакты в карточку компании
+                    new_emails = extracted['emails']
+                    new_phones = extracted['phones']
+                    new_name   = extracted['name']
+
+                    for new_email in new_emails:
+                        # Проверяем, нет ли уже в базе
+                        exists = conn2.execute(
+                            "SELECT id FROM contacts WHERE lower(email)=?", (new_email,)
+                        ).fetchone()
+                        if not exists:
+                            conn2.execute(
+                                """INSERT INTO contacts
+                                   (company_name, website, person_name, email,
+                                    phone, segment, region, date_found, status, notes)
+                                   VALUES (?,?,?,?,?,?,?,?,'new',?)""",
+                                (contact['company_name'], contact.get('website'),
+                                 new_name,
+                                 new_email,
+                                 new_phones[0] if new_phones else None,
+                                 contact.get('segment'), contact.get('region'),
+                                 today,
+                                 f'Добавлен из ответа на рассылку (замена {from_raw})')
+                            )
+                            actions.append(f'добавлен новый контакт: {new_name or ""} {new_email}')
+
+                    # Если телефон есть, но нового email нет — добавляем строку только с телефоном
+                    if new_phones and not new_emails:
+                        conn2.execute(
+                            """INSERT INTO contacts
+                               (company_name, website, person_name,
+                                phone, segment, region, date_found, status, notes)
+                               VALUES (?,?,?,?,?,?,?,'new',?)""",
+                            (contact['company_name'], contact.get('website'),
+                             new_name,
+                             new_phones[0],
+                             contact.get('segment'), contact.get('region'),
+                             today,
+                             f'Добавлен из ответа на рассылку (замена {from_raw})')
+                        )
+                        actions.append(f'добавлен телефон: {new_phones[0]} ({new_name or ""})')
+
+                elif reply_type in ('ooo', 'reply') and contact:
+                    # Автоответ или обычный ответ: дополняем карточку новыми данными
+                    new_phones = extracted['phones']
+                    new_emails = [e for e in extracted['emails'] if e != from_raw]
+
+                    # Обновляем телефон если не заполнен
+                    if new_phones:
+                        existing = conn2.execute(
+                            "SELECT mobile_phone, generic_phone FROM contacts WHERE id=?",
+                            (contact['id'],)
+                        ).fetchone()
+                        if existing and not existing['mobile_phone'] and not existing['generic_phone']:
+                            conn2.execute(
+                                "UPDATE contacts SET mobile_phone=? WHERE id=?",
+                                (new_phones[0], contact['id'])
+                            )
+                            actions.append(f'добавлен телефон: {new_phones[0]}')
+
+                    # Новые email — добавляем как дополнительные контакты компании
+                    for new_email in new_emails:
+                        exists = conn2.execute(
+                            "SELECT id FROM contacts WHERE lower(email)=?", (new_email,)
+                        ).fetchone()
+                        if not exists:
+                            conn2.execute(
+                                """INSERT INTO contacts
+                                   (company_name, website, person_name, email,
+                                    segment, region, date_found, status, notes)
+                                   VALUES (?,?,?,?,?,?,?,'new',?)""",
+                                (contact['company_name'], contact.get('website'),
+                                 extracted['name'],
+                                 new_email,
+                                 contact.get('segment'), contact.get('region'),
+                                 today,
+                                 f'Добавлен из {"автоответа" if reply_type=="ooo" else "ответа"} {from_raw}')
+                            )
+                            actions.append(f'добавлен email: {new_email}')
+
+                # Обновляем details с тем, что реально сделали
+                details['actions'] = actions
+
+                # Сохраняем уведомление
                 conn2.execute(
                     """INSERT OR IGNORE INTO notifications
                        (type, contact_id, company_name, from_email, summary, details_json, msg_id)
@@ -817,17 +916,6 @@ def scan_replies() -> dict:
                      json.dumps(details, ensure_ascii=False),
                      msg_id_header or None)
                 )
-
-                # Если "человека нет" — обновляем контакт в базе
-                if reply_type == 'gone' and contact:
-                    conn2.execute(
-                        "UPDATE contacts SET status='bounced' WHERE id=?",
-                        (contact['id'],)
-                    )
-                    conn2.execute(
-                        "UPDATE mailing_recipients SET status='bounced' WHERE lower(email)=?",
-                        (from_raw,)
-                    )
 
                 conn2.commit()
                 if conn2.execute("SELECT changes()").fetchone()[0] > 0:
