@@ -724,10 +724,15 @@ _OOO_KEYWORDS = [
     'вернусь', 'temporarily', 'временно', 'отпуск',
 ]
 _GONE_KEYWORDS = [
+    # Russian
     'больше нет', 'больше с нами нет', 'покинул', 'уволился', 'ушёл из компании',
     'не работает в', 'не является сотрудником', 'умер', 'скончался',
     'к нашему огромному сожалению', 'к сожалению', 'не работает данный адрес',
     'данный почтовый ящик', 'данный адрес',
+    # English
+    'no longer with us', 'no longer employed', 'has left the company',
+    'left the company', 'is no longer', 'no longer works', 'left our company',
+    'departed from', 'is not available anymore', 'has departed',
 ]
 _OUR_SUBJECT = 'аренда производственных'   # частичное совпадение темы рассылки
 
@@ -920,6 +925,12 @@ def scan_replies() -> dict:
             "SELECT id, email, company_name, person_name, website, segment, region, mobile_phone, generic_phone FROM contacts WHERE email IS NOT NULL"
         ).fetchall()
     }
+    # Domain → company info для сопоставления неизвестных отправителей с известными компаниями
+    companies_by_domain: dict = {}
+    for _e, _c in contacts_by_email.items():
+        _d = _e.split('@')[1] if '@' in _e else ''
+        if _d and _d not in companies_by_domain:
+            companies_by_domain[_d] = _c
     existing_msg_ids = {
         r['msg_id'] for r in conn.execute("SELECT msg_id FROM notifications WHERE msg_id IS NOT NULL").fetchall()
     }
@@ -958,10 +969,17 @@ def scan_replies() -> dict:
 
             # Находим контакт в базе по From:
             contact = contacts_by_email.get(from_raw)
-            company_name = contact['company_name'] if contact else None
+            # Если отправитель не в базе — пробуем найти компанию по домену email
+            from_domain = from_raw.split('@')[1] if '@' in from_raw else ''
+            company_by_domain = companies_by_domain.get(from_domain) if not contact else None
+            company_name = (
+                (contact['company_name'] if contact else None)
+                or (company_by_domain['company_name'] if company_by_domain else None)
+            )
 
-            # Пропускаем если: отправитель не в базе И нет нашей темы И нет gone/ooo-ключей в теле
-            if not contact and _OUR_SUBJECT not in subj.lower():
+            # Пропускаем если: отправитель не в базе, нет domain-match, нет нашей темы,
+            # нет gone/ooo-ключей в теле
+            if not contact and not company_by_domain and _OUR_SUBJECT not in subj.lower():
                 body_lower = body.lower()
                 has_relevant = any(k in body_lower for k in _GONE_KEYWORDS + _OOO_KEYWORDS)
                 if not has_relevant:
@@ -1017,11 +1035,13 @@ def scan_replies() -> dict:
 
                 if reply_type == 'gone':
                     # Работаем даже если контакта нет в базе —
-                    # главное добавить новые адреса из письма
-                    co_name = (contact['company_name'] if contact else None) or company_name
-                    website = contact.get('website') if contact else None
-                    segment = contact.get('segment') if contact else None
-                    region  = contact.get('region')  if contact else None
+                    # главное добавить новые адреса из письма.
+                    # Метаданные компании берём из контакта или из domain-match.
+                    co_info = contact or company_by_domain
+                    co_name = company_name  # уже включает domain-match из company_name
+                    website = co_info.get('website') if co_info else None
+                    segment = co_info.get('segment') if co_info else None
+                    region  = co_info.get('region')  if co_info else None
 
                     if contact:
                         conn2.execute(
@@ -1062,13 +1082,16 @@ def scan_replies() -> dict:
                             label = f'{paired_name} <{new_email}>' if paired_name else new_email
                             actions.append(f'добавлен контакт: {label}')
 
-                elif reply_type in ('ooo', 'reply') and contact:
-                    # Автоответ или обычный ответ: дополняем карточку новыми данными
+                elif reply_type in ('ooo', 'reply') and (contact or company_by_domain):
+                    # Автоответ или обычный ответ: дополняем карточку новыми данными.
+                    # Метаданные компании берём из контакта или из domain-match.
+                    co_info = contact or company_by_domain
                     new_phones = extracted['phones']
                     new_emails = [e for e in extracted['emails'] if e != from_raw]
+                    pairs = extracted.get('pairs', {})
 
-                    # Обновляем телефон если не заполнен
-                    if new_phones:
+                    # Обновляем телефон исходного контакта если не заполнен
+                    if contact and new_phones:
                         existing = conn2.execute(
                             "SELECT mobile_phone, generic_phone FROM contacts WHERE id=?",
                             (contact['id'],)
@@ -1082,23 +1105,30 @@ def scan_replies() -> dict:
 
                     # Новые email — добавляем как дополнительные контакты компании
                     for new_email in new_emails:
+                        # Пропускаем generic-адреса (info@, mail@, ...) — не личные контакты
+                        local_part = new_email.split('@')[0]
+                        if local_part in _GENERIC_EMAIL_PREFIXES:
+                            continue
                         exists = conn2.execute(
                             "SELECT id FROM contacts WHERE lower(email)=?", (new_email,)
                         ).fetchone()
                         if not exists:
+                            paired_name = pairs.get(new_email) or extracted['name']
                             conn2.execute(
                                 """INSERT INTO contacts
                                    (company_name, website, person_name, email,
-                                    segment, region, date_found, status, notes)
-                                   VALUES (?,?,?,?,?,?,?,'new',?)""",
-                                (contact['company_name'], contact.get('website'),
-                                 extracted['name'],
+                                    phone, segment, region, date_found, status, notes)
+                                   VALUES (?,?,?,?,?,?,?,?,'new',?)""",
+                                (co_info['company_name'], co_info.get('website'),
+                                 paired_name,
                                  new_email,
-                                 contact.get('segment'), contact.get('region'),
+                                 new_phones[0] if new_phones else None,
+                                 co_info.get('segment'), co_info.get('region'),
                                  today,
                                  f'Добавлен из {"автоответа" if reply_type=="ooo" else "ответа"} {from_raw}')
                             )
-                            actions.append(f'добавлен email: {new_email}')
+                            label = f'{paired_name} <{new_email}>' if paired_name else new_email
+                            actions.append(f'добавлен контакт: {label}')
 
                 # Пункт 6: Парсинг подписи — обновляем телефон и должность контакта
                 if contact:
