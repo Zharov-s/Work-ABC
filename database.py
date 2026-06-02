@@ -166,6 +166,19 @@ def init_db():
     if 'tracking_token' not in sr_cols:
         conn.execute('ALTER TABLE send_recipients ADD COLUMN tracking_token TEXT')
 
+
+    conn.execute('''CREATE TABLE IF NOT EXISTS notifications (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        type         TEXT NOT NULL,
+        contact_id   INTEGER,
+        company_name TEXT,
+        from_email   TEXT,
+        summary      TEXT,
+        details_json TEXT,
+        msg_id       TEXT UNIQUE,
+        created_at   TEXT DEFAULT (datetime('now')),
+        read_at      TEXT
+    )''')
     # Индексы для трекинга
     conn.execute('CREATE INDEX IF NOT EXISTS idx_email_opens_token ON email_opens(token)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_email_clicks_token ON email_clicks(token)')

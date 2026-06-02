@@ -18,7 +18,7 @@ from database import (
     normalize_mailing_email,
 )
 from auth import check_credentials, set_password, set_login
-from mailer import send_campaign, send_pending_campaign, retry_failed_send, check_bounces, test_smtp, parse_addresses, TEMPLATE_META
+from mailer import send_campaign, send_pending_campaign, retry_failed_send, check_bounces, scan_replies, test_smtp, parse_addresses, TEMPLATE_META
 from validator import validate_email, validate_emails_batch
 from researcher import (
     start_research, get_run_status, pause_research, resume_research, finish_research,
@@ -747,6 +747,68 @@ def validate_emails_route():
 
 
 # ── Settings ──────────────────────────────────────────────────────────────────
+
+
+
+# ── Notifications API ─────────────────────────────────────────────────────────
+
+@app.route('/api/notifications')
+@login_required
+def api_notifications():
+    conn = get_db()
+    rows = conn.execute(
+        """SELECT id, type, company_name, from_email, summary, details_json,
+                  created_at, read_at
+           FROM notifications ORDER BY id DESC LIMIT 50"""
+    ).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d['details'] = json.loads(d['details_json'] or '{}')
+        except Exception:
+            d['details'] = {}
+        del d['details_json']
+        result.append(d)
+    return jsonify(result)
+
+
+@app.route('/api/notifications/count')
+@login_required
+def api_notifications_count():
+    conn = get_db()
+    n = conn.execute("SELECT COUNT(*) FROM notifications WHERE read_at IS NULL").fetchone()[0]
+    conn.close()
+    return jsonify({'unread': n})
+
+
+@app.route('/api/notifications/<int:nid>/read', methods=['POST'])
+@login_required
+def api_notification_read(nid):
+    conn = get_db()
+    conn.execute("UPDATE notifications SET read_at=datetime('now') WHERE id=?", (nid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/notifications/read-all', methods=['POST'])
+@login_required
+def api_notifications_read_all():
+    conn = get_db()
+    conn.execute("UPDATE notifications SET read_at=datetime('now') WHERE read_at IS NULL")
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/campaigns/scan-replies', methods=['POST'])
+@login_required
+def campaigns_scan_replies():
+    result = scan_replies()
+    return jsonify(result)
+
 
 @app.route('/settings')
 @login_required

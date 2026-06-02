@@ -595,6 +595,259 @@ def check_bounces() -> dict:
     }
 
 
+# ── Паттерны для классификации входящих ответов ───────────────────────────
+
+_OOO_KEYWORDS = [
+    'больничном', 'в отпуске', 'в отпуску', 'недоступен', 'отсутствую',
+    'нет доступа к почте', 'ограниченным доступом', 'автоматический ответ',
+    'out of office', 'away from office', 'on vacation', 'on leave',
+    'вернусь', 'temporarily', 'временно', 'отпуск',
+]
+_GONE_KEYWORDS = [
+    'больше нет', 'больше с нами нет', 'покинул', 'уволился', 'ушёл из компании',
+    'не работает в', 'не является сотрудником', 'умер', 'скончался',
+    'к нашему огромному сожалению', 'к сожалению', 'не работает данный адрес',
+    'данный почтовый ящик', 'данный адрес',
+]
+_OUR_SUBJECT = 'аренда производственных'   # частичное совпадение темы рассылки
+
+
+def _classify_reply(subject: str, body: str) -> str:
+    """Возвращает тип ответа: 'ooo', 'gone', 'reply'."""
+    subj_l = subject.lower()
+    body_l  = body.lower()
+    if any(k in subj_l for k in ['автоматический ответ', 'out of office', 'auto-reply', 'auto reply']):
+        return 'ooo'
+    if any(k in body_l for k in _OOO_KEYWORDS):
+        return 'ooo'
+    if any(k in body_l for k in _GONE_KEYWORDS):
+        return 'gone'
+    return 'reply'
+
+
+_NAME_PATTERNS = [
+    re.compile(r'(?:обращайтесь к|пишите к|к|директора|менеджера|ответственного|руководителя)\s+([А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){1,2})', re.I),
+    re.compile(r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)'),  # ФИО
+    re.compile(r'([А-ЯЁ][а-яё]+\s+[А-ЯЁ][а-яё]+)'),                    # Имя Фамилия
+]
+
+
+def _extract_contacts_from_text(text: str, exclude_emails: set | None = None) -> dict:
+    """Извлекает email, телефон, имя из текста сообщения."""
+    exclude_emails = {e.lower() for e in (exclude_emails or [])}
+    exclude_emails.add(get_setting('smtp_user', '').lower())
+
+    emails = [
+        e.lower() for e in _EMAIL_RE_BOUNCE.findall(text)
+        if e.lower() not in exclude_emails and '.' in e.split('@')[-1]
+    ]
+    phones = re.findall(
+        r'(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',
+        text
+    )
+    name = None
+    for pat in _NAME_PATTERNS:
+        m = pat.search(text)
+        if m:
+            candidate = m.group(1).strip()
+            if len(candidate.split()) >= 2:
+                name = candidate
+                break
+
+    return {
+        'emails': emails[:3],
+        'phones': [re.sub(r'[^\d+]', '', p) for p in phones[:3]],
+        'name':   name,
+    }
+
+
+def _get_message_body(msg) -> str:
+    """Возвращает текстовое содержимое письма."""
+    body = ''
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == 'text/plain':
+                try:
+                    raw = part.get_payload(decode=True)
+                    if raw:
+                        body += raw.decode('utf-8', 'ignore') + '\n'
+                except Exception:
+                    pass
+    else:
+        try:
+            raw = msg.get_payload(decode=True)
+            if raw:
+                body = raw.decode('utf-8', 'ignore')
+        except Exception:
+            pass
+    return body
+
+
+def scan_replies() -> dict:
+    """
+    Сканирует входящие ответы на рассылку. Определяет тип каждого ответа:
+    - ooo   : автоответ об отсутствии, может содержать новые контакты
+    - gone  : человека нет, в письме новые контакты
+    - reply : обычный ответ с контактами
+
+    Создаёт уведомления, обновляет карточки компаний.
+    Возвращает: {'ok': True, 'scanned': N, 'new_notifications': M}
+    """
+    smtp_host = get_setting('smtp_host', 'smtp.mail.ru')
+    smtp_user = get_setting('smtp_user', '')
+    smtp_pass = get_setting('smtp_pass', '')
+    if not smtp_user or not smtp_pass:
+        return {'ok': False, 'error': 'Не настроены SMTP-реквизиты'}
+
+    imap_host = smtp_host.replace('smtp.', 'imap.', 1) if smtp_host.startswith('smtp.') else 'imap.mail.ru'
+    try:
+        mail = imaplib.IMAP4_SSL(imap_host, 993, timeout=12)
+        mail.login(smtp_user, smtp_pass)
+        mail.select('INBOX')
+    except Exception as e:
+        return {'ok': False, 'error': f'IMAP: {e}'}
+
+    # Собираем ID сообщений: ответы на нашу рассылку (Re:) + автоответы
+    msg_ids: set = set()
+    search_terms = [
+        b'SUBJECT "Re: ' + _OUR_SUBJECT.encode() + b'"',
+        ('SUBJECT "' + _OUR_SUBJECT + '"').encode(),
+        'SUBJECT "Автоматический ответ"'.encode(),
+        b'SUBJECT "out of office"',
+        b'SUBJECT "Auto-Reply"',
+        b'SUBJECT "Undeliverable"',
+    ]
+    for crit in search_terms:
+        try:
+            st, data = mail.search(None, crit)
+            if st == 'OK' and data[0]:
+                for mid in data[0].split():
+                    msg_ids.add(mid)
+        except Exception:
+            pass
+
+    # Все email из нашей базы (для определения компании)
+    conn = get_db()
+    contacts_by_email = {
+        r['email'].lower(): dict(r)
+        for r in conn.execute(
+            "SELECT id, email, company_name, person_name FROM contacts WHERE email IS NOT NULL"
+        ).fetchall()
+    }
+    existing_msg_ids = {
+        r['msg_id'] for r in conn.execute("SELECT msg_id FROM notifications WHERE msg_id IS NOT NULL").fetchall()
+    }
+    conn.close()
+
+    new_notifs = 0
+    scanned = 0
+
+    for mid in msg_ids:
+        try:
+            st, data = mail.fetch(mid, b'(RFC822)')
+            if st != 'OK':
+                continue
+            msg = emaillib.message_from_bytes(data[0][1])
+
+            msg_id_header = msg.get('Message-ID', '').strip()
+            if msg_id_header and msg_id_header in existing_msg_ids:
+                continue  # уже обработано
+
+            scanned += 1
+            from_raw = emaillib.utils.parseaddr(msg.get('From', ''))[1].lower().strip()
+            subj_raw = msg.get('Subject', '')
+            # Декодируем subject
+            try:
+                import email.header as _eh
+                parts = _eh.decode_header(subj_raw)
+                subj = ''.join(
+                    (p.decode(enc or 'utf-8') if isinstance(p, bytes) else p)
+                    for p, enc in parts
+                )
+            except Exception:
+                subj = subj_raw
+
+            body = _get_message_body(msg)
+            reply_type = _classify_reply(subj, body)
+
+            # Находим контакт в базе по From:
+            contact = contacts_by_email.get(from_raw)
+            company_name = contact['company_name'] if contact else None
+
+            # Если From: не в базе — пропускаем только если нет темы нашей рассылки
+            if not contact and _OUR_SUBJECT not in subj.lower():
+                continue
+
+            # Извлекаем новые контакты из тела письма
+            extracted = _extract_contacts_from_text(body, exclude_emails={from_raw})
+
+            # Формируем summary
+            if reply_type == 'ooo':
+                action = 'Автоответ об отсутствии'
+            elif reply_type == 'gone':
+                action = 'Сотрудник больше не работает'
+            else:
+                action = 'Ответ на рассылку'
+
+            summary_parts = [action]
+            if company_name:
+                summary_parts.append(f'— {company_name}')
+            summary = ' '.join(summary_parts)
+
+            details = {
+                'from_email':  from_raw,
+                'subject':     subj,
+                'reply_type':  reply_type,
+                'new_emails':  extracted['emails'],
+                'new_phones':  extracted['phones'],
+                'new_name':    extracted['name'],
+                'body_preview': body[:400].strip(),
+            }
+
+            # Сохраняем уведомление в БД
+            conn2 = get_db()
+            try:
+                conn2.execute(
+                    """INSERT OR IGNORE INTO notifications
+                       (type, contact_id, company_name, from_email, summary, details_json, msg_id)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (reply_type,
+                     contact['id'] if contact else None,
+                     company_name, from_raw, summary,
+                     json.dumps(details, ensure_ascii=False),
+                     msg_id_header or None)
+                )
+
+                # Если "человека нет" — обновляем контакт в базе
+                if reply_type == 'gone' and contact:
+                    conn2.execute(
+                        "UPDATE contacts SET status='bounced' WHERE id=?",
+                        (contact['id'],)
+                    )
+                    conn2.execute(
+                        "UPDATE mailing_recipients SET status='bounced' WHERE lower(email)=?",
+                        (from_raw,)
+                    )
+
+                conn2.commit()
+                if conn2.execute("SELECT changes()").fetchone()[0] > 0:
+                    new_notifs += 1
+                    existing_msg_ids.add(msg_id_header)
+            except Exception:
+                pass
+            finally:
+                conn2.close()
+
+        except Exception:
+            continue
+
+    try:
+        mail.logout()
+    except Exception:
+        pass
+
+    return {'ok': True, 'scanned': scanned, 'new_notifications': new_notifs}
+
 def test_smtp():
     """Проверяет соединение — отправляет тестовое письмо самому себе."""
     smtp_host  = get_setting('smtp_host', 'smtp.mail.ru')

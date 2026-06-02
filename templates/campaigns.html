@@ -158,7 +158,10 @@
   <div class="panel">
     <div class="panel-header">История рассылок</div>
     <div style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <button id="btn-bounces" class="btn btn-secondary" onclick="checkBounces()">
+      <button class="btn btn-secondary" onclick="scanReplies()" id="btn-scan-replies">
+        Проверить ответы
+      </button>
+      <button id="btn-bounces" class="btn btn-secondary" onclick="checkBounces()"">
         Проверить отказы доставки
       </button>
       <span id="bounces-msg" style="font-size:13px;color:var(--text-2)"></span>
@@ -811,6 +814,22 @@ function checkBounces() {
       }
     })
     .catch(() => { btn.disabled = false; btn.textContent = 'Проверить отказы доставки'; msg.textContent = 'Ошибка соединения'; });
+}
+
+function scanReplies() {
+  var btn = document.getElementById('btn-scan-replies');
+  var msg = document.getElementById('bounces-msg');
+  btn.disabled = true; btn.textContent = '⏳ Сканируем…';
+  fetch('/campaigns/scan-replies', {method:'POST', credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      btn.disabled = false; btn.textContent = 'Проверить ответы';
+      if (!d.ok) { msg.textContent = d.error||'Ошибка'; return; }
+      msg.textContent = 'Проверено: ' + d.scanned + ' · Новых уведомлений: ' + d.new_notifications;
+      if (d.new_notifications > 0 && window.loadNotifications) loadNotifications();
+      if (window.refreshCount) refreshCount(); // обновляем badge
+    })
+    .catch(function(){ btn.disabled=false; btn.textContent='Проверить ответы'; });
 }
 </script>
 {% endblock %}
