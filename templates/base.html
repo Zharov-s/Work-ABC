@@ -158,7 +158,9 @@
 }
 .badge-ooo   { background: rgba(245,158,11,.13); color: #92400e; }
 .badge-gone  { background: rgba(239,68,68,.12); color: #991b1b; }
-.badge-reply { background: rgba(34,197,94,.12); color: #15803d; }
+.badge-reply  { background: rgba(34,197,94,.12);  color: #15803d; }
+.badge-bounce { background: rgba(239,68,68,.12);  color: #991b1b; }
+[data-theme="dark"] .badge-bounce { background: rgba(239,68,68,.2); color: #f87171; }
 [data-theme="dark"] .badge-ooo   { background: rgba(245,158,11,.2); color: #fbbf24; }
 [data-theme="dark"] .badge-gone  { background: rgba(239,68,68,.2); color: #f87171; }
 [data-theme="dark"] .badge-reply { background: rgba(34,197,94,.2); color: #4ade80; }
@@ -308,6 +310,7 @@
   }
 
   function typeBadge(t) {
+    if (t === 'bounce') return '<span class="notif-type-badge badge-bounce">Bounce</span>';
     if (t === 'ooo')  return '<span class="notif-type-badge badge-ooo">Автоответ</span>';
     if (t === 'gone') return '<span class="notif-type-badge badge-gone">Ушёл из компании</span>';
     return '<span class="notif-type-badge badge-reply">Ответ</span>';

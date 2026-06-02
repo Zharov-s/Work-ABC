@@ -307,6 +307,18 @@ def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, sour
     conn.commit()
     conn.close()
 
+    # Автоматически запускаем проверку bounce-писем в фоне через 5 минут
+    # (Mail.ru присылает bounce-уведомления с задержкой)
+    if total_sent > 0:
+        import threading as _t, time as _time
+        def _delayed_bounce_check():
+            _time.sleep(300)   # 5 минут — bounce-письма обычно приходят за это время
+            try:
+                check_bounces()
+            except Exception:
+                pass
+        _t.Thread(target=_delayed_bounce_check, daemon=True).start()
+
     return report
 
 
@@ -435,17 +447,39 @@ def retry_failed_send(send_id: int) -> dict:
 _EMAIL_RE_BOUNCE = re.compile(r'[\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,}')
 
 
-def _parse_bounce_addresses(msg) -> set:
-    """Извлекает упавшие адреса из bounce-сообщения Mail.ru."""
-    found = set()
+def _classify_bounce_reason(text: str) -> str:
+    """Определяет причину bounce по тексту SMTP-ответа."""
+    t = text.lower()
+    if any(x in t for x in ['spam', 'policy', '5.7.1', '5.7.2', 'rejected for policy', 'believe this mail is spam']):
+        return 'спам/политика сервера'
+    if any(x in t for x in ['user unknown', 'does not exist', 'no such user', 'user not found', 'invalid address']):
+        return 'адрес не существует'
+    if any(x in t for x in ['mailbox full', 'quota', 'over quota']):
+        return 'ящик переполнен'
+    if any(x in t for x in ['connection refused', 'host not found', 'name or service not known']):
+        return 'сервер недоступен'
+    if '554' in t or '553' in t:
+        return 'отклонено получателем'
+    if '550' in t:
+        return 'адрес не существует'
+    if '452' in t or '421' in t:
+        return 'временная ошибка'
+    return 'ошибка доставки'
 
-    # 1. X-Failed-Recipients — самый надёжный источник (Mail.ru всегда его заполняет)
+
+def _parse_bounce_details(msg) -> dict:
+    """
+    Извлекает упавшие адреса и причины из bounce-сообщения Mail.ru.
+    Возвращает dict: {email: reason_str}
+    """
+    result = {}
+
+    # 1. X-Failed-Recipients header (самый надёжный)
     header = msg.get('X-Failed-Recipients', '')
     for addr in _EMAIL_RE_BOUNCE.findall(header):
-        found.add(addr.lower())
+        result[addr.lower()] = 'ошибка доставки'
 
-    # 2. Body: «К сожалению, Ваше письмо не может быть доставлено ... адрес»
-    #    и стандартный DSN Final-Recipient
+    # 2. Тело письма
     body = ''
     if msg.is_multipart():
         for part in msg.walk():
@@ -465,28 +499,36 @@ def _parse_bounce_addresses(msg) -> set:
         except Exception:
             pass
 
+    # Парсим блоки: email\n  host...\n  SMTP error: XXX
+    block_re = re.compile(
+        r'^\s{0,4}([\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,})\s*$',
+        re.M
+    )
+    lines = body.split('\n')
+    for i, line in enumerate(lines):
+        m = block_re.match(line)
+        if m:
+            addr = m.group(1).lower()
+            # Берём следующие 4 строки как контекст для определения причины
+            context = '\n'.join(lines[i+1:i+5])
+            reason = _classify_bounce_reason(context)
+            result[addr] = reason
+
     # Final-Recipient (RFC 3464)
     for m in re.finditer(
         r'Final-Recipient[^:]*:[^\n]*rfc822;?\s*([\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,})',
         body, re.I
     ):
-        found.add(m.group(1).lower())
+        addr = m.group(1).lower()
+        if addr not in result:
+            result[addr] = 'ошибка доставки'
 
-    # Строки вида «  addr@domain.ru\n    host...» в теле Mail.ru bounce
-    for m in re.finditer(
-        r'^\s{1,6}([\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,})\s*$',
-        body, re.M
-    ):
-        found.add(m.group(1).lower())
+    return result
 
-    # Delivery failure text (Outlook/Exchange NDR)
-    for m in re.finditer(
-        r'(?:delivery has failed|couldn\'t be found|does not exist)[^\n]{0,200}?([\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,})',
-        body, re.I
-    ):
-        found.add(m.group(1).lower())
 
-    return found
+def _parse_bounce_addresses(msg) -> set:
+    """Обратная совместимость — возвращает только множество адресов."""
+    return set(_parse_bounce_details(msg).keys())
 
 
 def check_bounces() -> dict:
@@ -531,16 +573,18 @@ def check_bounces() -> dict:
         except Exception:
             pass
 
-    # Парсим сообщения
-    all_bounced: set = set()
+    # Парсим сообщения — собираем {email: reason}
+    bounced_with_reasons: dict = {}
     for mid in msg_ids:
         try:
             st, data = mail.fetch(mid, b'(RFC822)')
             if st != 'OK':
                 continue
             msg = emaillib.message_from_bytes(data[0][1])
-            addrs = _parse_bounce_addresses(msg)
-            all_bounced.update(addrs)
+            details = _parse_bounce_details(msg)
+            for addr, reason in details.items():
+                if addr not in bounced_with_reasons:
+                    bounced_with_reasons[addr] = reason
         except Exception:
             continue
 
@@ -549,49 +593,88 @@ def check_bounces() -> dict:
     except Exception:
         pass
 
-    if not all_bounced:
+    if not bounced_with_reasons:
         return {'ok': True, 'total': len(msg_ids), 'new': 0, 'bounced': []}
 
-    # Получаем все email из нашей базы — помечаем только те, что у нас есть
+    # Получаем все email из нашей базы — обрабатываем только известные
     conn = get_db()
-    known = {
-        r['email'].lower()
+    known_contacts = {
+        r['email'].lower(): dict(r)
         for r in conn.execute(
-            "SELECT email FROM contacts WHERE email IS NOT NULL AND email != ''"
+            "SELECT id, email, status, company_name FROM contacts WHERE email IS NOT NULL AND email != ''"
         ).fetchall()
     }
-    our_bounced = all_bounced & known
 
-    new_count = 0
+    new_count   = 0
     bounced_list = []
-    for addr in sorted(our_bounced):
-        # Обновляем contacts
-        row = conn.execute(
-            "SELECT id, status, company_name FROM contacts WHERE lower(email)=?", (addr,)
-        ).fetchone()
-        if row and row['status'] != 'bounced':
-            conn.execute(
-                "UPDATE contacts SET status='bounced' WHERE lower(email)=?", (addr,)
-            )
-            new_count += 1
-        if row:
-            bounced_list.append({'email': addr, 'company': row['company_name'] or ''})
 
-        # Обновляем mailing_recipients
+    for addr, reason in bounced_with_reasons.items():
+        if addr not in known_contacts:
+            continue
+
+        contact = known_contacts[addr]
+        company = contact.get('company_name') or ''
+
+        # 1. Обновляем contacts → bounced
+        was_new = (contact.get('status') != 'bounced')
         conn.execute(
-            """UPDATE mailing_recipients SET status='bounced'
-               WHERE lower(email)=? AND status != 'bounced'""",
+            "UPDATE contacts SET status='bounced' WHERE lower(email)=?", (addr,)
+        )
+        # 2. Обновляем mailing_recipients
+        conn.execute(
+            "UPDATE mailing_recipients SET status='bounced' WHERE lower(email)=? AND status != 'bounced'",
             (addr,)
         )
+        # 3. Обновляем send_recipients — помечаем как bounced в самой последней рассылке
+        send_row = conn.execute(
+            """SELECT sr.id, sr.send_id FROM send_recipients sr
+               WHERE lower(sr.email)=? AND sr.status='sent'
+               ORDER BY sr.send_id DESC LIMIT 1""",
+            (addr,)
+        ).fetchone()
+        if send_row:
+            conn.execute(
+                "UPDATE send_recipients SET status='bounced' WHERE id=?",
+                (send_row['id'],)
+            )
+            # 4. Корректируем статистику send_history
+            conn.execute(
+                """UPDATE send_history
+                   SET total_sent    = MAX(0, total_sent - 1),
+                       total_failed  = total_failed + 1,
+                       status        = CASE WHEN total_sent - 1 = 0 THEN 'partial' ELSE status END
+                   WHERE id = ?""",
+                (send_row['send_id'],)
+            )
+
+        # 5. Создаём уведомление в колокольчик
+        summary = f'Письмо не доставлено — {company or addr}'
+        details = {
+            'from_email':  addr,
+            'bounce_reason': reason,
+            'company':     company,
+            'body_preview': f'Bounce: {reason}',
+        }
+        conn.execute(
+            """INSERT OR IGNORE INTO notifications
+               (type, contact_id, company_name, from_email, summary, details_json)
+               VALUES ('bounce', ?, ?, ?, ?, ?)""",
+            (contact.get('id'), company, addr, summary,
+             json.dumps(details, ensure_ascii=False))
+        )
+
+        if was_new:
+            new_count += 1
+        bounced_list.append({'email': addr, 'company': company, 'reason': reason})
 
     conn.commit()
     conn.close()
 
     return {
         'ok':      True,
-        'total':   len(msg_ids),   # bounce-писем проверено
-        'new':     new_count,      # новых bounced-адресов
-        'bounced': bounced_list,   # адреса из нашей базы
+        'total':   len(msg_ids),
+        'new':     new_count,
+        'bounced': bounced_list,
     }
 
 
