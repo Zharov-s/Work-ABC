@@ -528,11 +528,24 @@ def campaign_send_pending():
 @app.route('/campaigns/<int:send_id>/retry', methods=['POST'])
 @login_required
 def campaign_retry(send_id):
-    """Повторная отправка неотправленным получателям рассылки send_id."""
     result = retry_failed_send(send_id)
     if result.get('mailing_stats') is None:
         result['mailing_stats'] = get_mailing_stats()
     return jsonify(result)
+
+
+@app.route('/campaigns/<int:send_id>/status')
+@login_required
+def campaign_status(send_id):
+    conn = get_db()
+    row = conn.execute(
+        'SELECT status, total_sent, total_failed FROM send_history WHERE id=?', (send_id,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'status': 'not_found'})
+    return jsonify({'status': row['status'], 'total_sent': row['total_sent'], 'total_failed': row['total_failed']})
+
 
 @app.route('/campaigns/<int:send_id>')
 @login_required

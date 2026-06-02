@@ -193,24 +193,30 @@
     const btn = document.getElementById('btn-retry');
     const msg = document.getElementById('retry-msg');
     btn.disabled = true;
-    btn.textContent = '⏳ Отправляем…';
+    btn.textContent = '⏳ Запускаем…';
     msg.textContent = '';
     fetch('/campaigns/{{ send["id"] }}/retry', {method:'POST'})
-      .then(r => r.json())
+      .then(r => r.ok ? r.json() : r.text().then(() => { throw new Error('Сервер вернул ' + r.status); }))
       .then(d => {
-        if (d.new_send_id) {
-          window.location.href = '/campaigns/' + d.new_send_id;
-        } else if (d.ok === false) {
+        if (!d.ok) {
           msg.textContent = d.error || 'Ошибка';
           btn.disabled = false;
           btn.textContent = '↻ Повторить неотправленным ({{ stats.failed }})';
-        } else {
-          msg.textContent = 'Отправлено: ' + (d.total_sent||0) + ', ошибок: ' + (d.total_failed||0);
-          btn.textContent = '✓ Готово';
+          return;
         }
+        const newId = d.new_send_id;
+        btn.textContent = '⏳ Отправляем ' + (d.count || '') + ' адресов…';
+        msg.textContent = 'Идёт отправка, подождите…';
+        function poll() {
+          fetch('/campaigns/' + newId + '/status')
+            .then(r => r.json())
+            .then(s => { s.status === 'sending' ? setTimeout(poll, 5000) : (window.location.href = '/campaigns/' + newId); })
+            .catch(() => { window.location.href = '/campaigns/' + newId; });
+        }
+        setTimeout(poll, 4000);
       })
-      .catch(() => {
-        msg.textContent = 'Ошибка соединения';
+      .catch(err => {
+        msg.textContent = err.message || 'Ошибка соединения';
         btn.disabled = false;
         btn.textContent = '↻ Повторить неотправленным ({{ stats.failed }})';
       });

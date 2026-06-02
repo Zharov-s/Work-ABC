@@ -345,11 +345,14 @@ def send_pending_campaign(template_key, requested_count=None):
     return _send_addresses(template_key, addresses, [], recipient_rows=rows, source='queue')
 
 
-def retry_failed_send(send_id: int):
+def retry_failed_send(send_id: int) -> dict:
     """
-    Повторная отправка только тем получателям из рассылки send_id,
-    у которых status='failed'. Создаёт новую запись в send_history.
+    Запускает повторную отправку в фоновом потоке — возвращает немедленно.
+    Сразу создаёт запись в send_history (status='sending') и возвращает её ID.
+    Фоновый поток обновляет запись по завершении.
     """
+    import threading
+
     conn = get_db()
     orig = conn.execute(
         'SELECT template FROM send_history WHERE id=?', (send_id,)
@@ -359,7 +362,6 @@ def retry_failed_send(send_id: int):
         return {'ok': False, 'error': f'Рассылка #{send_id} не найдена'}
 
     template_key = orig['template']
-
     rows = conn.execute(
         """SELECT sr.email, sr.contact_id
            FROM send_recipients sr
@@ -367,25 +369,65 @@ def retry_failed_send(send_id: int):
            ORDER BY sr.id""",
         (send_id,)
     ).fetchall()
-    conn.close()
 
     if not rows:
+        conn.close()
         return {'ok': False, 'error': 'Нет неотправленных адресов в этой рассылке'}
 
-    addresses = [r['email'] for r in rows]
-    result = _send_addresses(
-        template_key, addresses, [],
-        recipient_rows=rows, source=f'retry:{send_id}'
+    meta = TEMPLATE_META.get(template_key, {})
+    cur = conn.execute(
+        """INSERT INTO send_history(template, subject, total_sent, total_failed,
+               batch_count, status, sent_at, report_json)
+           VALUES(?,?,0,?,1,'sending',datetime('now'),?)""",
+        (template_key, meta.get('subject', ''), len(rows),
+         json.dumps({'source': f'retry:{send_id}', 'note': 'sending in background'}))
     )
-    # Добавляем id новой записи чтобы UI мог перейти на неё
-    conn2 = get_db()
-    new_id = conn2.execute(
-        'SELECT id FROM send_history ORDER BY id DESC LIMIT 1'
-    ).fetchone()
-    conn2.close()
-    if new_id:
-        result['new_send_id'] = new_id['id']
-    return result
+    new_send_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    rows_snap = [{'email': r['email'], 'contact_id': r['contact_id']} for r in rows]
+
+    def _worker():
+        result = _send_addresses(
+            template_key,
+            [r['email'] for r in rows_snap], [],
+            recipient_rows=rows_snap,
+            source=f'retry:{send_id}',
+        )
+        conn2 = get_db()
+        # _send_addresses создала свою запись; переносим её данные на нашу и удаляем дубль
+        real = conn2.execute(
+            'SELECT * FROM send_history WHERE id > ? ORDER BY id DESC LIMIT 1',
+            (new_send_id,)
+        ).fetchone()
+        if real:
+            conn2.execute(
+                """UPDATE send_history
+                   SET total_sent=?, total_failed=?, batch_count=?,
+                       status=?, report_json=?
+                   WHERE id=?""",
+                (real['total_sent'], real['total_failed'], real['batch_count'],
+                 real['status'], real['report_json'], new_send_id)
+            )
+            conn2.execute('UPDATE send_recipients SET send_id=? WHERE send_id=?',
+                          (new_send_id, real['id']))
+            conn2.execute('DELETE FROM send_history WHERE id=?', (real['id'],))
+        else:
+            conn2.execute(
+                """UPDATE send_history
+                   SET total_sent=?, total_failed=?, status=?, report_json=?
+                   WHERE id=?""",
+                (result.get('total_sent', 0),
+                 result.get('total_failed', len(rows_snap)),
+                 'done' if not result.get('failed') else 'partial',
+                 json.dumps(result), new_send_id)
+            )
+        conn2.commit()
+        conn2.close()
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return {'ok': True, 'new_send_id': new_send_id, 'async': True, 'count': len(rows_snap)}
 def test_smtp():
     """Проверяет соединение — отправляет тестовое письмо самому себе."""
     smtp_host  = get_setting('smtp_host', 'smtp.mail.ru')
