@@ -2149,22 +2149,35 @@ def _research_worker(run_id: int, config: dict):
                     for q in EXTRA_DISCOVERY_QUERIES.get(seg, []):
                         add_query(q, 'extra')
 
-    # ── Дополнительные источники компаний: Rusprofile + 2ГИС ─────────────────
+    # ── Rusprofile + 2ГИС скрапинг в фоне (не блокирует старт Tavily-поиска) ──
     rusprofile_companies: list[dict] = []
-    for seg in segments_list:
-        for okved in SEGMENT_OKVED_CODES.get(seg, []):
-            for region_key in regions_list:
-                batch = _scrape_rusprofile_okved(okved, region_key, max_pages=2)
-                if batch:
-                    _log(run_id, f'🏭 Rusprofile ОКВЭД {okved} ({REGION_SUFFIX.get(region_key, region_key)}): {len(batch)} компаний')
-                rusprofile_companies.extend(batch)
+    _scrape_lock = threading.Lock()
 
-    for seg in segments_list:
-        for region_key in regions_list:
-            batch_2gis = _fetch_2gis_companies(seg, region_key)
-            if batch_2gis:
-                _log(run_id, f'🗺 2ГИС {SEGMENT_LABELS.get(seg, seg)} ({REGION_SUFFIX.get(region_key, region_key)}): {len(batch_2gis)} компаний')
-            rusprofile_companies.extend(batch_2gis)
+    def _run_scraping():
+        for seg in segments_list:
+            for okved in SEGMENT_OKVED_CODES.get(seg, []):
+                for region_key in regions_list:
+                    try:
+                        batch = _scrape_rusprofile_okved(okved, region_key, max_pages=2)
+                        if batch:
+                            _log(run_id, f'🏭 Rusprofile ОКВЭД {okved}: {len(batch)} компаний')
+                        with _scrape_lock:
+                            rusprofile_companies.extend(batch)
+                    except Exception:
+                        pass
+        for seg in segments_list:
+            for region_key in regions_list:
+                try:
+                    batch_2gis = _fetch_2gis_companies(seg, region_key)
+                    if batch_2gis:
+                        _log(run_id, f'🗺 2ГИС {SEGMENT_LABELS.get(seg, seg)}: {len(batch_2gis)} компаний')
+                    with _scrape_lock:
+                        rusprofile_companies.extend(batch_2gis)
+                except Exception:
+                    pass
+
+    _scrape_thread = threading.Thread(target=_run_scraping, daemon=True)
+    _scrape_thread.start()
 
     found_contacts = []
     searched_names = set()
@@ -2323,15 +2336,11 @@ def _research_worker(run_id: int, config: dict):
                     _log(run_id, '   ⛔  email не найден — пропускаем')
                 return
 
-            # MX-проверка вне блокировки (DNS медленный)
-            valid_rows = []
-            for row_email, contact_row in contact_rows:
+            # Мягкая MX-проверка: только логируем, не блокируем сохранение
+            for row_email, _ in contact_rows:
                 if row_email and not _mx_ok(row_email):
-                    _log(run_id, f'   ⚠️  {row_email} — домен не резолвится (MX), пропускаем')
-                    continue
-                valid_rows.append((row_email, contact_row))
-            if not valid_rows:
-                return
+                    _log(run_id, f'   ⚠️  {row_email} — MX не найден (сохраняем)')
+            valid_rows = list(contact_rows)
 
             today_str = datetime.now().strftime('%Y-%m-%d')
             any_saved = False
@@ -2402,11 +2411,17 @@ def _research_worker(run_id: int, config: dict):
                    if normalize_company_name((c.get('name') or '').strip()) not in existing_companies
                    and normalize_company_name((c.get('name') or '').strip()) not in searched_names
                    and normalize_company_name((c.get('name') or '').strip())]
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            list(pool.map(_do_company, pending))
+        try:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                list(pool.map(_do_company, pending))
+        except Exception as e:
+            _log(run_id, f'⚠️ Ошибка пакетной обработки: {e}')
 
         if _finish_requested(run_id):
             break
+
+    # Ждём фоновый скрапинг максимум 30 секунд
+    _scrape_thread.join(timeout=30)
 
     # ── Обработка компаний из Rusprofile ОКВЭД (после основного цикла) ───────
     if rusprofile_companies and not _finish_requested(run_id) and len(found_contacts) < target_count:
