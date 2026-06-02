@@ -2181,7 +2181,6 @@ def _research_worker(run_id: int, config: dict):
 
     found_contacts = []
     searched_names = set()
-    state_lock = threading.Lock()
 
     for query, segment_label, industry_label, region_label, source_tag in all_queries:
         _pause_events[run_id].wait()  # блокируется, пока стоит на паузе
@@ -2228,7 +2227,7 @@ def _research_worker(run_id: int, config: dict):
             log_parts.append('Tavily пустой')
         _log(run_id, f'   {" | ".join(log_parts)}')
 
-        # ── Параллельная обработка компаний (до 4 одновременно) ──────────────
+        # ── Последовательная обработка компаний ───────────────────────────────
         _seg_lbl = segment_label
         _reg_lbl = region_label
 
@@ -2238,15 +2237,12 @@ def _research_worker(run_id: int, config: dict):
             if not name or not norm:
                 return
 
-            with state_lock:
-                if _finish_requested(run_id) or len(found_contacts) >= target_count:
-                    return
-                if norm in existing_companies:
-                    _log(run_id, f'   ⏭  {name} — уже в базе')
-                    return
-                if norm in searched_names:
-                    return
-                searched_names.add(norm)
+            if norm in existing_companies:
+                _log(run_id, f'   ⏭  {name} — уже в базе')
+                return
+            if norm in searched_names:
+                return
+            searched_names.add(norm)
 
             _pause_events[run_id].wait()
             _log(run_id, f'🏢 Новая: {name}')
@@ -2316,11 +2312,10 @@ def _research_worker(run_id: int, config: dict):
 
             clean_inn = re.sub(r'\D', '', inn) if inn else ''
 
-            with state_lock:
-                if clean_inn and len(clean_inn) in (10, 12) and clean_inn in existing_inns:
-                    _log(run_id, f'   ⏭  ИНН {clean_inn} уже в базе — пропускаем')
-                    existing_companies.add(norm)
-                    return
+            if clean_inn and len(clean_inn) in (10, 12) and clean_inn in existing_inns:
+                _log(run_id, f'   ⏭  ИНН {clean_inn} уже в базе — пропускаем')
+                existing_companies.add(norm)
+                return
 
             ok_requirements, requirement_error = contact_satisfies_requirements(lpr, requirements_list)
             if not ok_requirements:
@@ -2345,77 +2340,78 @@ def _research_worker(run_id: int, config: dict):
             today_str = datetime.now().strftime('%Y-%m-%d')
             any_saved = False
 
-            with state_lock:
-                for row_email, contact_row in valid_rows:
-                    if len(found_contacts) >= target_count:
-                        break
-                    if row_email and row_email in existing_emails:
-                        _log(run_id, f'   ⏭  {row_email} — уже в базе')
-                        continue
-                    if row_email:
-                        existing_emails.add(row_email)
+            for row_email, contact_row in valid_rows:
+                if len(found_contacts) >= target_count:
+                    break
+                if row_email and row_email in existing_emails:
+                    _log(run_id, f'   ⏭  {row_email} — уже в базе')
+                    continue
+                if row_email:
+                    existing_emails.add(row_email)
 
-                    contact_row['segment'] = _sl
-                    contact_row['region']  = _rl
-                    found_contacts.append(contact_row)
-                    _update_found_count(run_id, len(found_contacts))
+                contact_row['segment'] = _sl
+                contact_row['region']  = _rl
+                found_contacts.append(contact_row)
+                _update_found_count(run_id, len(found_contacts))
 
-                    try:
-                        conn_now = get_db()
-                        conn_now.execute(
-                            """INSERT OR IGNORE INTO contacts
-                               (company_name, website, person_name, title,
-                                email, personal_email, generic_email,
-                                phone, mobile_phone, generic_phone,
-                                inn, source_url, segment, region,
-                                date_found, status, run_id)
-                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?)""",
-                            (contact_row.get('company_name'),
-                             contact_row.get('website'),
-                             contact_row.get('person_name'),
-                             contact_row.get('title'),
-                             contact_row.get('email')          or None,
-                             contact_row.get('personal_email') or None,
-                             contact_row.get('generic_email')  or None,
-                             contact_row.get('phone')          or None,
-                             contact_row.get('mobile_phone')   or None,
-                             contact_row.get('generic_phone')  or None,
-                             contact_row.get('inn')            or None,
-                             contact_row.get('source_url'),
-                             contact_row.get('segment'),
-                             contact_row.get('region'),
-                             today_str, run_id)
-                        )
-                        conn_now.commit()
-                        conn_now.close()
-                        any_saved = True
-                    except Exception as e:
-                        _log(run_id, f'⚠️ Ошибка записи: {e}')
+                try:
+                    conn_now = get_db()
+                    conn_now.execute(
+                        """INSERT OR IGNORE INTO contacts
+                           (company_name, website, person_name, title,
+                            email, personal_email, generic_email,
+                            phone, mobile_phone, generic_phone,
+                            inn, source_url, segment, region,
+                            date_found, status, run_id)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?)""",
+                        (contact_row.get('company_name'),
+                         contact_row.get('website'),
+                         contact_row.get('person_name'),
+                         contact_row.get('title'),
+                         contact_row.get('email')          or None,
+                         contact_row.get('personal_email') or None,
+                         contact_row.get('generic_email')  or None,
+                         contact_row.get('phone')          or None,
+                         contact_row.get('mobile_phone')   or None,
+                         contact_row.get('generic_phone')  or None,
+                         contact_row.get('inn')            or None,
+                         contact_row.get('source_url'),
+                         contact_row.get('segment'),
+                         contact_row.get('region'),
+                         today_str, run_id)
+                    )
+                    conn_now.commit()
+                    conn_now.close()
+                    any_saved = True
+                except Exception as e:
+                    _log(run_id, f'⚠️ Ошибка записи: {e}')
 
-                    person_log = contact_row.get('person_name') or director_name or '???'
-                    phone_log  = contact_row.get('phone') or ''
-                    inn_log    = contact_row.get('inn') or ''
-                    detail = ' | '.join(filter(None, [
-                        row_email, phone_log, f'ИНН {inn_log}' if inn_log else ''
-                    ]))
-                    remaining = target_count - len(found_contacts)
-                    _log(run_id, f'   ✅ {person_log} — {detail} | найдено {len(found_contacts)}/{target_count}, осталось {remaining}')
+                person_log = contact_row.get('person_name') or director_name or '???'
+                phone_log  = contact_row.get('phone') or ''
+                inn_log    = contact_row.get('inn') or ''
+                detail = ' | '.join(filter(None, [
+                    row_email, phone_log, f'ИНН {inn_log}' if inn_log else ''
+                ]))
+                remaining = target_count - len(found_contacts)
+                _log(run_id, f'   ✅ {person_log} — {detail} | найдено {len(found_contacts)}/{target_count}, осталось {remaining}')
 
-                if any_saved:
-                    existing_companies.add(norm)
-                    if clean_inn and len(clean_inn) in (10, 12):
-                        existing_inns.add(clean_inn)
+            if any_saved:
+                existing_companies.add(norm)
+                if clean_inn and len(clean_inn) in (10, 12):
+                    existing_inns.add(clean_inn)
 
         # Фильтруем уже известные компании до запуска потоков
         pending = [c for c in companies
                    if normalize_company_name((c.get('name') or '').strip()) not in existing_companies
                    and normalize_company_name((c.get('name') or '').strip()) not in searched_names
                    and normalize_company_name((c.get('name') or '').strip())]
-        try:
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                list(pool.map(_do_company, pending))
-        except Exception as e:
-            _log(run_id, f'⚠️ Ошибка пакетной обработки: {e}')
+        for _c in pending:
+            if _finish_requested(run_id) or len(found_contacts) >= target_count:
+                break
+            try:
+                _do_company(_c)
+            except Exception as e:
+                _log(run_id, f'⚠️ Ошибка компании: {e}')
 
         if _finish_requested(run_id):
             break
@@ -2431,8 +2427,13 @@ def _research_worker(run_id: int, config: dict):
         pending_rp = [c for c in rusprofile_companies
                       if normalize_company_name((c.get('name') or '').strip()) not in existing_companies
                       and normalize_company_name((c.get('name') or '').strip()) not in searched_names]
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            list(pool.map(lambda c, sl=_rp_sl, rl=_rp_rl: _do_company(c, sl, rl), pending_rp))
+        for _c in pending_rp:
+            if _finish_requested(run_id) or len(found_contacts) >= target_count:
+                break
+            try:
+                _do_company(_c, _sl=_rp_sl, _rl=_rp_rl)
+            except Exception as e:
+                _log(run_id, f'⚠️ Ошибка компании (rp): {e}')
 
     # Финальное обновление статуса
     conn  = get_db()
