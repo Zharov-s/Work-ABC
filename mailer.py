@@ -605,27 +605,38 @@ def check_bounces() -> dict:
         ).fetchall()
     }
 
+    # Только реально нерабочие адреса требуют действий и уведомлений.
+    # Спам/политика (554/553), временные ошибки, полный ящик — адрес РАБОЧИЙ,
+    # просто сервер отклонил конкретное письмо. Игнорируем полностью.
+    ACTIONABLE_REASONS = {'адрес не существует'}
+
     new_count   = 0
     bounced_list = []
 
     for addr, reason in bounced_with_reasons.items():
+        # Пропускаем спам-отказы и временные ошибки — адрес валиден
+        if reason not in ACTIONABLE_REASONS:
+            continue
+
         if addr not in known_contacts:
             continue
 
         contact = known_contacts[addr]
         company = contact.get('company_name') or ''
+        company_str = f' ({company})' if company else ''
 
-        # 1. Обновляем contacts → bounced
         was_new = (contact.get('status') != 'bounced')
+
+        # Удаляем из базы рассылки
         conn.execute(
             "UPDATE contacts SET status='bounced' WHERE lower(email)=?", (addr,)
         )
-        # 2. Обновляем mailing_recipients
         conn.execute(
             "UPDATE mailing_recipients SET status='bounced' WHERE lower(email)=? AND status != 'bounced'",
             (addr,)
         )
-        # 3. Обновляем send_recipients — помечаем как bounced в самой последней рассылке
+
+        # Корректируем статистику последней рассылки
         send_row = conn.execute(
             """SELECT sr.id, sr.send_id FROM send_recipients sr
                WHERE lower(sr.email)=? AND sr.status='sent'
@@ -637,47 +648,20 @@ def check_bounces() -> dict:
                 "UPDATE send_recipients SET status='bounced' WHERE id=?",
                 (send_row['id'],)
             )
-            # 4. Корректируем статистику send_history: total_sent = сколько ушло через SMTP,
-            # total_failed растёт на каждый bounce. delivered = total_sent - total_failed.
             conn.execute(
                 """UPDATE send_history
-                   SET total_failed = total_failed + 1,
-                       status = 'partial'
+                   SET total_failed = total_failed + 1, status = 'partial'
                    WHERE id = ?""",
                 (send_row['send_id'],)
             )
 
-        # 5. Создаём уведомление — понятный текст + что было сделано
-        _reason_map = {
-            'адрес не существует':    'Адрес не существует',
-            'спам/политика сервера':  'Отклонено как спам сервером получателя',
-            'ящик переполнен':        'Почтовый ящик переполнен',
-            'сервер недоступен':      'Сервер получателя недоступен',
-            'временная ошибка':       'Временная ошибка сервера',
-            'отклонено получателем':  'Отклонено сервером получателя',
-        }
-        reason_text = _reason_map.get(reason, 'Не доставлено')
-        company_str = f' ({company})' if company else ''
-
-        if reason in ('адрес не существует',):
-            summary = f'{addr}{company_str} — адрес не существует. Удалён из базы рассылки.'
-            action_done = 'Адрес удалён из базы рассылки'
-        elif reason == 'спам/политика сервера':
-            summary = f'{addr}{company_str} — письмо отклонено как спам. Адрес помечен как недействительный.'
-            action_done = 'Адрес помечен как недействительный'
-        elif reason == 'ящик переполнен':
-            summary = f'{addr}{company_str} — ящик переполнен. Адрес временно отложен.'
-            action_done = 'Адрес временно отложен'
-        else:
-            summary = f'{addr}{company_str} — {reason_text.lower()}. Адрес помечен как недействительный.'
-            action_done = 'Адрес помечен как недействительный'
-
+        # Уведомление: адрес нерабочий, удалён
+        summary = f'{addr}{company_str} — адрес не существует. Удалён из базы рассылки.'
         details = {
-            'from_email':    addr,
-            'bounce_reason': reason,
-            'company':       company,
-            'action_done':   action_done,
-            'body_preview':  f'{reason_text}: {addr}{company_str}',
+            'from_email':  addr,
+            'company':     company,
+            'action_done': 'Адрес удалён из базы рассылки (bounce: не существует)',
+            'body_preview': f'Bounce: адрес не существует\n{addr}{company_str}',
         }
         conn.execute(
             """INSERT OR IGNORE INTO notifications
