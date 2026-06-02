@@ -144,12 +144,21 @@
 .notif-body { flex: 1; min-width: 0; }
 .notif-summary {
   font-size: 13.5px; font-weight: 500; color: #1a1a1a;
-  margin-bottom: 4px; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis;
+  margin-bottom: 4px; line-height: 1.45; word-break: break-word;
 }
 [data-theme="dark"] .notif-summary { color: #e0e0e0; }
 .notif-meta { font-size: 12px; color: #888; line-height: 1.7; }
 [data-theme="dark"] .notif-meta { color: #909090; }
+.notif-detail {
+  display: none; margin-top: 10px; font-size: 12.5px; color: #444;
+  line-height: 1.65; background: rgba(0,0,0,.04); border-radius: 7px;
+  padding: 10px 12px; white-space: pre-wrap; word-break: break-word;
+  border-left: 3px solid var(--border);
+}
+[data-theme="dark"] .notif-detail { background: rgba(255,255,255,.06); color: #c0c0c0; }
+.notif-item.expanded .notif-detail { display: block; }
+.notif-chevron { font-size: 10px; color: #aaa; margin-left: 5px; display: inline-block; transition: transform .2s; }
+.notif-item.expanded .notif-chevron { transform: rotate(180deg); }
 
 /* Бейджи типов */
 .notif-type-badge {
@@ -326,31 +335,41 @@
           return;
         }
         list.innerHTML = items.map(function(n) {
-          var det   = n.details || {};
-          var extra = [];
+          var det = n.details || {};
+
+          // Строим detail-блок: body_preview + что было сделано
+          var detailLines = [];
+          if (det.body_preview) detailLines.push(det.body_preview);
+          if (det.action_done)  detailLines.push('\n✅ ' + det.action_done);
           if (det.actions && det.actions.length) {
-            det.actions.forEach(function(a) { extra.push('✓ ' + a); });
-          } else {
-            if (det.new_emails && det.new_emails.length) extra.push('📧 ' + det.new_emails.join(', '));
-            if (det.new_phones && det.new_phones.length) extra.push('📞 ' + det.new_phones.join(', '));
-            if (det.new_name) extra.push('👤 ' + det.new_name); }
-          var extraHtml = extra.length
-            ? '<div class="notif-meta" style="margin-top:5px;line-height:1.8">' + extra.join('<br>') + '</div>'
+            det.actions.forEach(function(a) { detailLines.push('✅ ' + a); });
+          }
+          if (det.new_emails && det.new_emails.length) detailLines.push('📧 ' + det.new_emails.join(', '));
+          if (det.new_phones && det.new_phones.length) detailLines.push('📞 ' + det.new_phones.join(', '));
+          if (det.new_name) detailLines.push('👤 ' + det.new_name);
+
+          var detailHtml = detailLines.length
+            ? '<div class="notif-detail">' + detailLines.join('\n').replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</div>'
             : '';
+
           var from = n.from_email ? ' · ' + n.from_email : '';
-          return '<div class="notif-item ' + (n.read_at ? '' : 'unread') + '" onclick="markRead(' + n.id + ', this)">'
+          var hasDetail = detailLines.length > 0;
+          var chevron = hasDetail ? '<span class="notif-chevron">▼</span>' : '';
+
+          return '<div class="notif-item ' + (n.read_at ? '' : 'unread') + '" data-nid="' + n.id + '" onclick="toggleNotif(' + n.id + ', this)">'
             + '<div class="notif-dot ' + (n.read_at ? 'read' : '') + '"></div>'
             + '<div class="notif-body">'
-            + '<div class="notif-summary">' + typeBadge(n.type) + (n.summary || '') + '</div>'
-            + extraHtml
-            + '<div class="notif-meta" style="margin-top:4px">' + timeAgo(n.created_at) + from + '</div>'
+            + '<div class="notif-summary">' + typeBadge(n.type) + (n.summary || '') + chevron + '</div>'
+            + '<div class="notif-meta">' + timeAgo(n.created_at) + from + '</div>'
+            + detailHtml
             + '</div></div>';
         }).join('');
       })
       .catch(function() {});
   };
 
-  window.markRead = function(id, el) {
+  window.toggleNotif = function(id, el) {
+    el.classList.toggle('expanded');
     if (el.classList.contains('unread')) {
       el.classList.remove('unread');
       var dot = el.querySelector('.notif-dot');
@@ -358,6 +377,10 @@
       fetch('/api/notifications/' + id + '/read', {method: 'POST', credentials: 'same-origin'});
       refreshCount();
     }
+  };
+
+  window.markRead = function(id, el) {
+    toggleNotif(id, el);
   };
 
   window.markAllRead = function() {

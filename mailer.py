@@ -647,13 +647,37 @@ def check_bounces() -> dict:
                 (send_row['send_id'],)
             )
 
-        # 5. Создаём уведомление в колокольчик
-        summary = f'Письмо не доставлено — {company or addr}'
+        # 5. Создаём уведомление — понятный текст + что было сделано
+        _reason_map = {
+            'адрес не существует':    'Адрес не существует',
+            'спам/политика сервера':  'Отклонено как спам сервером получателя',
+            'ящик переполнен':        'Почтовый ящик переполнен',
+            'сервер недоступен':      'Сервер получателя недоступен',
+            'временная ошибка':       'Временная ошибка сервера',
+            'отклонено получателем':  'Отклонено сервером получателя',
+        }
+        reason_text = _reason_map.get(reason, 'Не доставлено')
+        company_str = f' ({company})' if company else ''
+
+        if reason in ('адрес не существует',):
+            summary = f'{addr}{company_str} — адрес не существует. Удалён из базы рассылки.'
+            action_done = 'Адрес удалён из базы рассылки'
+        elif reason == 'спам/политика сервера':
+            summary = f'{addr}{company_str} — письмо отклонено как спам. Адрес помечен как недействительный.'
+            action_done = 'Адрес помечен как недействительный'
+        elif reason == 'ящик переполнен':
+            summary = f'{addr}{company_str} — ящик переполнен. Адрес временно отложен.'
+            action_done = 'Адрес временно отложен'
+        else:
+            summary = f'{addr}{company_str} — {reason_text.lower()}. Адрес помечен как недействительный.'
+            action_done = 'Адрес помечен как недействительный'
+
         details = {
-            'from_email':  addr,
+            'from_email':    addr,
             'bounce_reason': reason,
-            'company':     company,
-            'body_preview': f'Bounce: {reason}',
+            'company':       company,
+            'action_done':   action_done,
+            'body_preview':  f'{reason_text}: {addr}{company_str}',
         }
         conn.execute(
             """INSERT OR IGNORE INTO notifications
@@ -864,18 +888,34 @@ def scan_replies() -> dict:
             # Извлекаем новые контакты из тела письма
             extracted = _extract_contacts_from_text(body, exclude_emails={from_raw})
 
-            # Формируем summary
-            if reply_type == 'ooo':
-                action = 'Автоответ об отсутствии'
-            elif reply_type == 'gone':
-                action = 'Сотрудник больше не работает'
-            else:
-                action = 'Ответ на рассылку'
+            # Формируем понятный summary с реальным контекстом
+            person = (contact['person_name'] if contact and contact.get('person_name') else None)
+            co = company_name or from_raw
 
-            summary_parts = [action]
-            if company_name:
-                summary_parts.append(f'— {company_name}')
-            summary = ' '.join(summary_parts)
+            new_contacts_parts = []
+            if extracted.get('name'):    new_contacts_parts.append(extracted['name'])
+            if extracted.get('emails'):  new_contacts_parts.append(extracted['emails'][0])
+            if extracted.get('phones'):  new_contacts_parts.append(extracted['phones'][0])
+            new_contacts_str = ', '.join(new_contacts_parts)
+
+            if reply_type == 'gone':
+                who = f'{person} ({co})' if person else co
+                if new_contacts_str:
+                    summary = f'{who} — больше не работает. Новые контакты: {new_contacts_str}. Данные обновлены в базе.'
+                else:
+                    summary = f'{who} — больше не работает. Контакт удалён из базы рассылки.'
+            elif reply_type == 'ooo':
+                who = f'{person}, {co}' if person else co
+                if new_contacts_str:
+                    summary = f'{who} — временно недоступен. В письме найдены контакты: {new_contacts_str}.'
+                else:
+                    summary = f'{who} — автоответ об отсутствии. Добавьте замену при наличии.'
+            else:
+                who = f'{person} ({co})' if person else co
+                if new_contacts_str:
+                    summary = f'Ответ от {who}. Найдены новые контакты: {new_contacts_str}.'
+                else:
+                    summary = f'Ответ на рассылку от {who}.'
 
             details = {
                 'from_email':  from_raw,
@@ -884,7 +924,7 @@ def scan_replies() -> dict:
                 'new_emails':  extracted['emails'],
                 'new_phones':  extracted['phones'],
                 'new_name':    extracted['name'],
-                'body_preview': body[:400].strip(),
+                'body_preview': body[:500].strip(),
             }
 
             # ── Обновляем базу контактов ────────────────────────────────────
