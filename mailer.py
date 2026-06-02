@@ -450,20 +450,26 @@ _EMAIL_RE_BOUNCE = re.compile(r'[\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,}')
 def _classify_bounce_reason(text: str) -> str:
     """Определяет причину bounce по тексту SMTP-ответа."""
     t = text.lower()
-    if any(x in t for x in ['spam', 'policy', '5.7.1', '5.7.2', 'rejected for policy', 'believe this mail is spam']):
+    if any(x in t for x in ['spam', 'policy', '5.7.1', '5.7.2', 'rejected for policy',
+                             'believe this mail is spam', 'junk', 'blacklist', 'blocked']):
         return 'спам/политика сервера'
-    if any(x in t for x in ['user unknown', 'does not exist', 'no such user', 'user not found', 'invalid address']):
+    # Только явные текстовые признаки несуществующего адреса — НЕ просто код 550,
+    # который в России часто используется и для спам-политики
+    if any(x in t for x in ['user unknown', 'does not exist', 'no such user',
+                             'user not found', 'invalid address', 'invalid mailbox',
+                             'no mailbox', 'mailbox not found', 'account does not exist',
+                             '5.1.1', '5.1.2', '5.1.3']):
         return 'адрес не существует'
-    if any(x in t for x in ['mailbox full', 'quota', 'over quota']):
+    if any(x in t for x in ['mailbox full', 'quota', 'over quota', 'storage']):
         return 'ящик переполнен'
-    if any(x in t for x in ['connection refused', 'host not found', 'name or service not known']):
+    if any(x in t for x in ['connection refused', 'host not found', 'name or service not known',
+                             'cannot connect', 'network unreachable']):
         return 'сервер недоступен'
-    if '554' in t or '553' in t:
-        return 'отклонено получателем'
-    if '550' in t:
-        return 'адрес не существует'
     if '452' in t or '421' in t:
         return 'временная ошибка'
+    # 554/553/550 без явных ключевых слов — скорее всего спам или политика
+    if '554' in t or '553' in t or '550' in t:
+        return 'спам/политика сервера'
     return 'ошибка доставки'
 
 
@@ -722,15 +728,32 @@ _NAME_PATTERNS = [
 ]
 
 
+_GENERIC_EMAIL_PREFIXES = {'info', 'mail', 'office', 'admin', 'support', 'noreply',
+                           'no-reply', 'postmaster', 'sales', 'contact', 'hello', 'help'}
+
+# Шаблон для пар «Имя Фамилия[,—] email@domain» в структурированных письмах
+_PAIR_RE = re.compile(
+    r'([А-ЯЁ][а-яё]+(?:\s+[А-ЯЁа-яёA-Z][а-яёA-Za-z.]{0,20}){1,2})'  # Имя (И.О. или полное)
+    r'[\s,\-—.]+([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})',
+    re.M
+)
+
+
 def _extract_contacts_from_text(text: str, exclude_emails: set | None = None) -> dict:
-    """Извлекает email, телефон, имя из текста сообщения."""
+    """Извлекает email, телефон, имена из текста. Возвращает все найденные + пары имя→email."""
     exclude_emails = {e.lower() for e in (exclude_emails or [])}
     exclude_emails.add(get_setting('smtp_user', '').lower())
 
-    emails = [
-        e.lower() for e in _EMAIL_RE_BOUNCE.findall(text)
-        if e.lower() not in exclude_emails and '.' in e.split('@')[-1]
-    ]
+    all_found = _EMAIL_RE_BOUNCE.findall(text)
+    seen: set = set()
+    emails = []
+    for e in all_found:
+        el = e.lower()
+        if el in exclude_emails or el in seen or '.' not in el.split('@')[-1]:
+            continue
+        seen.add(el)
+        emails.append(el)
+
     phones = re.findall(
         r'(?:\+7|8)[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}',
         text
@@ -744,10 +767,21 @@ def _extract_contacts_from_text(text: str, exclude_emails: set | None = None) ->
                 name = candidate
                 break
 
+    # Пары «Имя → email» из структурированных писем ("Галаган Н.М., n.galagan@domain.ru")
+    pairs: dict[str, str] = {}
+    for rus_name, addr in _PAIR_RE.findall(text):
+        al = addr.lower()
+        if al not in exclude_emails:
+            pairs[al] = rus_name.strip()
+            if al not in seen:
+                seen.add(al)
+                emails.append(al)
+
     return {
-        'emails': emails[:3],
+        'emails': emails[:10],
         'phones': [re.sub(r'[^\d+]', '', p) for p in phones[:3]],
         'name':   name,
+        'pairs':  pairs,   # {email: имя} — найденные пары
     }
 
 
@@ -924,59 +958,52 @@ def scan_replies() -> dict:
             try:
                 today = __import__('datetime').datetime.now().strftime('%Y-%m-%d')
 
-                if reply_type == 'gone' and contact:
-                    # Помечаем ушедшего как bounced
-                    conn2.execute(
-                        "UPDATE contacts SET status='bounced' WHERE id=?",
-                        (contact['id'],)
-                    )
-                    conn2.execute(
-                        "UPDATE mailing_recipients SET status='bounced' WHERE lower(email)=?",
-                        (from_raw,)
-                    )
-                    actions.append(f'email {from_raw} помечен как недействительный')
+                if reply_type == 'gone':
+                    # Работаем даже если контакта нет в базе —
+                    # главное добавить новые адреса из письма
+                    co_name = (contact['company_name'] if contact else None) or company_name
+                    website = contact.get('website') if contact else None
+                    segment = contact.get('segment') if contact else None
+                    region  = contact.get('region')  if contact else None
 
-                    # Добавляем новые контакты в карточку компании
+                    if contact:
+                        conn2.execute(
+                            "UPDATE contacts SET status='bounced' WHERE id=?",
+                            (contact['id'],)
+                        )
+                        conn2.execute(
+                            "UPDATE mailing_recipients SET status='bounced' WHERE lower(email)=?",
+                            (from_raw,)
+                        )
+                        actions.append(f'email {from_raw} помечен как недействительный')
+
                     new_emails = extracted['emails']
                     new_phones = extracted['phones']
-                    new_name   = extracted['name']
+                    pairs      = extracted.get('pairs', {})   # {email: имя из структур. письма}
 
                     for new_email in new_emails:
-                        # Проверяем, нет ли уже в базе
+                        # Пропускаем generic-адреса (info@, mail@, ...) — не личные контакты
+                        local_part = new_email.split('@')[0]
+                        if local_part in _GENERIC_EMAIL_PREFIXES:
+                            continue
                         exists = conn2.execute(
                             "SELECT id FROM contacts WHERE lower(email)=?", (new_email,)
                         ).fetchone()
                         if not exists:
+                            # Имя берём из пары (если нашли в тексте), иначе общее
+                            paired_name = pairs.get(new_email) or extracted['name']
                             conn2.execute(
                                 """INSERT INTO contacts
                                    (company_name, website, person_name, email,
                                     phone, segment, region, date_found, status, notes)
                                    VALUES (?,?,?,?,?,?,?,?,'new',?)""",
-                                (contact['company_name'], contact.get('website'),
-                                 new_name,
-                                 new_email,
+                                (co_name, website, paired_name, new_email,
                                  new_phones[0] if new_phones else None,
-                                 contact.get('segment'), contact.get('region'),
-                                 today,
+                                 segment, region, today,
                                  f'Добавлен из ответа на рассылку (замена {from_raw})')
                             )
-                            actions.append(f'добавлен новый контакт: {new_name or ""} {new_email}')
-
-                    # Если телефон есть, но нового email нет — добавляем строку только с телефоном
-                    if new_phones and not new_emails:
-                        conn2.execute(
-                            """INSERT INTO contacts
-                               (company_name, website, person_name,
-                                phone, segment, region, date_found, status, notes)
-                               VALUES (?,?,?,?,?,?,?,'new',?)""",
-                            (contact['company_name'], contact.get('website'),
-                             new_name,
-                             new_phones[0],
-                             contact.get('segment'), contact.get('region'),
-                             today,
-                             f'Добавлен из ответа на рассылку (замена {from_raw})')
-                        )
-                        actions.append(f'добавлен телефон: {new_phones[0]} ({new_name or ""})')
+                            label = f'{paired_name} <{new_email}>' if paired_name else new_email
+                            actions.append(f'добавлен контакт: {label}')
 
                 elif reply_type in ('ooo', 'reply') and contact:
                     # Автоответ или обычный ответ: дополняем карточку новыми данными
