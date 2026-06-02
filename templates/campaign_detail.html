@@ -183,44 +183,72 @@
 
   {%- if stats.failed > 0 %}
   <div style="padding:0 32px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap">
-    <button id="btn-retry" class="btn btn-primary" onclick="doRetry()">
+    <button id="btn-retry" class="btn btn-primary">
       ↻ Повторить неотправленным ({{ stats.failed }})
     </button>
     <span id="retry-msg" style="font-size:13px; color:var(--text-2)"></span>
   </div>
   <script>
-  function doRetry() {
-    const btn = document.getElementById('btn-retry');
-    const msg = document.getElementById('retry-msg');
-    btn.disabled = true;
-    btn.textContent = '⏳ Запускаем…';
-    msg.textContent = '';
-    fetch('/campaigns/{{ send["id"] }}/retry', {method:'POST'})
-      .then(r => r.ok ? r.json() : r.text().then(() => { throw new Error('Сервер вернул ' + r.status); }))
-      .then(d => {
-        if (!d.ok) {
-          msg.textContent = d.error || 'Ошибка';
-          btn.disabled = false;
-          btn.textContent = '↻ Повторить неотправленным ({{ stats.failed }})';
-          return;
-        }
-        const newId = d.new_send_id;
-        btn.textContent = '⏳ Отправляем ' + (d.count || '') + ' адресов…';
-        msg.textContent = 'Идёт отправка, подождите…';
-        function poll() {
-          fetch('/campaigns/' + newId + '/status')
-            .then(r => r.json())
-            .then(s => { s.status === 'sending' ? setTimeout(poll, 5000) : (window.location.href = '/campaigns/' + newId); })
-            .catch(() => { window.location.href = '/campaigns/' + newId; });
-        }
-        setTimeout(poll, 4000);
-      })
-      .catch(err => {
-        msg.textContent = err.message || 'Ошибка соединения';
-        btn.disabled = false;
-        btn.textContent = '↻ Повторить неотправленным ({{ stats.failed }})';
-      });
-  }
+  (function() {
+    const SEND_ID   = {{ send['id'] }};
+    const FAILED    = {{ stats.failed }};
+    const BTN_LABEL = '↻ Повторить неотправленным (' + FAILED + ')';
+
+    function doRetry(attemptsLeft) {
+      const btn = document.getElementById('btn-retry');
+      const msg = document.getElementById('retry-msg');
+      btn.disabled = true;
+      btn.textContent = '⏳ Запускаем…';
+
+      fetch('/campaigns/' + SEND_ID + '/retry', {method: 'POST', credentials: 'same-origin'})
+        .then(function(r) {
+          if (r.status === 404 && attemptsLeft > 0) {
+            // Деплой ещё не завершён — ждём и повторяем
+            msg.textContent = 'Сервер обновляется, повтор через 3 с…';
+            setTimeout(function() { doRetry(attemptsLeft - 1); }, 3000);
+            return null;
+          }
+          if (!r.ok) { throw new Error('Ошибка сервера ' + r.status); }
+          return r.json();
+        })
+        .then(function(d) {
+          if (!d) return; // повтор запланирован
+          if (!d.ok) {
+            msg.textContent = d.error || 'Ошибка';
+            btn.disabled = false; btn.textContent = BTN_LABEL;
+            return;
+          }
+          var newId = d.new_send_id;
+          btn.textContent = '⏳ Отправляем ' + (d.count || '') + ' адресов…';
+          msg.textContent = 'Идёт отправка, подождите…';
+          function poll() {
+            fetch('/campaigns/' + newId + '/status', {credentials: 'same-origin'})
+              .then(function(r) { return r.json(); })
+              .then(function(s) {
+                if (s.status === 'sending') { setTimeout(poll, 5000); }
+                else { window.location.href = '/campaigns/' + newId; }
+              })
+              .catch(function() { window.location.href = '/campaigns/' + newId; });
+          }
+          setTimeout(poll, 4000);
+        })
+        .catch(function(err) {
+          if (attemptsLeft > 0) {
+            msg.textContent = 'Нет соединения, повтор…';
+            setTimeout(function() { doRetry(attemptsLeft - 1); }, 3000);
+          } else {
+            msg.textContent = err.message || 'Ошибка соединения';
+            btn.disabled = false; btn.textContent = BTN_LABEL;
+          }
+        });
+    }
+
+    document.getElementById('btn-retry').addEventListener('click', function() {
+      doRetry(3);
+    });
+    // убираем onclick из HTML
+    document.getElementById('btn-retry').removeAttribute('onclick');
+  })();
   </script>
   {%- endif %}
 
