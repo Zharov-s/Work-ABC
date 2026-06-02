@@ -18,7 +18,7 @@ from database import (
     normalize_mailing_email,
 )
 from auth import check_credentials, set_password, set_login
-from mailer import send_campaign, send_pending_campaign, retry_failed_send, test_smtp, parse_addresses, TEMPLATE_META
+from mailer import send_campaign, send_pending_campaign, retry_failed_send, check_bounces, test_smtp, parse_addresses, TEMPLATE_META
 from validator import validate_email, validate_emails_batch
 from researcher import (
     start_research, get_run_status, pause_research, resume_research, finish_research,
@@ -545,6 +545,13 @@ def campaign_status(send_id):
     if not row:
         return jsonify({'status': 'not_found'})
     return jsonify({'status': row['status'], 'total_sent': row['total_sent'], 'total_failed': row['total_failed']})
+
+
+@app.route('/campaigns/check-bounces', methods=['POST'])
+@login_required
+def campaigns_check_bounces():
+    result = check_bounces()
+    return jsonify(result)
 
 
 @app.route('/campaigns/<int:send_id>')

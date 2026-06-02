@@ -6,6 +6,8 @@ import json
 import os
 import secrets
 import hashlib
+import imaplib
+import email as emaillib
 import urllib.parse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -428,6 +430,171 @@ def retry_failed_send(send_id: int) -> dict:
     threading.Thread(target=_worker, daemon=True).start()
     # new_send_id = send_id: UI поллит и перезагружает ТУ ЖЕ страницу
     return {'ok': True, 'new_send_id': send_id, 'async': True, 'count': len(rows_snap)}
+
+
+_EMAIL_RE_BOUNCE = re.compile(r'[\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,}')
+
+
+def _parse_bounce_addresses(msg) -> set:
+    """Извлекает упавшие адреса из bounce-сообщения Mail.ru."""
+    found = set()
+
+    # 1. X-Failed-Recipients — самый надёжный источник (Mail.ru всегда его заполняет)
+    header = msg.get('X-Failed-Recipients', '')
+    for addr in _EMAIL_RE_BOUNCE.findall(header):
+        found.add(addr.lower())
+
+    # 2. Body: «К сожалению, Ваше письмо не может быть доставлено ... адрес»
+    #    и стандартный DSN Final-Recipient
+    body = ''
+    if msg.is_multipart():
+        for part in msg.walk():
+            ct = part.get_content_type()
+            if ct in ('text/plain', 'message/delivery-status'):
+                try:
+                    raw = part.get_payload(decode=True)
+                    if raw:
+                        body += raw.decode('utf-8', 'ignore') + '\n'
+                except Exception:
+                    pass
+    else:
+        try:
+            raw = msg.get_payload(decode=True)
+            if raw:
+                body = raw.decode('utf-8', 'ignore')
+        except Exception:
+            pass
+
+    # Final-Recipient (RFC 3464)
+    for m in re.finditer(
+        r'Final-Recipient[^:]*:[^\n]*rfc822;?\s*([\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,})',
+        body, re.I
+    ):
+        found.add(m.group(1).lower())
+
+    # Строки вида «  addr@domain.ru\n    host...» в теле Mail.ru bounce
+    for m in re.finditer(
+        r'^\s{1,6}([\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,})\s*$',
+        body, re.M
+    ):
+        found.add(m.group(1).lower())
+
+    # Delivery failure text (Outlook/Exchange NDR)
+    for m in re.finditer(
+        r'(?:delivery has failed|couldn\'t be found|does not exist)[^\n]{0,200}?([\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,})',
+        body, re.I
+    ):
+        found.add(m.group(1).lower())
+
+    return found
+
+
+def check_bounces() -> dict:
+    """
+    Подключается к входящей почте (IMAP), находит уведомления об ошибках доставки,
+    извлекает упавшие адреса и помечает их в базе как bounced.
+    Возвращает: {'ok': True, 'total': N, 'new': M, 'bounced': [...]}
+    """
+    smtp_host  = get_setting('smtp_host', 'smtp.mail.ru')
+    smtp_user  = get_setting('smtp_user', '')
+    smtp_pass  = get_setting('smtp_pass', '')
+
+    if not smtp_user or not smtp_pass:
+        return {'ok': False, 'error': 'Не настроены SMTP-реквизиты'}
+
+    # Производим IMAP-хост из SMTP-хоста: smtp.X → imap.X
+    imap_host = smtp_host.replace('smtp.', 'imap.', 1) if smtp_host.startswith('smtp.') else 'imap.mail.ru'
+
+    try:
+        mail = imaplib.IMAP4_SSL(imap_host, 993, timeout=10)
+        mail.login(smtp_user, smtp_pass)
+        mail.select('INBOX')
+    except Exception as e:
+        return {'ok': False, 'error': f'IMAP: {e}'}
+
+    # Собираем ID bounce-сообщений по нескольким критериям
+    msg_ids: set = set()
+    for crit in [
+        b'FROM "MAILER-DAEMON"',
+        b'FROM "mailer-daemon"',
+        b'SUBJECT "Mail failure"',
+        b'SUBJECT "delivery"',
+        b'SUBJECT "undeliverable"',
+        b'SUBJECT "Undeliverable"',
+        b'SUBJECT "failed"',
+    ]:
+        try:
+            st, data = mail.search(None, crit)
+            if st == 'OK' and data[0]:
+                for mid in data[0].split():
+                    msg_ids.add(mid)
+        except Exception:
+            pass
+
+    # Парсим сообщения
+    all_bounced: set = set()
+    for mid in msg_ids:
+        try:
+            st, data = mail.fetch(mid, b'(RFC822)')
+            if st != 'OK':
+                continue
+            msg = emaillib.message_from_bytes(data[0][1])
+            addrs = _parse_bounce_addresses(msg)
+            all_bounced.update(addrs)
+        except Exception:
+            continue
+
+    try:
+        mail.logout()
+    except Exception:
+        pass
+
+    if not all_bounced:
+        return {'ok': True, 'total': len(msg_ids), 'new': 0, 'bounced': []}
+
+    # Получаем все email из нашей базы — помечаем только те, что у нас есть
+    conn = get_db()
+    known = {
+        r['email'].lower()
+        for r in conn.execute(
+            "SELECT email FROM contacts WHERE email IS NOT NULL AND email != ''"
+        ).fetchall()
+    }
+    our_bounced = all_bounced & known
+
+    new_count = 0
+    bounced_list = []
+    for addr in sorted(our_bounced):
+        # Обновляем contacts
+        row = conn.execute(
+            "SELECT id, status, company_name FROM contacts WHERE lower(email)=?", (addr,)
+        ).fetchone()
+        if row and row['status'] != 'bounced':
+            conn.execute(
+                "UPDATE contacts SET status='bounced' WHERE lower(email)=?", (addr,)
+            )
+            new_count += 1
+        if row:
+            bounced_list.append({'email': addr, 'company': row['company_name'] or ''})
+
+        # Обновляем mailing_recipients
+        conn.execute(
+            """UPDATE mailing_recipients SET status='bounced'
+               WHERE lower(email)=? AND status != 'bounced'""",
+            (addr,)
+        )
+
+    conn.commit()
+    conn.close()
+
+    return {
+        'ok':      True,
+        'total':   len(msg_ids),   # bounce-писем проверено
+        'new':     new_count,      # новых bounced-адресов
+        'bounced': bounced_list,   # адреса из нашей базы
+    }
+
+
 def test_smtp():
     """Проверяет соединение — отправляет тестовое письмо самому себе."""
     smtp_host  = get_setting('smtp_host', 'smtp.mail.ru')
