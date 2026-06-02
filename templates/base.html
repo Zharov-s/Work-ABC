@@ -18,91 +18,148 @@
 
 <style>
 /* ── Bell & notification panel ── */
+
+/* Кнопка колокольчика в сайдбаре */
 .notif-bell-wrap { position: relative; }
 .notif-bell-btn {
   display: flex; align-items: center; gap: 8px;
   width: 100%; padding: 8px 12px; border: none;
-  background: none; color: var(--text-2); cursor: pointer;
+  background: none; cursor: pointer;
   border-radius: 8px; font-size: 13.5px; font-family: inherit;
   transition: background .15s, color .15s;
+  color: var(--sb-text);
 }
-.notif-bell-btn:hover { background: var(--hover); color: var(--text); }
+.notif-bell-btn:hover { background: var(--sb-hover, rgba(255,255,255,.08)); }
 .notif-count {
-  position: absolute; top: 4px; left: 22px;
+  position: absolute; top: 2px; left: 20px;
   background: #EF4444; color: #fff; border-radius: 99px;
-  font-size: 10px; font-weight: 700; min-width: 16px; height: 16px;
+  font-size: 10px; font-weight: 700; min-width: 17px; height: 17px;
   display: flex; align-items: center; justify-content: center;
-  padding: 0 3px; pointer-events: none;
+  padding: 0 4px; pointer-events: none; line-height: 1;
+  box-shadow: 0 0 0 2px var(--sb-bg, #1c3a34);
 }
+
+/* Backdrop */
+.notif-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0);
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+  z-index: 9990;
+  display: none;
+  transition: background .2s, backdrop-filter .2s;
+}
+.notif-backdrop.visible {
+  background: rgba(0,0,0,.45);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+/* Модальное окно уведомлений */
 .notif-panel {
   position: fixed;
-  left: 218px;
-  bottom: 56px;
-  width: 340px;
-  max-height: 500px;
-  background: #ffffff;
-  border: 1px solid #e5e3de;
-  border-radius: 14px;
-  box-shadow: 0 4px 6px rgba(0,0,0,.04), 0 12px 40px rgba(0,0,0,.13);
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) scale(.96);
+  width: min(680px, calc(100vw - 40px));
+  max-height: 78vh;
+  border-radius: 18px;
   z-index: 9999;
-  display: flex;
+  display: none;
   flex-direction: column;
   overflow: hidden;
+  opacity: 0;
+  transition: opacity .18s ease, transform .18s ease;
+  /* Светлая тема */
+  background: #ffffff;
+  border: 1px solid #e8e5de;
+  box-shadow: 0 8px 16px rgba(0,0,0,.06), 0 24px 64px rgba(0,0,0,.16);
+}
+.notif-panel.open {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
 }
 [data-theme="dark"] .notif-panel {
-  background: #2c2f33;
+  background: #2a2d32;
   border-color: rgba(255,255,255,.10);
-  box-shadow: 0 4px 6px rgba(0,0,0,.2), 0 16px 48px rgba(0,0,0,.5);
+  box-shadow: 0 8px 16px rgba(0,0,0,.3), 0 24px 64px rgba(0,0,0,.55);
 }
+
+/* Заголовок панели */
 .notif-panel-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 16px 10px; border-bottom: 1px solid #e5e3de;
-  flex-shrink: 0;
-  background: #f9f9f6;
-  border-radius: 14px 14px 0 0;
+  padding: 18px 20px 14px; flex-shrink: 0;
+  background: #f8f8f4;
+  border-bottom: 1px solid #eceae4;
+  border-radius: 18px 18px 0 0;
 }
-[data-theme="dark"] .notif-panel-head { background: #33363b; border-color: rgba(255,255,255,.08); }
-.notif-panel-title { font-weight: 600; font-size: 14px; color: #1a1a1a; }
+[data-theme="dark"] .notif-panel-head {
+  background: #32363b;
+  border-bottom-color: rgba(255,255,255,.08);
+}
+.notif-panel-title { font-weight: 650; font-size: 15px; color: #111; }
 [data-theme="dark"] .notif-panel-title { color: #eaeaea; }
 .notif-read-all {
-  background: none; border: none; color: var(--accent); font-size: 12px;
-  cursor: pointer; font-family: inherit; padding: 0;
+  background: none; border: none; color: #2a7a4f; font-size: 12.5px;
+  cursor: pointer; font-family: inherit; padding: 4px 10px;
+  border-radius: 6px; transition: background .12s;
 }
-.notif-read-all:hover { opacity: .75; }
+.notif-read-all:hover { background: rgba(42,122,79,.1); }
+[data-theme="dark"] .notif-read-all { color: #86efac; }
+
+/* Список уведомлений */
 .notif-list { overflow-y: auto; flex: 1; }
-.notif-empty { padding: 32px 16px; text-align: center; color: #aaa; font-size: 13px; }
-[data-theme="dark"] .notif-empty { color: #666; }
+.notif-empty {
+  padding: 48px 24px; text-align: center;
+  color: #aaa; font-size: 14px;
+}
+[data-theme="dark"] .notif-empty { color: #555; }
 .notif-item {
-  padding: 12px 16px; border-bottom: 1px solid #f0ede8;
+  padding: 14px 20px; border-bottom: 1px solid #f0ede8;
   cursor: pointer; transition: background .12s;
-  display: flex; gap: 10px; align-items: flex-start;
+  display: flex; gap: 12px; align-items: flex-start;
   background: #ffffff;
 }
-[data-theme="dark"] .notif-item { background: #2c2f33; border-color: rgba(255,255,255,.06); }
+[data-theme="dark"] .notif-item {
+  background: #2a2d32;
+  border-bottom-color: rgba(255,255,255,.06);
+}
+.notif-item:last-child { border-bottom: none; }
 .notif-item:hover { background: #f5f4ef; }
-[data-theme="dark"] .notif-item:hover { background: #363a3f; }
+[data-theme="dark"] .notif-item:hover { background: #32363b; }
 .notif-item.unread { background: #f0f7ee; }
-[data-theme="dark"] .notif-item.unread { background: rgba(200,232,122,.07); }
-.notif-item.unread:hover { background: #e8f4e5; }
-[data-theme="dark"] .notif-item.unread:hover { background: rgba(200,232,122,.12); }
+[data-theme="dark"] .notif-item.unread { background: rgba(134,239,172,.06); }
+.notif-item.unread:hover { background: #e6f2e4; }
+[data-theme="dark"] .notif-item.unread:hover { background: rgba(134,239,172,.11); }
+
+/* Точка непрочитанного */
 .notif-dot {
-  width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
-  flex-shrink: 0; margin-top: 5px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #22c55e; flex-shrink: 0; margin-top: 6px;
 }
 .notif-dot.read { background: transparent; }
-.notif-body { flex: 1; min-width: 0; }
-.notif-summary { font-size: 13px; font-weight: 500; color: #1a1a1a; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-[data-theme="dark"] .notif-summary { color: #e0e0e0; }
-.notif-meta { font-size: 11.5px; color: #888; }
-[data-theme="dark"] .notif-meta { color: #999; }
-.notif-type-badge {
-  font-size: 10.5px; font-weight: 600; border-radius: 4px;
-  padding: 1px 5px; margin-right: 5px;
-}
-.badge-ooo { background: rgba(245,158,11,.12); color: #B45309; }
-.badge-gone { background: rgba(239,68,68,.12); color: #B91C1C; }
-.badge-reply { background: rgba(34,197,94,.12); color: #15803D; }
 
+/* Тело уведомления */
+.notif-body { flex: 1; min-width: 0; }
+.notif-summary {
+  font-size: 13.5px; font-weight: 500; color: #1a1a1a;
+  margin-bottom: 4px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+[data-theme="dark"] .notif-summary { color: #e0e0e0; }
+.notif-meta { font-size: 12px; color: #888; line-height: 1.7; }
+[data-theme="dark"] .notif-meta { color: #909090; }
+
+/* Бейджи типов */
+.notif-type-badge {
+  font-size: 11px; font-weight: 600; border-radius: 5px;
+  padding: 2px 7px; margin-right: 6px;
+}
+.badge-ooo   { background: rgba(245,158,11,.13); color: #92400e; }
+.badge-gone  { background: rgba(239,68,68,.12); color: #991b1b; }
+.badge-reply { background: rgba(34,197,94,.12); color: #15803d; }
+[data-theme="dark"] .badge-ooo   { background: rgba(245,158,11,.2); color: #fbbf24; }
+[data-theme="dark"] .badge-gone  { background: rgba(239,68,68,.2); color: #f87171; }
+[data-theme="dark"] .badge-reply { background: rgba(34,197,94,.2); color: #4ade80; }
 </style>
   {% block extra_css %}{% endblock %}
 </head>
@@ -168,6 +225,7 @@
         </button>
 
         <!-- Bell notifications -->
+        <div class="notif-backdrop" id="notif-backdrop" onclick="toggleNotifPanel()"></div>
         <div class="notif-bell-wrap" id="notif-wrap">
           <button class="notif-bell-btn" id="notif-bell" onclick="toggleNotifPanel()" title="Уведомления">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -176,7 +234,7 @@
             </svg>
             <span class="notif-count" id="notif-count" style="display:none">0</span>
           </button>
-          <div class="notif-panel" id="notif-panel" style="display:none">
+          <div class="notif-panel" id="notif-panel">
             <div class="notif-panel-head">
               <span class="notif-panel-title">Уведомления</span>
               <button class="notif-read-all" onclick="markAllRead()">Прочитать все</button>
@@ -233,87 +291,122 @@
 <script>
 (function(){
   var panelOpen = false;
+
   window.toggleNotifPanel = function() {
     panelOpen = !panelOpen;
-    document.getElementById('notif-panel').style.display = panelOpen ? 'flex' : 'none';
-    if (panelOpen) loadNotifications();
+    var panel    = document.getElementById('notif-panel');
+    var backdrop = document.getElementById('notif-backdrop');
+    if (panelOpen) {
+      backdrop.style.display = 'block';
+      panel.style.display    = 'flex';
+      requestAnimationFrame(function() {
+        backdrop.classList.add('visible');
+        panel.classList.add('open');
+      });
+      loadNotifications();
+    } else {
+      closePanel();
+    }
   };
 
-  // Закрыть при клике вне панели
-  document.addEventListener('click', function(e) {
-    if (panelOpen && !document.getElementById('notif-wrap').contains(e.target)) {
-      panelOpen = false;
-      document.getElementById('notif-panel').style.display = 'none';
-    }
+  function closePanel() {
+    panelOpen = false;
+    var panel    = document.getElementById('notif-panel');
+    var backdrop = document.getElementById('notif-backdrop');
+    panel.classList.remove('open');
+    backdrop.classList.remove('visible');
+    setTimeout(function() {
+      panel.style.display    = 'none';
+      backdrop.style.display = 'none';
+    }, 200);
+  }
+
+  // Закрыть по клику на backdrop (обработчик уже inline в HTML)
+  // Закрыть по Escape
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && panelOpen) closePanel();
   });
 
   function timeAgo(dt) {
     if (!dt) return '';
-    var d = new Date(dt.replace(' ','T')+'Z'), now = new Date();
+    var d = new Date(dt.replace(' ','T') + (dt.indexOf('T') === -1 ? 'Z' : '')), now = new Date();
     var diff = Math.round((now - d) / 60000);
-    if (diff < 2) return 'только что';
-    if (diff < 60) return diff + ' мин назад';
-    if (diff < 1440) return Math.round(diff/60) + ' ч назад';
-    return Math.round(diff/1440) + ' д назад';
+    if (diff < 2)    return 'только что';
+    if (diff < 60)   return diff + ' мин назад';
+    if (diff < 1440) return Math.round(diff / 60) + ' ч назад';
+    return Math.round(diff / 1440) + ' д назад';
   }
 
   function typeBadge(t) {
-    if (t==='ooo')   return '<span class="notif-type-badge badge-ooo">Автоответ</span>';
-    if (t==='gone')  return '<span class="notif-type-badge badge-gone">Ушёл из компании</span>';
+    if (t === 'ooo')  return '<span class="notif-type-badge badge-ooo">Автоответ</span>';
+    if (t === 'gone') return '<span class="notif-type-badge badge-gone">Ушёл из компании</span>';
     return '<span class="notif-type-badge badge-reply">Ответ</span>';
   }
 
   window.loadNotifications = function() {
-    fetch('/api/notifications', {credentials:'same-origin'})
-      .then(function(r){ return r.json(); })
+    fetch('/api/notifications', {credentials: 'same-origin'})
+      .then(function(r) { return r.json(); })
       .then(function(items) {
         var list = document.getElementById('notif-list');
-        if (!items.length) { list.innerHTML = '<div class="notif-empty">Нет уведомлений</div>'; return; }
+        if (!items.length) {
+          list.innerHTML = '<div class="notif-empty">Нет уведомлений</div>';
+          return;
+        }
         list.innerHTML = items.map(function(n) {
-          var det = n.details || {};
+          var det   = n.details || {};
           var extra = [];
-          if (det.actions && det.actions.length) { det.actions.forEach(function(a){ extra.push('✓ ' + a); }); }
-          else {
+          if (det.actions && det.actions.length) {
+            det.actions.forEach(function(a) { extra.push('✓ ' + a); });
+          } else {
             if (det.new_emails && det.new_emails.length) extra.push('📧 ' + det.new_emails.join(', '));
-          if (det.new_phones && det.new_phones.length) extra.push('📞 ' + det.new_phones.join(', '));
-          if (det.new_name) extra.push('👤 ' + det.new_name); }
+            if (det.new_phones && det.new_phones.length) extra.push('📞 ' + det.new_phones.join(', '));
+            if (det.new_name) extra.push('👤 ' + det.new_name); }
+          var extraHtml = extra.length
+            ? '<div class="notif-meta" style="margin-top:5px;line-height:1.8">' + extra.join('<br>') + '</div>'
+            : '';
+          var from = n.from_email ? ' · ' + n.from_email : '';
           return '<div class="notif-item ' + (n.read_at ? '' : 'unread') + '" onclick="markRead(' + n.id + ', this)">'
             + '<div class="notif-dot ' + (n.read_at ? 'read' : '') + '"></div>'
             + '<div class="notif-body">'
-            + '<div class="notif-summary">' + typeBadge(n.type) + (n.summary||'') + '</div>'
-            + (extra.length ? '<div class="notif-meta" style="margin-top:4px;line-height:1.7">' + extra.join('<br>') + '</div>' : '')
-            + '<div class="notif-meta" style="margin-top:3px">' + timeAgo(n.created_at) + ' · ' + (n.from_email||'') + '</div>'
+            + '<div class="notif-summary">' + typeBadge(n.type) + (n.summary || '') + '</div>'
+            + extraHtml
+            + '<div class="notif-meta" style="margin-top:4px">' + timeAgo(n.created_at) + from + '</div>'
             + '</div></div>';
         }).join('');
       })
-      .catch(function(){});
+      .catch(function() {});
   };
 
   window.markRead = function(id, el) {
     if (el.classList.contains('unread')) {
       el.classList.remove('unread');
-      el.querySelector('.notif-dot').classList.add('read');
-      fetch('/api/notifications/' + id + '/read', {method:'POST', credentials:'same-origin'});
+      var dot = el.querySelector('.notif-dot');
+      if (dot) dot.classList.add('read');
+      fetch('/api/notifications/' + id + '/read', {method: 'POST', credentials: 'same-origin'});
       refreshCount();
     }
   };
 
   window.markAllRead = function() {
-    fetch('/api/notifications/read-all', {method:'POST', credentials:'same-origin'})
-      .then(function(){ loadNotifications(); refreshCount(); });
+    fetch('/api/notifications/read-all', {method: 'POST', credentials: 'same-origin'})
+      .then(function() { loadNotifications(); refreshCount(); });
   };
 
   function refreshCount() {
-    fetch('/api/notifications/count', {credentials:'same-origin'})
-      .then(function(r){ return r.json(); })
+    fetch('/api/notifications/count', {credentials: 'same-origin'})
+      .then(function(r) { return r.json(); })
       .then(function(d) {
         var badge = document.getElementById('notif-count');
-        if (d.unread > 0) { badge.textContent = d.unread > 99 ? '99+' : d.unread; badge.style.display='flex'; }
-        else { badge.style.display = 'none'; }
-      }).catch(function(){});
+        if (!badge) return;
+        if (d.unread > 0) {
+          badge.textContent  = d.unread > 99 ? '99+' : d.unread;
+          badge.style.display = 'flex';
+        } else {
+          badge.style.display = 'none';
+        }
+      }).catch(function() {});
   }
 
-  // Опрос каждые 60 секунд
   {% if session.get('logged_in') %}
   refreshCount();
   setInterval(refreshCount, 60000);
