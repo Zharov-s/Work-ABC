@@ -534,6 +534,11 @@ SEGMENT_QUERIES = {
         '"ОКВЭД 26.51" производство приборов Москва компания директор',
         '"ОКВЭД 26.52" измерительные приборы контроль производство Москва',
         '"ОКВЭД 26.11" электронные компоненты производство Москва компания',
+        # синонимы: завод, предприятие
+        'завод электроника приборостроение Москва директор контакты',
+        'предприятие электронные приборы измерения производство Москва',
+        'НПП приборостроение электроника Москва сайт email',
+        'ООО электроника разработка производство Москва email телефон',
     ],
     'medtech': [
         'медицинское оборудование производство компания Москва контакты',
@@ -542,6 +547,9 @@ SEGMENT_QUERIES = {
         '"ОКВЭД 26.60" медицинское хирургическое оборудование производство Москва',
         '"ОКВЭД 32.50" медицинские изделия инструменты производство Москва',
         '"ОКВЭД 21.20" фармацевтика производство препаратов Москва компания',
+        'завод медицинского оборудования Москва директор email',
+        'предприятие медицинские изделия производство Москва контакты',
+        'медицинская техника производитель Москва ООО АО директор',
     ],
     'robotics': [
         'робототехника промышленная автоматизация производство Москва компания',
@@ -550,6 +558,9 @@ SEGMENT_QUERIES = {
         '"ОКВЭД 28.41" металлорежущие станки ЧПУ производство Москва',
         '"ОКВЭД 28.99" оборудование специального назначения производство Москва',
         '"ОКВЭД 28.12" гидравлическое пневматическое оборудование Москва',
+        'завод станков ЧПУ автоматизация производство Москва email',
+        'предприятие промышленные роботы автоматизация Москва контакты директор',
+        'НПО робототехника автоматика Москва сайт директор',
     ],
     'it_hardware': [
         'производство серверов телекоммуникационное оборудование Москва',
@@ -558,6 +569,9 @@ SEGMENT_QUERIES = {
         '"ОКВЭД 26.20" производство компьютеров серверов Москва компания',
         '"ОКВЭД 26.30" коммуникационное оборудование производство Москва',
         '"ОКВЭД 26.12" монтаж печатных плат производство Москва',
+        'российский производитель сервер коммутатор маршрутизатор Москва директор',
+        'отечественный hardware ИТ оборудование производство Москва email',
+        'завод вычислительная техника печатные платы Москва контакты',
     ],
     'laser_optics': [
         'лазерные системы оптические приборы производство Москва',
@@ -565,6 +579,9 @@ SEGMENT_QUERIES = {
         'лазерные технологии производство научное оборудование Москва',
         '"ОКВЭД 26.70" оптические приборы фотографическое оборудование Москва',
         '"ОКВЭД 27.40" светодиодная светотехника производство Москва',
+        'завод лазерное оборудование оптика Москва директор email',
+        'предприятие лазерные системы производство Москва контакты',
+        'НПП лазерные оптические технологии Москва сайт руководитель',
     ],
     'rd_nii': [
         'НИИ научно-исследовательский институт опытное производство Москва директор',
@@ -574,6 +591,9 @@ SEGMENT_QUERIES = {
         'опытный образец инжиниринг технологии Москва компания директор',
         '"ОКВЭД 72.19" научные исследования разработки Москва компания',
         '"ОКВЭД 72.11" биотехнологии исследования лаборатория Москва',
+        'ОКБ особое конструкторское бюро Москва разработки директор email',
+        'ФГУП ФГБУ научное производство Москва контакты руководитель',
+        'инжиниринговый центр НИОКР разработки производство Москва',
     ],
     'light_industrial': [
         'лёгкое производство технопарк Москва компания',
@@ -581,6 +601,9 @@ SEGMENT_QUERIES = {
         'сборочное производство инжиниринг сервисный центр Москва',
         '"ОКВЭД 27.11" электродвигатели трансформаторы производство Москва',
         '"ОКВЭД 33.12" ремонт монтаж машин оборудования Москва компания',
+        'малое производство мастерская цех Москва компания директор email',
+        'производство нестандартного оборудования Москва контакты',
+        'ООО производство сборка монтаж оборудования Москва директор',
     ],
 }
 
@@ -671,6 +694,170 @@ EXTRA_DISCOVERY_QUERIES = {
         'site:rusprofile.ru сборочное производство инжиниринг технопарк Москва',
     ],
 }
+
+# ОКВЭД → список кодов для каждого сегмента (для rusprofile scraper)
+SEGMENT_OKVED_CODES = {
+    'electronics':      ['26.51', '26.52', '26.11', '26.12', '26.20'],
+    'medtech':          ['26.60', '32.50', '21.20', '21.10'],
+    'robotics':         ['28.41', '28.99', '28.12', '28.11'],
+    'it_hardware':      ['26.20', '26.30', '26.12'],
+    'laser_optics':     ['26.70', '27.40'],
+    'rd_nii':           ['72.19', '72.11', '72.20'],
+    'light_industrial': ['33.12', '27.11', '28.21', '27.90'],
+}
+
+# Коды регионов rusprofile (Москва=77, МО=50)
+_RUSPROFILE_REGION = {'moscow': '77', 'mo': '50', 'russia': ''}
+
+
+def _scrape_rusprofile_okved(okved_code: str, region_key: str = 'moscow',
+                              max_pages: int = 2, timeout: int = 8) -> list[dict]:
+    """
+    Прямой скрапинг rusprofile.ru/search по ОКВЭД + регион.
+    Возвращает список компаний [{name, inn, website, source_url}].
+    Бесплатно, без API-ключей. Graceful fallback при любой ошибке.
+    """
+    region_code = _RUSPROFILE_REGION.get(region_key, '77')
+    companies: list[dict] = []
+    seen: set[str] = set()
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Language': 'ru-RU,ru;q=0.9',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    }
+
+    for page in range(1, max_pages + 1):
+        try:
+            params = {'query': okved_code, 'page': str(page)}
+            if region_code:
+                params['region'] = region_code
+            resp = requests.get(
+                'https://www.rusprofile.ru/search',
+                params=params,
+                headers=headers,
+                timeout=timeout,
+            )
+            if resp.status_code != 200:
+                break
+            text = resp.text
+
+            # Извлекаем названия компаний из HTML (ищем ссылки /id/...)
+            for m in re.finditer(
+                r'href="/id/(\d+)"[^>]*>([^<]{3,80})</a>',
+                text
+            ):
+                raw_name = m.group(2).strip()
+                if not raw_name or len(raw_name) < 3:
+                    continue
+                norm = normalize_company_name(raw_name)
+                if norm and norm not in seen:
+                    seen.add(norm)
+                    source_url = f'https://www.rusprofile.ru/id/{m.group(1)}'
+                    companies.append({
+                        'name': raw_name,
+                        'website': None,
+                        'source_url': source_url,
+                        'description': '',
+                    })
+
+            # ИНН рядом с названием (rusprofile показывает его в карточке)
+            for m_inn in re.finditer(r'ИНН[:\s]*(\d{10}|\d{12})', text):
+                inn_val = m_inn.group(1)
+                # Привязываем к последней добавленной компании без ИНН
+                for c in reversed(companies):
+                    if not c.get('inn'):
+                        c['inn'] = inn_val
+                        break
+
+            if not companies and page == 1:
+                break
+
+        except Exception:
+            break
+
+    return companies[:30]
+
+
+_2GIS_REGION_ID = {'moscow': '4504222397915426', 'mo': '4504202380095685', 'russia': ''}
+
+_2GIS_SEGMENT_QUERIES = {
+    'electronics':      ['производство электроники', 'приборостроение', 'электронные компоненты'],
+    'medtech':          ['медицинское оборудование производство', 'медтех', 'лабораторное оборудование'],
+    'robotics':         ['робототехника', 'промышленная автоматизация', 'станки с ЧПУ'],
+    'it_hardware':      ['производство серверов', 'телекоммуникационное оборудование'],
+    'laser_optics':     ['лазерные технологии', 'оптические приборы'],
+    'rd_nii':           ['научно-производственное предприятие', 'НИИ', 'R&D'],
+    'light_industrial': ['производство оборудования', 'инжиниринговая компания'],
+}
+
+
+def _fetch_2gis_companies(segment: str, region_key: str = 'moscow',
+                           max_results: int = 20, timeout: int = 8) -> list[dict]:
+    """
+    Поиск компаний через 2ГИС (бесплатный, без API-ключа).
+    Возвращает [{name, website, source_url, description}].
+    """
+    queries = _2GIS_SEGMENT_QUERIES.get(segment, [])
+    region_id = _2GIS_REGION_ID.get(region_key, '')
+    companies: list[dict] = []
+    seen: set[str] = set()
+
+    for q_text in queries[:2]:
+        try:
+            params = {
+                'q': q_text,
+                'type': 'branch',
+                'fields': 'items.name,items.org.name,items.point,items.contact_groups',
+                'page_size': str(max_results),
+                'locale': 'ru_RU',
+            }
+            if region_id:
+                params['region_id'] = region_id
+
+            resp = requests.get(
+                'https://catalog.api.2gis.com/3.0/items',
+                params=params,
+                timeout=timeout,
+            )
+            if resp.status_code != 200:
+                continue
+
+            data = resp.json()
+            for item in data.get('result', {}).get('items', []):
+                raw_name = (item.get('org', {}) or {}).get('name') or item.get('name') or ''
+                raw_name = raw_name.strip()
+                if not raw_name or len(raw_name) < 3:
+                    continue
+                norm = normalize_company_name(raw_name)
+                if not norm or norm in seen:
+                    continue
+                seen.add(norm)
+
+                website = None
+                for cg in (item.get('contact_groups') or []):
+                    for contact in (cg.get('contacts') or []):
+                        if contact.get('type') == 'website':
+                            website = normalize_official_website(contact.get('value', ''))
+                            break
+                    if website:
+                        break
+
+                companies.append({
+                    'name': raw_name,
+                    'website': website,
+                    'source_url': f'https://2gis.ru/search/{requests.utils.quote(raw_name)}',
+                    'description': '',
+                })
+                if len(companies) >= max_results:
+                    break
+
+        except Exception:
+            continue
+
+    return companies
+
 
 # ── DuckDuckGo поиск (бесплатно, без API-ключа) ───────────────────────────
 
@@ -798,9 +985,6 @@ BLOCKED_EMAIL_PREFIXES = {
     'ceo', 'cto', 'cfo', 'coo', 'ask', 'send',
     'contract', 'contracts', 'doc', 'docs', 'document', 'documents',
     'consult', 'consulting', 'legal', 'law', 'accounting', 'finance',
-    'buy', 'purchase', 'wholesale', 'retail', 'logistics', 'supply',
-    'recruitment', 'cv', 'resume', 'vacancy', 'vacancies',
-    'production', 'manufacture', 'export', 'import', 'shipping',
 }
 
 # Бесплатные почтовые домены — не принадлежат конкретной компании
@@ -984,6 +1168,25 @@ def extract_inn_from_text(text: str) -> str | None:
     for m in _INN_RE.finditer(text or ''):
         return m.group(1)
     return None
+
+
+_REGION_ADDRESS_TOKENS = {
+    'moscow':  {'москва', 'москве', 'московск'},
+    'mo':      {'московская', 'московской', 'подмосковье'},
+    'russia':  set(),  # любой адрес подходит
+}
+
+
+def _address_matches_region(address: str, regions: list[str]) -> bool:
+    """True если адрес из ЕГРЮЛ соответствует одному из выбранных регионов."""
+    if not address or not regions or 'russia' in regions:
+        return True
+    addr_lower = address.lower()
+    for region in regions:
+        tokens = _REGION_ADDRESS_TOKENS.get(region, set())
+        if any(tok in addr_lower for tok in tokens):
+            return True
+    return False
 
 
 def get_run_status(run_id: int):
@@ -1712,16 +1915,23 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
 
     # Проход 2: личный email директора (только если ещё нет email)
     if director_name and not found_email:
-        q2 = f'"{director_name}" "{name}" email'
-        try:
-            r2 = _search(tavily, q2, max_results=4)
-            text2 = _results_to_text(r2, 500)
-            combined_parts.append(text2)
-            _quick_scan(text2)
+        queries_2 = [f'"{director_name}" "{name}" email']
+        # Если домен известен — ищем директора на домене компании
+        if domain:
+            queries_2.append(f'"{director_name}" @{domain}')
+            queries_2.append(f'site:{domain} "{director_name}"')
+        for q2 in queries_2:
             if found_email:
-                log_fn(f'   📧 Email в выдаче: {found_email}')
-        except Exception:
-            pass
+                break
+            try:
+                r2 = _search(tavily, q2, max_results=4)
+                text2 = _results_to_text(r2, 500)
+                combined_parts.append(text2)
+                _quick_scan(text2)
+                if found_email:
+                    log_fn(f'   📧 Email в выдаче: {found_email}')
+            except Exception:
+                pass
 
     # Обрабатываем Pass 3 (был запущен параллельно с Pass 1)
     combined_parts.append(_pass3_text)
@@ -1866,6 +2076,22 @@ def _research_worker(run_id: int, config: dict):
             _set_run_status(run_id, 'failed')
             return
 
+    from validator import validate_email as _validate_email
+
+    # Кэш MX-проверок: домен → bool, чтобы не повторять DNS для одного домена
+    _mx_domain_cache: dict[str, bool] = {}
+
+    def _mx_ok(email: str) -> bool:
+        if not email or '@' not in email:
+            return False
+        domain = email.rsplit('@', 1)[1].lower()
+        if domain in _mx_domain_cache:
+            return _mx_domain_cache[domain]
+        result = _validate_email(email)
+        ok = result in ('valid', 'unknown')
+        _mx_domain_cache[domain] = ok
+        return ok
+
     # Память базы — что уже знаем
     conn_main = get_db()
     existing_emails = {
@@ -1876,6 +2102,11 @@ def _research_worker(run_id: int, config: dict):
         normalize_company_name(r['company_name'])
         for r in conn_main.execute('SELECT company_name FROM contacts WHERE company_name IS NOT NULL').fetchall()
         if r['company_name']
+    }
+    existing_inns = {
+        re.sub(r'\D', '', r['inn'])
+        for r in conn_main.execute('SELECT inn FROM contacts WHERE inn IS NOT NULL').fetchall()
+        if r['inn'] and len(re.sub(r'\D', '', r['inn'])) in (10, 12)
     }
     conn_main.close()
     _log(run_id, f'📋 В базе: {len(existing_companies)} компаний, {len(existing_emails)} email — дубли пропустим')
@@ -1918,8 +2149,26 @@ def _research_worker(run_id: int, config: dict):
                     for q in EXTRA_DISCOVERY_QUERIES.get(seg, []):
                         add_query(q, 'extra')
 
+    # ── Дополнительные источники компаний: Rusprofile + 2ГИС ─────────────────
+    rusprofile_companies: list[dict] = []
+    for seg in segments_list:
+        for okved in SEGMENT_OKVED_CODES.get(seg, []):
+            for region_key in regions_list:
+                batch = _scrape_rusprofile_okved(okved, region_key, max_pages=2)
+                if batch:
+                    _log(run_id, f'🏭 Rusprofile ОКВЭД {okved} ({REGION_SUFFIX.get(region_key, region_key)}): {len(batch)} компаний')
+                rusprofile_companies.extend(batch)
+
+    for seg in segments_list:
+        for region_key in regions_list:
+            batch_2gis = _fetch_2gis_companies(seg, region_key)
+            if batch_2gis:
+                _log(run_id, f'🗺 2ГИС {SEGMENT_LABELS.get(seg, seg)} ({REGION_SUFFIX.get(region_key, region_key)}): {len(batch_2gis)} компаний')
+            rusprofile_companies.extend(batch_2gis)
+
     found_contacts = []
     searched_names = set()
+    state_lock = threading.Lock()
 
     for query, segment_label, industry_label, region_label, source_tag in all_queries:
         _pause_events[run_id].wait()  # блокируется, пока стоит на паузе
@@ -1934,7 +2183,7 @@ def _research_worker(run_id: int, config: dict):
 
         # ── Поиск через Tavily ─────────────────────────────────────────────
         try:
-            search_res = _search(tavily, query, max_results=7)
+            search_res = _search(tavily, query, max_results=10)
         except Exception as e:
             _log(run_id, f'❌ Tavily: {e}')
             search_res = {'results': []}
@@ -1966,34 +2215,43 @@ def _research_worker(run_id: int, config: dict):
             log_parts.append('Tavily пустой')
         _log(run_id, f'   {" | ".join(log_parts)}')
 
-        for company in companies:
-            _pause_events[run_id].wait()  # пауза между компаниями
-            if _finish_requested(run_id):
-                break
-            if len(found_contacts) >= target_count:
-                break
+        # ── Параллельная обработка компаний (до 4 одновременно) ──────────────
+        _seg_lbl = segment_label
+        _reg_lbl = region_label
 
+        def _do_company(company, _sl=_seg_lbl, _rl=_reg_lbl):
             name = (company.get('name') or '').strip()
             norm = normalize_company_name(name)
             if not name or not norm:
-                continue
-            if norm in existing_companies:
-                _log(run_id, f'   ⏭  {name} — уже в базе')
-                continue
-            if norm in searched_names:
-                continue
-            searched_names.add(norm)
+                return
 
+            with state_lock:
+                if _finish_requested(run_id) or len(found_contacts) >= target_count:
+                    return
+                if norm in existing_companies:
+                    _log(run_id, f'   ⏭  {name} — уже в базе')
+                    return
+                if norm in searched_names:
+                    return
+                searched_names.add(norm)
+
+            _pause_events[run_id].wait()
             _log(run_id, f'🏢 Новая: {name}')
 
-            # Многопроходный поиск ЛПР
             director_name, combined_text = _multi_pass_lpr_search(
                 tavily, company, lambda m: _log(run_id, m), requirements
             )
 
             if not combined_text.strip():
                 _log(run_id, '   ⚠️  Ничего не найдено по контактам')
-                continue
+                return
+
+            if 'russia' not in regions_list:
+                addr_match = re.search(r'Адрес:\s*(.+)', combined_text)
+                egrul_address = addr_match.group(1).strip() if addr_match else ''
+                if egrul_address and not _address_matches_region(egrul_address, regions_list):
+                    _log(run_id, f'   ⏭  Адрес не соответствует региону ({egrul_address[:60]}) — пропускаем')
+                    return
 
             lpr = _extract_lpr_from_combined(client, company, combined_text, director_name)
 
@@ -2006,15 +2264,14 @@ def _research_worker(run_id: int, config: dict):
                     }
                 else:
                     _log(run_id, '   ⚠️  ЛПР/контакты не определены, пропускаем')
-                    continue
+                    return
 
-            # ── Гибкая валидация по выбранным требованиям ───────────────────
             person = (lpr.get('person_name') or '').strip()
             personal_email = (lpr.get('personal_email') or '').lower().strip()
-            generic_email = (lpr.get('generic_email') or '').lower().strip()
-            mobile_phone = (lpr.get('mobile_phone') or '').strip()
-            generic_phone = (lpr.get('generic_phone') or '').strip()
-            inn = (lpr.get('inn') or '').strip()
+            generic_email  = (lpr.get('generic_email') or '').lower().strip()
+            mobile_phone   = (lpr.get('mobile_phone') or '').strip()
+            generic_phone  = (lpr.get('generic_phone') or '').strip()
+            inn            = (lpr.get('inn') or '').strip()
             result_company_name = _clean_company_candidate(lpr.get('company_name') or name)
             raw_website = lpr.get('website') or company.get('website')
             website = (
@@ -2025,31 +2282,38 @@ def _research_worker(run_id: int, config: dict):
             if 'website' in requirements and not website:
                 website = _resolve_official_website(tavily, company, combined_text, lambda m: _log(run_id, m))
 
-            # Чистим "null" строки от модели
-            personal_email = '' if personal_email in ('null', 'none') else personal_email
-            generic_email = '' if generic_email in ('null', 'none') else generic_email
-            mobile_phone = '' if mobile_phone in ('null', 'none') else mobile_phone
-            generic_phone = '' if generic_phone in ('null', 'none') else generic_phone
-            inn = '' if inn in ('null', 'none') else inn
-            person = '' if person in ('null', 'none') else person
+            for _f in ('null', 'none'):
+                personal_email = '' if personal_email == _f else personal_email
+                generic_email  = '' if generic_email  == _f else generic_email
+                mobile_phone   = '' if mobile_phone   == _f else mobile_phone
+                generic_phone  = '' if generic_phone  == _f else generic_phone
+                inn            = '' if inn            == _f else inn
+                person         = '' if person         == _f else person
 
-            lpr['company_name'] = result_company_name
-            lpr['website'] = website or None
-            lpr['email'] = personal_email or generic_email or None
-            lpr['phone'] = mobile_phone or generic_phone or None
+            lpr['company_name']   = result_company_name
+            lpr['website']        = website or None
+            lpr['email']          = personal_email or generic_email or None
+            lpr['phone']          = mobile_phone or generic_phone or None
             lpr['personal_email'] = personal_email or None
-            lpr['generic_email'] = generic_email or None
-            lpr['mobile_phone'] = mobile_phone or None
-            lpr['generic_phone'] = generic_phone or None
-            lpr['inn'] = inn or None
-            lpr['source_url'] = lpr.get('source_url') or company.get('source_url')
+            lpr['generic_email']  = generic_email or None
+            lpr['mobile_phone']   = mobile_phone or None
+            lpr['generic_phone']  = generic_phone or None
+            lpr['inn']            = inn or None
+            lpr['source_url']     = lpr.get('source_url') or company.get('source_url')
+
+            clean_inn = re.sub(r'\D', '', inn) if inn else ''
+
+            with state_lock:
+                if clean_inn and len(clean_inn) in (10, 12) and clean_inn in existing_inns:
+                    _log(run_id, f'   ⏭  ИНН {clean_inn} уже в базе — пропускаем')
+                    existing_companies.add(norm)
+                    return
 
             ok_requirements, requirement_error = contact_satisfies_requirements(lpr, requirements_list)
             if not ok_requirements:
-                _log(run_id, f'   ⛔  {requirement_error} — компания не засчитывается, ищем дальше')
-                continue
+                _log(run_id, f'   ⛔  {requirement_error} — компания не засчитывается')
+                return
 
-            # Строим список строк для сохранения (1 или 2 при multi-email)
             contact_rows = _build_contact_rows_for_save(lpr, requirements_list)
             if not contact_rows:
                 reqs_set = set(requirements_list)
@@ -2057,76 +2321,103 @@ def _research_worker(run_id: int, config: dict):
                     _log(run_id, '   ⛔  требуются оба типа email, но не оба найдены — пропускаем')
                 else:
                     _log(run_id, '   ⛔  email не найден — пропускаем')
-                continue
+                return
+
+            # MX-проверка вне блокировки (DNS медленный)
+            valid_rows = []
+            for row_email, contact_row in contact_rows:
+                if row_email and not _mx_ok(row_email):
+                    _log(run_id, f'   ⚠️  {row_email} — домен не резолвится (MX), пропускаем')
+                    continue
+                valid_rows.append((row_email, contact_row))
+            if not valid_rows:
+                return
 
             today_str = datetime.now().strftime('%Y-%m-%d')
-            any_saved  = False
+            any_saved = False
 
-            for row_email, contact_row in contact_rows:
-                if len(found_contacts) >= target_count:
-                    break
+            with state_lock:
+                for row_email, contact_row in valid_rows:
+                    if len(found_contacts) >= target_count:
+                        break
+                    if row_email and row_email in existing_emails:
+                        _log(run_id, f'   ⏭  {row_email} — уже в базе')
+                        continue
+                    if row_email:
+                        existing_emails.add(row_email)
 
-                if row_email and row_email in existing_emails:
-                    _log(run_id, f'   ⏭  {row_email} — уже в базе')
-                    continue
+                    contact_row['segment'] = _sl
+                    contact_row['region']  = _rl
+                    found_contacts.append(contact_row)
+                    _update_found_count(run_id, len(found_contacts))
 
-                if row_email:
-                    existing_emails.add(row_email)
+                    try:
+                        conn_now = get_db()
+                        conn_now.execute(
+                            """INSERT OR IGNORE INTO contacts
+                               (company_name, website, person_name, title,
+                                email, personal_email, generic_email,
+                                phone, mobile_phone, generic_phone,
+                                inn, source_url, segment, region,
+                                date_found, status, run_id)
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?)""",
+                            (contact_row.get('company_name'),
+                             contact_row.get('website'),
+                             contact_row.get('person_name'),
+                             contact_row.get('title'),
+                             contact_row.get('email')          or None,
+                             contact_row.get('personal_email') or None,
+                             contact_row.get('generic_email')  or None,
+                             contact_row.get('phone')          or None,
+                             contact_row.get('mobile_phone')   or None,
+                             contact_row.get('generic_phone')  or None,
+                             contact_row.get('inn')            or None,
+                             contact_row.get('source_url'),
+                             contact_row.get('segment'),
+                             contact_row.get('region'),
+                             today_str, run_id)
+                        )
+                        conn_now.commit()
+                        conn_now.close()
+                        any_saved = True
+                    except Exception as e:
+                        _log(run_id, f'⚠️ Ошибка записи: {e}')
 
-                contact_row['segment'] = segment_label
-                contact_row['region']  = region_label
-                found_contacts.append(contact_row)
-                _update_found_count(run_id, len(found_contacts))
+                    person_log = contact_row.get('person_name') or director_name or '???'
+                    phone_log  = contact_row.get('phone') or ''
+                    inn_log    = contact_row.get('inn') or ''
+                    detail = ' | '.join(filter(None, [
+                        row_email, phone_log, f'ИНН {inn_log}' if inn_log else ''
+                    ]))
+                    remaining = target_count - len(found_contacts)
+                    _log(run_id, f'   ✅ {person_log} — {detail} | найдено {len(found_contacts)}/{target_count}, осталось {remaining}')
 
-                # Сохраняем сразу — виден в UI до завершения запуска
-                try:
-                    conn_now = get_db()
-                    conn_now.execute(
-                        """INSERT OR IGNORE INTO contacts
-                           (company_name, website, person_name, title,
-                            email, personal_email, generic_email,
-                            phone, mobile_phone, generic_phone,
-                            inn, source_url, segment, region,
-                            date_found, status, run_id)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?)""",
-                        (contact_row.get('company_name'),
-                         contact_row.get('website'),
-                         contact_row.get('person_name'),
-                         contact_row.get('title'),
-                         contact_row.get('email')          or None,
-                         contact_row.get('personal_email') or None,
-                         contact_row.get('generic_email')  or None,
-                         contact_row.get('phone')          or None,
-                         contact_row.get('mobile_phone')   or None,
-                         contact_row.get('generic_phone')  or None,
-                         contact_row.get('inn')            or None,
-                         contact_row.get('source_url'),
-                         contact_row.get('segment'),
-                         contact_row.get('region'),
-                         today_str, run_id)
-                    )
-                    conn_now.commit()
-                    conn_now.close()
-                    any_saved = True
-                except Exception as e:
-                    _log(run_id, f'⚠️ Ошибка записи: {e}')
+                if any_saved:
+                    existing_companies.add(norm)
+                    if clean_inn and len(clean_inn) in (10, 12):
+                        existing_inns.add(clean_inn)
 
-                person_log  = contact_row.get('person_name') or director_name or '???'
-                phone_log   = contact_row.get('phone') or ''
-                inn_log     = contact_row.get('inn') or ''
-                detail = ' | '.join(filter(None, [
-                    row_email, phone_log, f'ИНН {inn_log}' if inn_log else ''
-                ]))
-                remaining = target_count - len(found_contacts)
-                _log(run_id, f'   ✅ {person_log} — {detail} | найдено {len(found_contacts)}/{target_count}, осталось {remaining}')
-
-            if any_saved:
-                existing_companies.add(norm)
-
-            time.sleep(0.1)
+        # Фильтруем уже известные компании до запуска потоков
+        pending = [c for c in companies
+                   if normalize_company_name((c.get('name') or '').strip()) not in existing_companies
+                   and normalize_company_name((c.get('name') or '').strip()) not in searched_names
+                   and normalize_company_name((c.get('name') or '').strip())]
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(_do_company, pending))
 
         if _finish_requested(run_id):
             break
+
+    # ── Обработка компаний из Rusprofile ОКВЭД (после основного цикла) ───────
+    if rusprofile_companies and not _finish_requested(run_id) and len(found_contacts) < target_count:
+        _log(run_id, f'🏭 Rusprofile: обрабатываем {len(rusprofile_companies)} компаний')
+        _rp_sl = seg_labels[0] if seg_labels else 'Производство'
+        _rp_rl = region_labels[0] if region_labels else 'Москва'
+        pending_rp = [c for c in rusprofile_companies
+                      if normalize_company_name((c.get('name') or '').strip()) not in existing_companies
+                      and normalize_company_name((c.get('name') or '').strip()) not in searched_names]
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda c, sl=_rp_sl, rl=_rp_rl: _do_company(c, sl, rl), pending_rp))
 
     # Финальное обновление статуса
     conn  = get_db()
