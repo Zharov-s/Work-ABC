@@ -593,18 +593,25 @@ def campaign_detail(send_id):
         except Exception:
             pass
 
-    total_sent = send['total_sent'] or 0
+    # Считаем статусы живьём из send_recipients — точнее кешированных счётчиков в send_history
+    total_recipients = len(recipients)
+    delivered_count = sum(1 for r in recipients if r['status'] == 'sent')
+    bounced_count   = sum(1 for r in recipients if r['status'] == 'bounced')
+    failed_count    = sum(1 for r in recipients if r['status'] in ('failed', 'bounced'))
+
     tracking_stats = {
         'opens':    opens_count,
         'clicks':   clicks_count,
         'unsubs':   unsub_count,
-        'open_rate':  round(opens_count  / total_sent * 100, 1) if total_sent else 0,
-        'click_rate': round(clicks_count / total_sent * 100, 1) if total_sent else 0,
-        'unsub_rate': round(unsub_count  / total_sent * 100, 1) if total_sent else 0,
-        'delivered': total_sent - (send['total_failed'] or 0),
-        'failed':    send['total_failed'] or 0,
-        'delivered_rate': round((total_sent - (send['total_failed'] or 0)) / total_sent * 100, 1) if total_sent else 0,
-        'failed_rate':    round((send['total_failed'] or 0) / total_sent * 100, 1) if total_sent else 0,
+        'total':    total_recipients,
+        'delivered': delivered_count,
+        'failed':    failed_count,
+        'bounced':   bounced_count,
+        'open_rate':      round(opens_count    / total_recipients * 100, 1) if total_recipients else 0,
+        'click_rate':     round(clicks_count   / total_recipients * 100, 1) if total_recipients else 0,
+        'unsub_rate':     round(unsub_count    / total_recipients * 100, 1) if total_recipients else 0,
+        'delivered_rate': round(delivered_count / total_recipients * 100, 1) if total_recipients else 0,
+        'failed_rate':    round(failed_count    / total_recipients * 100, 1) if total_recipients else 0,
     }
     return render_template('campaign_detail.html',
                            send=send, recipients=recipients,
@@ -877,6 +884,28 @@ _boot_conn = get_db()
 _boot_conn.execute("UPDATE research_runs SET status='interrupted' WHERE status IN ('running','paused','finishing')")
 _boot_conn.commit()
 _boot_conn.close()
+
+
+# ── Периодическая проверка bounce-писем (каждые 30 мин) ──────────────────────
+def _bounce_checker_loop():
+    import time as _t
+    _t.sleep(600)  # первый запуск через 10 мин: bounce'ы от Mail.ru приходят с задержкой в часы
+    while True:
+        try:
+            check_bounces()
+        except Exception:
+            pass
+        try:
+            scan_replies()
+        except Exception:
+            pass
+        _t.sleep(1800)  # каждые 30 минут
+
+
+import threading as _threading
+_bounce_thread = _threading.Thread(target=_bounce_checker_loop, daemon=True, name='bounce-checker')
+_bounce_thread.start()
+
 
 # ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == '__main__':

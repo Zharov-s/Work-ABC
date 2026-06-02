@@ -637,12 +637,12 @@ def check_bounces() -> dict:
                 "UPDATE send_recipients SET status='bounced' WHERE id=?",
                 (send_row['id'],)
             )
-            # 4. Корректируем статистику send_history
+            # 4. Корректируем статистику send_history: total_sent = сколько ушло через SMTP,
+            # total_failed растёт на каждый bounce. delivered = total_sent - total_failed.
             conn.execute(
                 """UPDATE send_history
-                   SET total_sent    = MAX(0, total_sent - 1),
-                       total_failed  = total_failed + 1,
-                       status        = CASE WHEN total_sent - 1 = 0 THEN 'partial' ELSE status END
+                   SET total_failed = total_failed + 1,
+                       status = 'partial'
                    WHERE id = ?""",
                 (send_row['send_id'],)
             )

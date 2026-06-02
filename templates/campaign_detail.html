@@ -73,9 +73,10 @@
 
 {% block content %}
 
-{% set total = send['total_sent'] or 0 %}
+{% set total    = stats.total %}
 {% set delivered = stats.delivered %}
 {% set failed    = stats.failed %}
+{% set bounced   = stats.bounced %}
 
 <!-- ── Tracking stats card ── -->
 <div class="panel" style="margin-bottom:20px">
@@ -99,15 +100,16 @@
 
     <!-- Большой бублик: Отправлено / Доставлено / Ошибки -->
     {% set circ = 439.82 %}
-    {% set del_pct  = (delivered / total * 100) if total else 0 %}
-    {% set fail_pct = (failed    / total * 100) if total else 0 %}
-    {% set del_dash  = (del_pct  / 100 * circ) | round(2) %}
-    {% set fail_dash = (fail_pct / 100 * circ) | round(2) %}
-    {% set fail_off  = circ - del_dash %}
+    {% set del_pct     = (delivered / total * 100) if total else 0 %}
+    {% set smtp_fail   = failed - bounced %}
+    {% set smtp_pct    = (smtp_fail / total * 100) if total else 0 %}
+    {% set bounce_pct  = (bounced   / total * 100) if total else 0 %}
+    {% set del_dash    = (del_pct    / 100 * circ) | round(2) %}
+    {% set smtp_dash   = (smtp_pct   / 100 * circ) | round(2) %}
+    {% set bounce_dash = (bounce_pct / 100 * circ) | round(2) %}
 
     <div class="ts-donut-wrap">
       <svg width="180" height="180" viewBox="0 0 180 180">
-        <!-- Фон -->
         <circle cx="90" cy="90" r="70" fill="none" stroke="var(--border)" stroke-width="22"/>
         <!-- Доставлено (зелёный) -->
         <circle cx="90" cy="90" r="70" fill="none"
@@ -115,12 +117,21 @@
                 stroke-dasharray="{{ del_dash }} {{ circ - del_dash }}"
                 stroke-linecap="round"
                 transform="rotate(-90 90 90)"/>
-        <!-- Ошибки (красный), начинается после зелёного -->
-        {% if failed > 0 %}
+        <!-- Ошибки SMTP (красный) -->
+        {% if smtp_fail > 0 %}
         <circle cx="90" cy="90" r="70" fill="none"
                 stroke="#EF4444" stroke-width="22"
-                stroke-dasharray="{{ fail_dash }} {{ circ - fail_dash }}"
+                stroke-dasharray="{{ smtp_dash }} {{ circ - smtp_dash }}"
                 stroke-dashoffset="{{ -(del_dash) }}"
+                stroke-linecap="round"
+                transform="rotate(-90 90 90)"/>
+        {% endif %}
+        <!-- Bounce (оранжевый) -->
+        {% if bounced > 0 %}
+        <circle cx="90" cy="90" r="70" fill="none"
+                stroke="#F97316" stroke-width="22"
+                stroke-dasharray="{{ bounce_dash }} {{ circ - bounce_dash }}"
+                stroke-dashoffset="{{ -(del_dash + smtp_dash) }}"
                 stroke-linecap="round"
                 transform="rotate(-90 90 90)"/>
         {% endif %}
@@ -131,7 +142,7 @@
       </div>
     </div>
 
-    <!-- Легенда: Доставлено / Не доставлено -->
+    <!-- Легенда: Доставлено / Bounce / Ошибки -->
     <div class="ts-legend">
       <div class="ts-leg-row">
         <span class="ts-leg-dot" style="background:#22C55E"></span>
@@ -140,13 +151,34 @@
           <div class="ts-leg-lbl">Доставлено</div>
         </div>
       </div>
+      {% set smtp_failed = failed - bounced %}
+      {% if smtp_failed > 0 %}
       <div class="ts-leg-row">
         <span class="ts-leg-dot" style="background:#EF4444"></span>
         <div>
-          <div class="ts-leg-val">{{ '{:,}'.format(failed).replace(',', ' ') }}</div>
+          <div class="ts-leg-val">{{ '{:,}'.format(smtp_failed).replace(',', ' ') }}</div>
+          <div class="ts-leg-lbl">Ошибка SMTP</div>
+        </div>
+      </div>
+      {% endif %}
+      {% if bounced > 0 %}
+      <div class="ts-leg-row">
+        <span class="ts-leg-dot" style="background:#F97316"></span>
+        <div>
+          <div class="ts-leg-val">{{ '{:,}'.format(bounced).replace(',', ' ') }}</div>
+          <div class="ts-leg-lbl">Bounce (отбивка)</div>
+        </div>
+      </div>
+      {% endif %}
+      {% if failed == 0 and bounced == 0 %}
+      <div class="ts-leg-row">
+        <span class="ts-leg-dot" style="background:#EF4444"></span>
+        <div>
+          <div class="ts-leg-val">0</div>
           <div class="ts-leg-lbl">Не доставлено</div>
         </div>
       </div>
+      {% endif %}
       <div style="font-size:12px; color:var(--text-3); margin-top:4px">
         {{ send['sent_at'][:16] if send['sent_at'] else '—' }}
       </div>
@@ -182,12 +214,17 @@
 
   </div><!-- /ts-layout -->
 
-  {%- if stats.failed > 0 %}
   <div style="padding:0 32px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap">
+    {%- if stats.failed > stats.bounced %}
     <button id="btn-retry" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:6px">
-      {{ icon("refresh") }} Повторить неотправленным ({{ stats.failed }})
+      {{ icon("refresh") }} Повторить неотправленным ({{ stats.failed - stats.bounced }})
+    </button>
+    {%- endif %}
+    <button id="btn-check-bounces" class="btn btn-secondary" style="display:inline-flex;align-items:center;gap:6px">
+      {{ icon("mail") }} Проверить bounce-письма
     </button>
     <span id="retry-msg" style="font-size:13px; color:var(--text-2)"></span>
+    <span id="bounce-msg" style="font-size:13px; color:var(--text-2)"></span>
   </div>
   <script>
   (function() {
@@ -244,14 +281,49 @@
         });
     }
 
-    document.getElementById('btn-retry').addEventListener('click', function() {
-      doRetry(3);
-    });
-    // убираем onclick из HTML
-    document.getElementById('btn-retry').removeAttribute('onclick');
+    const retryBtn = document.getElementById('btn-retry');
+    if (retryBtn) {
+      retryBtn.removeAttribute('onclick');
+      retryBtn.addEventListener('click', function() { doRetry(3); });
+    }
   })();
   </script>
-  {%- endif %}
+
+  <script>
+  (function() {
+    var btn = document.getElementById('btn-check-bounces');
+    var msg = document.getElementById('bounce-msg');
+    if (!btn) return;
+    btn.addEventListener('click', function() {
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Проверяем…';
+      msg.textContent = '';
+      fetch('/campaigns/check-bounces', {method: 'POST', credentials: 'same-origin'})
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (!d.ok) {
+            msg.textContent = 'Ошибка: ' + (d.error || 'неизвестная ошибка');
+            btn.disabled = false;
+            btn.innerHTML = '✉ Проверить bounce-письма';
+            return;
+          }
+          if (d.new > 0) {
+            msg.textContent = 'Найдено ' + d.new + ' новых bounce. Обновляем…';
+            setTimeout(function() { window.location.reload(); }, 1200);
+          } else {
+            msg.textContent = 'Новых bounce нет (проверено ' + (d.total || 0) + ' писем)';
+            btn.disabled = false;
+            btn.innerHTML = '✉ Проверить bounce-письма';
+          }
+        })
+        .catch(function() {
+          msg.textContent = 'Ошибка соединения';
+          btn.disabled = false;
+          btn.innerHTML = '✉ Проверить bounce-письма';
+        });
+    });
+  })();
+  </script>
 
   {% if not stats.opens and not stats.clicks %}
   <div style="padding:0 32px 20px; font-size:13px; color:var(--text-3)">
@@ -306,9 +378,11 @@
         <td>{{ r['email'] }}</td>
         <td>
           {% if r['status'] == 'sent' %}
-            <span class="badge badge-green">Отправлено</span>
+            <span class="badge badge-green">Доставлено</span>
+          {% elif r['status'] == 'bounced' %}
+            <span class="badge" style="background:rgba(249,115,22,0.12);color:#EA580C;border:1px solid rgba(249,115,22,0.3)">Bounce</span>
           {% else %}
-            <span class="badge badge-red">Ошибка</span>
+            <span class="badge badge-red">Ошибка SMTP</span>
           {% endif %}
         </td>
         <td>
