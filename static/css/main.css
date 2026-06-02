@@ -2594,3 +2594,41 @@ body.login-page {
 
 /* HugeIcons: size fix for theme toggle */
 .icon-sun svg, .icon-moon svg { display: block; }
+
+/* ── Header tools (bell + theme in top-right) ── */
+.content-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--panel-border);
+}
+.header-tool-btn {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px;
+  border: none; border-radius: 10px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.header-tool-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+[data-theme="dark"] .header-tool-btn { color: rgba(234,234,234,.55); }
+[data-theme="dark"] .header-tool-btn:hover { color: rgba(234,234,234,.9); }
+/* Перемещаем notif-count на header-tool-btn */
+.header-tool-btn .notif-count {
+  position: absolute;
+  top: 2px; right: 2px;
+  left: auto;
+  box-shadow: 0 0 0 2px var(--bg);
+}
