@@ -42,19 +42,19 @@
 <!-- Фильтры -->
 <form method="get" class="filter-bar" id="contacts-filter-form">
   <input type="text" name="q" placeholder="Поиск по компании, имени, email..." value="{{ q }}" class="filter-input filter-input--wide">
-  <select name="segment" class="filter-select">
+  <select name="segment" class="filter-select" onchange="this.form.submit()">
     <option value="">Все сегменты</option>
     {% for seg in segments %}
       <option value="{{ seg }}" {% if filter_segment == seg %}selected{% endif %}>{{ seg }}</option>
     {% endfor %}
   </select>
-  <select name="region" class="filter-select">
+  <select name="region" class="filter-select" onchange="this.form.submit()">
     <option value="">Все регионы</option>
     {% for reg in regions %}
       <option value="{{ reg }}" {% if filter_region == reg %}selected{% endif %}>{{ reg }}</option>
     {% endfor %}
   </select>
-  <select name="status" class="filter-select">
+  <select name="status" class="filter-select" onchange="this.form.submit()">
     <option value="">Все статусы</option>
     <option value="new" {% if filter_status == 'new' %}selected{% endif %}>Новые</option>
     <option value="sent" {% if filter_status == 'sent' %}selected{% endif %}>Отправлено</option>
