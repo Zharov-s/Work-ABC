@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Work-ABC — Запуск</title>
+<style>
+  :root {
+    --bg: #f5f4ef; --card: #ffffff; --text: #111111;
+    --text-muted: #6b7280; --accent: #1c3a34; --green: #22c55e;
+    --red: #ef4444; --yellow: #f59e0b; --radius: 16px;
+    --shadow: 0 4px 24px rgba(0,0,0,.10);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'DM Sans', sans-serif;
+    background: var(--bg); min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .card {
+    background: var(--card); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 48px 44px;
+    width: 100%; max-width: 520px; text-align: center;
+  }
+  .logo {
+    display: flex; align-items: center; justify-content: center;
+    gap: 10px; margin-bottom: 32px;
+  }
+  .logo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+  .logo-grid span { width: 10px; height: 10px; border-radius: 3px; background: var(--accent); }
+  .logo-grid span:last-child { background: #c8e87a; }
+  .logo-text { font-size: 18px; font-weight: 700; color: var(--accent); letter-spacing: -.3px; }
+  .ring {
+    width: 80px; height: 80px; border-radius: 50%;
+    margin: 0 auto 24px; display: flex; align-items: center;
+    justify-content: center; font-size: 32px; transition: background .3s;
+  }
+  .ring.checking { background: rgba(245,158,11,.12); }
+  .ring.online   { background: rgba(34,197,94,.12); }
+  .ring.offline  { background: rgba(239,68,68,.10); }
+  h1 { font-size: 22px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+  .sub { font-size: 14px; color: var(--text-muted); margin-bottom: 32px; line-height: 1.5; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 14px 32px; border-radius: 99px; font-size: 15px;
+    font-weight: 600; border: none; cursor: pointer;
+    text-decoration: none; transition: opacity .15s, transform .1s;
+  }
+  .btn:hover { opacity: .88; transform: translateY(-1px); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-ghost {
+    background: transparent; border: 1.5px solid #d1d5db;
+    color: var(--text); margin-top: 12px;
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 12px; font-weight: 600; padding: 3px 10px;
+    border-radius: 99px; margin-bottom: 16px;
+  }
+  .b-green { background: rgba(34,197,94,.12); color: #15803d; }
+  .b-red   { background: rgba(239,68,68,.10); color: #b91c1c; }
+  .b-yellow{ background: rgba(245,158,11,.12); color: #92400e; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .dot-g { background: var(--green); }
+  .dot-r { background: var(--red); }
+  .dot-y { background: var(--yellow); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .steps {
+    display: none; margin-top: 28px; text-align: left;
+    background: #f9f8f4; border: 1px solid #e8e5de;
+    border-radius: 12px; padding: 20px 22px;
+  }
+  .steps h3 {
+    font-size: 12px; font-weight: 700; color: var(--text);
+    margin-bottom: 14px; text-transform: uppercase; letter-spacing: .06em;
+  }
+  .step { display: flex; gap: 10px; margin-bottom: 12px; font-size: 13.5px; color: var(--text-muted); line-height: 1.5; }
+  .sn {
+    min-width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 11px;
+    font-weight: 700; display: flex; align-items: center;
+    justify-content: center; margin-top: 1px;
+  }
+  code {
+    background: rgba(0,0,0,.06); border-radius: 5px;
+    padding: 1px 6px; font-family: 'Menlo','Consolas',monospace;
+    font-size: 12px; color: var(--accent);
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="logo-grid">
+      <span></span><span></span><span></span><span></span>
+    </div>
+    <span class="logo-text">ABCENTRUM</span>
+  </div>
+
+  <div class="ring checking" id="ring">⏳</div>
+  <div id="badge"></div>
+  <h1 id="title">Work-ABC</h1>
+  <p class="sub" id="sub">Проверяю сервер…</p>
+  <div id="actions"></div>
+
+  <div class="steps" id="steps">
+    <h3>Как запустить сервер</h3>
+    <div class="step"><div class="sn">1</div><div>Откройте <strong>Терминал</strong> (Finder → Приложения → Утилиты → Terminal)</div></div>
+    <div class="step"><div class="sn">2</div><div>Введите команду и нажмите Enter:<br><code>cd ~/Desktop/work/webapp && bash start.sh</code></div></div>
+    <div class="step"><div class="sn">3</div><div>Дождитесь строки <code>Running on http://127.0.0.1:5050</code></div></div>
+    <div class="step"><div class="sn">4</div><div>Нажмите <strong>«Проверить снова»</strong> выше — страница автоматически откроет приложение.</div></div>
+    <div class="step"><div class="sn">💡</div><div>Или дважды кликните файл <code>Запустить Work-ABC.command</code> в этой же папке.</div></div>
+  </div>
+</div>
+
+<script>
+var URL = 'http://127.0.0.1:5050';
+var timer;
+
+function online() {
+  document.getElementById('ring').className = 'ring online';
+  document.getElementById('ring').textContent = '✓';
+  document.getElementById('badge').innerHTML = '<span class="badge b-green"><span class="dot dot-g"></span> Сервер работает</span>';
+  document.getElementById('title').textContent = 'Work-ABC готов';
+  document.getElementById('sub').textContent = 'База данных подключена. Нажмите кнопку, чтобы войти.';
+  document.getElementById('actions').innerHTML = '<a href="'+URL+'" class="btn btn-primary" target="_blank">Открыть приложение →</a>';
+  document.getElementById('steps').style.display = 'none';
+  clearInterval(timer);
+}
+
+function offline() {
+  document.getElementById('ring').className = 'ring offline';
+  document.getElementById('ring').textContent = '⏸';
+  document.getElementById('badge').innerHTML = '<span class="badge b-red"><span class="dot dot-r"></span> Сервер не запущен</span>';
+  document.getElementById('title').textContent = 'Work-ABC не запущен';
+  document.getElementById('sub').textContent = 'Запустите сервер по инструкции ниже, затем нажмите «Проверить снова».';
+  document.getElementById('actions').innerHTML =
+    '<button class="btn btn-primary" onclick="check()">↺ Проверить снова</button><br>'+
+    '<a href="'+URL+'" class="btn btn-ghost" target="_blank">Попробовать напрямую</a>';
+  document.getElementById('steps').style.display = 'block';
+}
+
+function check() {
+  document.getElementById('badge').innerHTML = '<span class="badge b-yellow"><span class="dot dot-y"></span> Проверяю…</span>';
+  fetch(URL+'/health', {cache:'no-store'})
+    .then(function(r){return r.json();})
+    .then(function(d){d.status==='ok' ? online() : offline();})
+    .catch(function(){offline();});
+}
+
+check();
+timer = setInterval(function(){
+  if (document.getElementById('ring').classList.contains('offline')) check();
+}, 5000);
+</script>
+</body>
+</html>

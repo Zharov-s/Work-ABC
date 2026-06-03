@@ -887,6 +887,20 @@ def preview_template(template_key):
     return Response(html, mimetype='text/html')
 
 
+# ── Health check ─────────────────────────────────────────────────────────────
+
+@app.route('/health')
+def health():
+    try:
+        conn = get_db()
+        conn.execute('SELECT 1').fetchone()
+        conn.close()
+        db_status = 'ok'
+    except Exception:
+        db_status = 'error'
+    return jsonify({'status': 'ok', 'app': 'Work-ABC', 'database': db_status})
+
+
 # ── Init DB on startup (работает и с gunicorn, и напрямую) ───────────────────
 init_db()
 
