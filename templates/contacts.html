@@ -215,8 +215,8 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/filter_data.js') }}"></script>
-<script src="{{ url_for('static', filename='js/filter_tree.js') }}"></script>
+<script src="{{ url_for('static', filename='js/filter_data.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='js/filter_tree.js') }}?v=3"></script>
 <script>
 // ── Contacts page JS ─────────────────────────────────────────────────────────
 
@@ -296,24 +296,31 @@ function deleteContact(id, btn) {
 
   let panelOpen = false;
 
-  // Init state from current URL value
-  const state = new FilterState(FILTER_GROUPS);
-  const initialCodes = hiddenInput.value
-    ? hiddenInput.value.split(',').map(s => s.trim()).filter(Boolean)
-    : [];
-  if (initialCodes.length) {
-    state.loadFromCodes(initialCodes);
-    _openPanel(); // auto-open when filter is already active
-  }
+  // Read OKVED codes from URL — form submit encodes commas as %2C,
+  // URLSearchParams decodes them automatically.
+  const urlOkved = new URLSearchParams(window.location.search).get('okved') || '';
+  const initialCodes = urlOkved ? urlOkved.split(',').map(s => s.trim()).filter(Boolean) : [];
 
+  // Keep hidden input in sync with URL so form submit preserves the value
+  hiddenInput.value = urlOkved;
+
+  // Load state BEFORE building tree so _syncAllCheckboxes() in constructor sees it
+  const state = new FilterState(FILTER_GROUPS);
+  if (initialCodes.length) state.loadFromCodes(initialCodes);
+
+  // Build tree — constructor calls _build() → _syncAllCheckboxes() sets data-state
   const tree = new FilterTree(root, state).onChange(codes => {
     hiddenInput.value = codes.join(',');
     _updateBadgeAndChips(codes);
   });
 
-  if (initialCodes.length) tree.expandSelected();
+  // Open panel and expand selected nodes AFTER tree is fully built
+  if (initialCodes.length) {
+    _openPanel();
+    tree.expandSelected();
+    tree.refresh();
+  }
 
-  // Sync initial badge state (no onChange fires on load)
   _updateBadgeAndChips(initialCodes);
 
   // ── Public helpers called from inline handlers ──────────────────────────
