@@ -195,6 +195,73 @@ def init_db():
     conn.execute('CREATE INDEX IF NOT EXISTS idx_email_clicks_token ON email_clicks(token)')
     conn.execute('CREATE INDEX IF NOT EXISTS idx_send_recipients_token ON send_recipients(tracking_token)')
     conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_mailing_recipients_email ON mailing_recipients(email)')
+
+    # ── Новые таблицы SEARCH_ARCHITECTURE.md ──────────────────────────────
+    conn.executescript('''
+        CREATE TABLE IF NOT EXISTS http_cache (
+            cache_key TEXT PRIMARY KEY, url TEXT NOT NULL, domain TEXT,
+            status_code INTEGER, response_text TEXT, response_hash TEXT,
+            fetched_at TEXT, source_type TEXT, error TEXT
+        );
+        CREATE TABLE IF NOT EXISTS contact_evidence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, contact_id INTEGER, run_id INTEGER,
+            company_key TEXT, field_name TEXT, field_value TEXT, source_url TEXT,
+            source_type TEXT, extraction_method TEXT, confidence REAL, reliability REAL,
+            accepted INTEGER, reject_reason TEXT, evidence_snippet TEXT,
+            evidence_hash TEXT, collected_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS rejected_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, company_name TEXT,
+            normalized_company_name TEXT, inn TEXT, website TEXT, reason TEXT,
+            lead_score REAL, best_email TEXT, best_phone TEXT, source_url TEXT,
+            diagnostic_json TEXT, created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS research_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, metric_name TEXT,
+            metric_value REAL, metric_text TEXT, source TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS parser_health (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL,
+            parser_version TEXT NOT NULL, status TEXT NOT NULL, drift_score REAL,
+            success_rate REAL, error_rate REAL, last_good_at TEXT, last_bad_at TEXT,
+            diagnostic_json TEXT, created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS manual_validation_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER, contact_id INTEGER,
+            company_name TEXT, field_name TEXT, field_value TEXT, evidence_url TEXT,
+            model_confidence REAL, human_status TEXT DEFAULT 'pending', human_label TEXT,
+            human_comment TEXT, reviewed_at TEXT, created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS gold_dataset_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, benchmark_run_id INTEGER,
+            gold_company_key TEXT, expected_field TEXT, expected_value TEXT,
+            predicted_value TEXT, match_type TEXT, precision_hit INTEGER,
+            recall_hit INTEGER, source TEXT, confidence REAL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS suppression_list (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT, domain TEXT,
+            reason TEXT, bounce_count INTEGER DEFAULT 0, source TEXT,
+            created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
+        );
+    ''')
+
+    # Новые колонки contacts: lead_score, confidence fields, ogrn
+    _ctcols = [r[1] for r in conn.execute('PRAGMA table_info(contacts)').fetchall()]
+    for _col, _def in [
+        ('normalized_company_name', 'TEXT'),
+        ('lead_score', 'REAL DEFAULT 0.0'),
+        ('website_confidence', 'REAL DEFAULT 0.0'),
+        ('email_confidence', 'REAL DEFAULT 0.0'),
+        ('phone_confidence', 'REAL DEFAULT 0.0'),
+        ('lpr_confidence', 'REAL DEFAULT 0.0'),
+        ('ogrn', 'TEXT'),
+        ('source_summary', 'TEXT'),
+    ]:
+        if _col not in _ctcols:
+            conn.execute(f'ALTER TABLE contacts ADD COLUMN {_col} {_def}')
+
     conn.commit()
 
     # Заполняем настройки по умолчанию (только если ключа ещё нет)

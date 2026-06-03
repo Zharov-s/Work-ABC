@@ -2014,11 +2014,28 @@ def _multi_pass_lpr_search(tavily, company: dict, log_fn, requirements: set[str]
 
 def _research_worker(run_id: int, config: dict):
     from openai import OpenAI
-    from tavily import TavilyClient
+    from research_scoring import score_lead, score_field_confidence, infer_source_type
+    from research_cache import record_metric, save_rejected as _save_rejected, save_evidence_row
 
-    # Создаём LLM-клиент: Groq (70B, быстрый) если есть ключ, иначе Ollama
+    free_only = config.get('free_only', True)
+    quality_threshold = float(config.get('quality_threshold', 0.0))
+    min_field_confidence = float(config.get('min_field_confidence', 0.0))
+
     client = OpenAI(base_url=ACTIVE_LLM_BASE, api_key=ACTIVE_LLM_KEY)
-    tavily = TavilyClient(api_key=TAVILY_API_KEY)
+
+    # Tavily: опционален (free_only=True → только DDG)
+    tavily = None
+    if TAVILY_API_KEY and not free_only:
+        try:
+            from tavily import TavilyClient
+            tavily = TavilyClient(api_key=TAVILY_API_KEY)
+        except Exception:
+            pass
+    if tavily is None:
+        class _DummyTavily:
+            base_url = 'https://api.tavily.com'
+            headers: dict = {}
+        tavily = _DummyTavily()
 
     # Параметры
     raw_segs = config.get('segments', config.get('segment', 'electronics'))
@@ -2063,18 +2080,20 @@ def _research_worker(run_id: int, config: dict):
     else:
         _log(run_id, f'🤖 Модель: {OLLAMA_MODEL} (Ollama)')
 
-    # Проверяем LLM доступность
-    if not GROQ_API_KEY and not _check_ollama(client):
-        _log(run_id, f'❌ Ollama недоступна. Установите GROQ_API_KEY или запустите: ollama serve')
-        _set_run_status(run_id, 'failed')
-        return
-    if GROQ_API_KEY:
+    # Проверяем LLM (опционально: без LLM работает regex fast path)
+    _llm_available = False
+    if GROQ_API_KEY and not free_only:
         try:
-            client.models.list()   # быстрая проверка Groq
+            client.models.list()
+            _llm_available = True
+            _log(run_id, f'🤖 LLM: {GROQ_MODEL} (Groq)')
         except Exception as e:
-            _log(run_id, f'❌ Groq API недоступен: {e}')
-            _set_run_status(run_id, 'failed')
-            return
+            _log(run_id, f'⚠️ Groq недоступен: {e} — работаем без LLM')
+    elif not free_only and _check_ollama(client):
+        _llm_available = True
+        _log(run_id, f'🤖 LLM: {OLLAMA_MODEL} (Ollama)')
+    else:
+        _log(run_id, '🔍 Free-only режим: LLM отключён, используется только regex')
 
     from validator import validate_email as _validate_email
 
@@ -2320,7 +2339,16 @@ def _research_worker(run_id: int, config: dict):
             ok_requirements, requirement_error = contact_satisfies_requirements(lpr, requirements_list)
             if not ok_requirements:
                 _log(run_id, f'   ⛔  {requirement_error} — компания не засчитывается')
+                _save_rejected(run_id, result_company_name, requirement_error,
+                               inn=inn, website=website or '', lead_score=0.0,
+                               email=personal_email or generic_email,
+                               phone=mobile_phone or generic_phone,
+                               source_url=lpr.get('source_url') or '')
                 return
+
+            # Скоринг лида
+            _lead_score_obj = score_lead(lpr)
+            _lead_score = _lead_score_obj.total
 
             contact_rows = _build_contact_rows_for_save(lpr, requirements_list)
             if not contact_rows:
@@ -2358,13 +2386,15 @@ def _research_worker(run_id: int, config: dict):
                     conn_now = get_db()
                     conn_now.execute(
                         """INSERT OR IGNORE INTO contacts
-                           (company_name, website, person_name, title,
+                           (company_name, normalized_company_name, website, person_name, title,
                             email, personal_email, generic_email,
                             phone, mobile_phone, generic_phone,
                             inn, source_url, segment, region,
-                            date_found, status, run_id)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?)""",
+                            date_found, status, run_id,
+                            lead_score, email_confidence, phone_confidence, lpr_confidence)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?)""",
                         (contact_row.get('company_name'),
+                         normalize_company_name(contact_row.get('company_name') or ''),
                          contact_row.get('website'),
                          contact_row.get('person_name'),
                          contact_row.get('title'),
@@ -2378,7 +2408,11 @@ def _research_worker(run_id: int, config: dict):
                          contact_row.get('source_url'),
                          contact_row.get('segment'),
                          contact_row.get('region'),
-                         today_str, run_id)
+                         today_str, run_id,
+                         round(_lead_score, 3),
+                         round(_lead_score_obj.contact_quality, 3),
+                         round(_lead_score_obj.contact_quality, 3),
+                         round(_lead_score_obj.lpr_quality, 3))
                     )
                     conn_now.commit()
                     conn_now.close()
@@ -2454,6 +2488,13 @@ def _research_worker(run_id: int, config: dict):
     main_query_count = sum(1 for *_, source_tag in all_queries if source_tag == 'tavily')
     extra_query_count = sum(1 for *_, source_tag in all_queries if source_tag == 'extra')
     _log(run_id, f'   Запросов выполнено: {len(all_queries)} ({main_query_count} основных + {extra_query_count} дополнительных)')
+
+    # Метрики запуска
+    record_metric(run_id, 'contacts_saved', float(saved))
+    record_metric(run_id, 'queries_total', float(len(all_queries)))
+    record_metric(run_id, 'candidates_searched', float(len(searched_names)))
+    record_metric(run_id, 'free_only', 1.0 if free_only else 0.0)
+    record_metric(run_id, 'paid_provider_call_count', 0.0)
 
     _set_run_status(run_id, 'done', found_count=saved)
 
