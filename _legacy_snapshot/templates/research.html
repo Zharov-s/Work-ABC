@@ -1,0 +1,1146 @@
+{% from "macros/icon.html" import icon %}
+{% extends "base.html" %}
+{% set supports_contact_requirements = research_features_version|default(0, true) >= 2 %}
+{% block title %}Поиск — ABCENTRUM{% endblock %}
+{% block heading %}Поиск ЛПР{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/filter_tree.css') }}">
+<style>
+#ft-root-research .ft-row { padding: 4px 14px 4px 10px; min-height: 30px; }
+#ft-root-research .ft-row--group { min-height: 34px; }
+#ft-root-research { padding: 4px 0 8px; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set industry_options = industries|default({
+  'construction': 'Строительство',
+  'transport': 'Транспорт',
+  'media': 'Медиа',
+  'it_telecom': 'ИТ и связь',
+  'finance': 'Финансы',
+  'healthcare': 'Здравоохранение',
+  'education': 'Образование',
+  'culture': 'Культура',
+  'government': 'Госуправление',
+  'associations': 'Объединения',
+  'trade': 'Торговля',
+  'services': 'Услуги',
+  'production': 'Производство',
+}, true) %}
+{% set scale_options = scales|default({
+  'any': 'Любой',
+  'small': 'Малый',
+  'medium': 'Средний',
+  'large': 'Крупный',
+}, true) %}
+{% set contact_requirement_options = contact_requirements|default({
+  'company_name': 'Наименование компании',
+  'website': 'Сайт',
+  'email': 'Почты',
+  'generic_email': 'Email общий',
+  'personal_email': 'Email личный',
+  'phone': 'Телефоны',
+  'generic_phone': 'Телефон общий',
+  'mobile_phone': 'Телефон мобильный',
+  'inn': 'ИНН',
+}, true) %}
+<div class="research-layout">
+  <div class="research-columns">
+
+    <!-- ── Левая колонка: параметры ── -->
+    <div class="filters-panel">
+      <div class="filters-panel-title">
+        Параметры поиска
+        <span class="filters-panel-hint">Уточняют запросы к поисковику</span>
+      </div>
+      {% if not supports_contact_requirements %}
+      <div class="alert alert-error stale-backend-alert">
+        Backend запущен в старой версии. Перезапустите сервер, иначе фильтры требований не будут применяться.
+      </div>
+      {% endif %}
+      <form id="research-form">
+
+        <!-- Барышиха (ВРИ / ОКВЭД) -->
+        <input type="hidden" name="okved_codes" id="okved-research-input" value="">
+        <div class="accordion" id="baryshiha-accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Барышиха</div>
+              <div class="accordion-desc" id="baryshiha-desc">ВРИ и ОКВЭД не выбраны</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body" style="display:none; padding:0">
+            <div id="ft-root-research"></div>
+          </div>
+        </div>
+
+        <!-- Отрасль -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Отрасль</div>
+              <div class="accordion-desc" data-summary-for="industries">Все подходящие отрасли</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body filter-menu" style="display:none">
+            <div class="filter-menu-list" data-filter-list="industries">
+              {% for key, label in industry_options.items() %}
+              <label class="filter-menu-row {% if key in ['trade','services','production'] %}filter-menu-row--nested{% endif %}">
+                <span class="filter-menu-marker">
+                  {% if key in ['trade','services','production'] %}<span class="filter-menu-arrow">›</span>{% else %}<span class="filter-menu-dot"></span>{% endif %}
+                </span>
+                <span class="filter-menu-label">{{ label }}</span>
+                <input type="checkbox" name="industries" value="{{ key }}" data-label="{{ label }}" onchange="updateFilterSummary('industries')">
+                <span class="filter-menu-check"></span>
+              </label>
+              {% endfor %}
+            </div>
+            <div class="filter-menu-footer">
+              <label class="filter-menu-search">
+                <span>⌕</span>
+                <input type="search" placeholder="Поиск" oninput="filterMenuOptions(this, 'industries')">
+              </label>
+              <button type="button" class="filter-menu-done" onclick="closeAccordion(this)">Готово</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Сегменты -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Сегменты компаний</div>
+              <div class="accordion-desc" data-summary-for="segments">Выберите один или несколько</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body filter-menu" style="display:none">
+            <div class="filter-menu-list" data-filter-list="segments">
+            {% for key, label in segments.items() %}
+            <label class="filter-menu-row">
+              <span class="filter-menu-marker"><span class="filter-menu-dot"></span></span>
+              <span class="filter-menu-label">
+                {{ label }}
+                {% if key == 'rd_nii' %}<span style="background:#C8E87A;color:#1C3A34;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:6px;vertical-align:middle;line-height:1">НОВЫЙ</span>{% endif %}
+                {% if segment_vri and segment_vri.get(key) %}<br><small style="font-size:11px;color:var(--text-3);font-weight:400">{{ segment_vri[key] }}</small>{% endif %}
+              </span>
+              <input type="checkbox" name="segments" value="{{ key }}" data-label="{{ label }}" onchange="updateFilterSummary('segments')">
+              <span class="filter-menu-check"></span>
+            </label>
+            {% endfor %}
+            </div>
+            <div class="filter-menu-footer">
+              <label class="filter-menu-search">
+                <span>⌕</span>
+                <input type="search" placeholder="Поиск" oninput="filterMenuOptions(this, 'segments')">
+              </label>
+              <button type="button" class="filter-menu-done" onclick="closeAccordion(this)">Готово</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Регион -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Регион</div>
+              <div class="accordion-desc" data-summary-for="regions">Москва по умолчанию</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body filter-menu" style="display:none">
+            <div class="filter-menu-list" data-filter-list="regions">
+            {% for key, label in regions.items() %}
+            <label class="filter-menu-row">
+              <span class="filter-menu-marker"><span class="filter-menu-dot"></span></span>
+              <span class="filter-menu-label">{{ label }}</span>
+              <input type="checkbox" name="regions" value="{{ key }}" data-label="{{ label }}" {% if loop.first %}checked{% endif %} onchange="updateFilterSummary('regions')">
+              <span class="filter-menu-check"></span>
+            </label>
+            {% endfor %}
+            </div>
+            <div class="filter-menu-footer">
+              <label class="filter-menu-search">
+                <span>⌕</span>
+                <input type="search" placeholder="Поиск" oninput="filterMenuOptions(this, 'regions')">
+              </label>
+              <button type="button" class="filter-menu-done" onclick="closeAccordion(this)">Готово</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Количество -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Количество компаний</div>
+              <div class="accordion-desc">Цель за один запуск</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body" style="display:none">
+            <div class="count-input-wrap">
+              <label class="count-input-label" for="research-count">Сколько компаний найти</label>
+              <input class="count-input" id="research-count" type="number" name="count" value="10" min="1" step="1" inputmode="numeric" required>
+            </div>
+          </div>
+        </div>
+
+        <!-- Масштаб бизнеса -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Масштаб бизнеса</div>
+              <div class="accordion-desc" data-summary-for="company_scales">Любой</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body filter-menu" style="display:none">
+            <div class="filter-menu-list" data-filter-list="company_scales">
+            {% for val, label in scale_options.items() %}
+            <label class="filter-menu-row">
+              <span class="filter-menu-marker"><span class="filter-menu-dot"></span></span>
+              <span class="filter-menu-label">{{ label }}</span>
+              <input type="checkbox" name="company_scales" value="{{ val }}" data-label="{{ label }}" {% if val == 'any' %}checked{% endif %} onchange="handleScaleChange(this)">
+              <span class="filter-menu-check"></span>
+            </label>
+            {% endfor %}
+            </div>
+            <div class="filter-note">Если выбрать конкретный масштаб, пункт «Любой» снимется автоматически</div>
+            <div class="filter-menu-footer">
+              <label class="filter-menu-search">
+                <span>⌕</span>
+                <input type="search" placeholder="Поиск" oninput="filterMenuOptions(this, 'company_scales')">
+              </label>
+              <button type="button" class="filter-menu-done" onclick="closeAccordion(this)">Готово</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Контактные данные -->
+        <div class="contact-data-card">
+          <input type="checkbox"
+                 id="contact-phone-requirement"
+                 name="contact_requirements"
+                 value="phone"
+                 data-label="Телефоны"
+                 onchange="updateFilterSummary('contact_requirements')">
+          <div class="contact-data-header">
+            <div class="contact-data-title">Контактные данные</div>
+            <span class="contact-data-chevron">⌃</span>
+          </div>
+          <button class="contact-data-row contact-data-row--menu"
+                  type="button"
+                  id="phone-filter-trigger"
+                  aria-expanded="false"
+                  onclick="togglePhonePopover(event)">
+            <span>Телефоны</span>
+          </button>
+          <div class="contact-phone-popover" id="phone-filter-popover" aria-hidden="true">
+            <div class="contact-phone-title">Наличие телефонов</div>
+            <label class="contact-radio-row">
+              <input type="radio" name="phone_filter_mode" value="phone" onchange="selectPhoneRequirement('phone')">
+              <span class="contact-radio-mark"></span>
+              <span>Мобильные или городские</span>
+            </label>
+            <label class="contact-radio-row">
+              <input type="radio" name="phone_filter_mode" value="mobile_phone" onchange="selectPhoneRequirement('mobile_phone')">
+              <span class="contact-radio-mark"></span>
+              <span>Только мобильные</span>
+            </label>
+          </div>
+          <label class="contact-data-row contact-data-row--switch">
+            <span>Сайты</span>
+            <input type="checkbox"
+                   name="contact_requirements"
+                   value="website"
+                   data-label="Сайты"
+                   onchange="updateFilterSummary('contact_requirements')">
+            <span class="contact-toggle"></span>
+          </label>
+          <label class="contact-data-row contact-data-row--switch">
+            <span>Почты</span>
+            <input type="checkbox"
+                   name="contact_requirements"
+                   value="email"
+                   data-label="Почты"
+                   checked
+                   onchange="updateFilterSummary('contact_requirements')">
+            <span class="contact-toggle"></span>
+          </label>
+        </div>
+
+        <!-- Ключевые слова -->
+        <div class="accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Ключевые слова</div>
+              <div class="accordion-desc">Дополнительное уточнение запроса</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body" style="display:none">
+            <input type="text" name="keywords"
+                   placeholder="импортозамещение, экспорт, стартап, ОКВЭД C26..."
+                   style="width:100%">
+            <div class="filter-note">Можно указать ОКВЭД код, отрасль или любое слово</div>
+          </div>
+        </div>
+
+        <!-- Кнопка -->
+        <div class="filters-action">
+          <button type="submit" class="btn btn-primary btn-full btn-large" id="start-btn" {% if not supports_contact_requirements %}disabled{% endif %}>
+            {% if supports_contact_requirements %}
+            <svg class="btn-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 2.5L13.5 8 4 13.5V2.5Z" fill="currentColor" stroke="currentColor" stroke-width="0.5" stroke-linejoin="round"/></svg>
+            <span id="start-btn-label">Запустить поиск</span>
+            {% else %}Перезапустите сервер{% endif %}
+          </button>
+          <div class="hint-text" style="text-align:center;margin-top:6px">
+            Ищет только новые компании, не дублирует базу
+          </div>
+        </div>
+
+      </form>
+    </div>
+
+    <!-- ── Правая колонка: результаты ── -->
+    <div class="results-panel">
+
+      <!-- Блок выполнения -->
+      <div class="panel" id="run-panel" style="display:none">
+        <div class="panel-header">
+          Выполнение
+          <div style="display:flex; align-items:center; gap:10px">
+            <button id="pause-btn" style="display:none" class="btn-pause" onclick="clickPause()">
+              <svg id="pause-icon" class="btn-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3.5" y="2.5" width="3.5" height="11" rx="1.2" fill="currentColor"/><rect x="9" y="2.5" width="3.5" height="11" rx="1.2" fill="currentColor"/></svg>
+              <svg id="resume-icon" class="btn-svg" style="display:none" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 2.5L13.5 8 4 13.5V2.5Z" fill="currentColor" stroke="currentColor" stroke-width="0.5" stroke-linejoin="round"/></svg>
+              <span id="pause-btn-label">Пауза</span>
+            </button>
+            <button id="finish-btn" style="display:none" class="btn-finish" onclick="clickFinish()">
+              <svg class="btn-svg" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8.5L6.5 12l6.5-7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span id="finish-btn-label">Завершить</span>
+            </button>
+            <span class="status-badge" id="run-status-badge">Запускаем...</span>
+          </div>
+        </div>
+        <!-- Прогресс -->
+        <div id="run-progress-strip" style="display:none; padding:12px 16px 0">
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:6px">
+            <div style="flex:1; background:#e2e8f0; border-radius:99px; height:8px; overflow:hidden">
+              <div id="progress-bar-fill"
+                   style="height:100%; background:#2563eb; border-radius:99px; width:0%; transition:width .4s ease"></div>
+            </div>
+            <span id="progress-label" style="white-space:nowrap; font-size:13px; font-weight:600; color:#1e293b; min-width:110px; text-align:right">
+              0 / ?
+            </span>
+          </div>
+          <div style="font-size:12px; color:#64748b; margin-bottom:8px" id="progress-sub">
+            Идёт поиск...
+          </div>
+        </div>
+        <div class="log-console" id="log-console"></div>
+        <div class="run-summary" id="run-summary" style="display:none">
+          <strong id="run-found-text"></strong>
+          <a href="{{ url_for('contacts') }}" class="btn btn-primary" style="margin-left:16px">
+            Перейти к контактам →
+          </a>
+        </div>
+      </div>
+
+      <!-- История запусков -->
+      <div class="panel">
+        <div class="panel-header">История запусков</div>
+        {% if runs %}
+        <table class="table" id="runs-table">
+          <thead>
+            <tr>
+              <th style="width:32px"></th>
+              <th>#</th>
+              <th>Запущен</th>
+              <th>Параметры</th>
+              <th>Найдено</th>
+              <th>Статус</th>
+              <th style="width:40px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in runs %}
+            <tr class="run-row" data-run-id="{{ r['id'] }}" data-found="{{ r['found_count'] }}" onclick="toggleRunDetails(this)">
+              <td><span class="run-chevron">▶</span></td>
+              <td>{{ r['id'] }}</td>
+              <td>{{ r['started_at'][:16] if r['started_at'] else '—' }}</td>
+              <td>
+                {% if r['config_json'] %}
+                  {% set cfg = r['config_json'] | from_json %}
+                  {% if cfg %}
+                    {% set segs = cfg.get('segments', [cfg.get('segment','?')]) %}
+                    {% set inds = cfg.get('industries', []) %}
+                    {% set regs = cfg.get('regions', [cfg.get('region','?')]) %}
+                    {% set scs = cfg.get('company_scales', [cfg.get('company_scale','any')]) %}
+                    {% set reqs = cfg.get('contact_requirements', []) %}
+                    <span class="cell-main">
+                      {% if segs is string %}{{ segments.get(segs, segs) }}
+                      {% else %}
+                        {% for s in segs %}{{ segments.get(s, s) }}{% if not loop.last %}, {% endif %}{% endfor %}
+                      {% endif %}
+                    </span>
+                    <span class="cell-sub">
+                      {% if inds %}{% for i in inds %}{{ industry_options.get(i, i) }}{% if not loop.last %}, {% endif %}{% endfor %} · {% endif %}
+                      {% if regs is string %}{{ regions.get(regs, regs) }}{% else %}{% for rkey in regs %}{{ regions.get(rkey, rkey) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+                      · {% if scs is string %}{{ scale_options.get(scs, scs) }}{% else %}{% for skey in scs %}{{ scale_options.get(skey, skey) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+                      {% if reqs %} · поля: {% for req in reqs %}{{ contact_requirement_options.get(req, req) }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+                      · цель={{ cfg.get('count','?') }}
+                    </span>
+                  {% endif %}
+                {% else %}—{% endif %}
+              </td>
+              <td><strong>{{ r['found_count'] }}</strong></td>
+              <td>
+                {% if r['status'] == 'done' %}
+                  <span class="badge badge-green">Завершён</span>
+                {% elif r['status'] == 'running' %}
+                  <span class="badge badge-yellow">Выполняется</span>
+                {% elif r['status'] == 'paused' %}
+                  <span class="badge badge-orange">На паузе</span>
+                {% elif r['status'] == 'finishing' %}
+                  <span class="badge badge-yellow">Завершается</span>
+                {% elif r['status'] == 'interrupted' %}
+                  <span class="badge badge-grey">Прервано</span>
+                {% else %}
+                  <span class="badge badge-red">{{ r['status'] }}</span>
+                {% endif %}
+              </td>
+              <td onclick="event.stopPropagation()" class="run-actions" id="actions-{{ r['id'] }}">
+                {% if r['status'] == 'running' %}
+                  <button class="btn-icon btn-icon-pause" title="Пауза" onclick="rowPause({{ r['id'] }}, this)">⏸</button>
+                  <button class="btn-icon btn-icon-finish" title="Завершить поиск" onclick="rowFinish({{ r['id'] }}, this)">✓</button>
+                {% elif r['status'] == 'paused' %}
+                  <button class="btn-icon btn-icon-resume" title="Продолжить" onclick="rowResume({{ r['id'] }}, this)">▶</button>
+                  <button class="btn-icon btn-icon-finish" title="Завершить поиск" onclick="rowFinish({{ r['id'] }}, this)">✓</button>
+                {% elif r['status'] == 'finishing' %}
+                  <button class="btn-icon btn-icon-finish" title="Завершается" disabled>✓</button>
+                {% endif %}
+                <button class="btn-icon-danger" title="Удалить" onclick="deleteRun({{ r['id'] }}, this)">✕</button>
+              </td>
+            </tr>
+            <tr class="run-detail-row" id="detail-{{ r['id'] }}" style="display:none">
+              <td colspan="7" style="padding:0">
+                <div class="run-detail-content" id="detail-content-{{ r['id'] }}">
+                  <div class="run-detail-loading">Загружаем...</div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+          <div class="empty-state" id="runs-empty" style="display:none">Запусков ещё не было</div>
+          <div class="empty-state">Запусков ещё не было</div>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/filter_data.js') }}"></script>
+<script src="{{ url_for('static', filename='js/filter_tree.js') }}"></script>
+<script>
+(function () {
+  const state = new FilterState(FILTER_GROUPS);
+  new FilterTree(document.getElementById('ft-root-research'), state).onChange(function (codes) {
+    document.getElementById('okved-research-input').value = codes.join(',');
+    document.getElementById('baryshiha-desc').textContent =
+      codes.length ? 'Выбрано ОКВЭД: ' + codes.length : 'ВРИ и ОКВЭД не выбраны';
+  });
+})();
+</script>
+<script>
+const BACKEND_SUPPORTS_CONTACT_REQUIREMENTS = {{ 'true' if supports_contact_requirements else 'false' }};
+
+// ── Аккордеон ──────────────────────────────────────────────────────────────
+function toggleAccordion(header) {
+  const body    = header.nextElementSibling;
+  const chevron = header.querySelector('.accordion-chevron');
+  const isOpen  = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+  header.parentElement.classList.toggle('accordion--open', !isOpen);
+}
+
+function closeAccordion(el) {
+  const accordion = el.closest('.accordion');
+  if (!accordion) return;
+  const body = accordion.querySelector('.accordion-body');
+  body.style.display = 'none';
+  accordion.classList.remove('accordion--open');
+}
+
+function checkedLabels(name) {
+  return [...document.querySelectorAll(`input[name="${name}"]:checked`)]
+    .map(el => el.dataset.label || el.value);
+}
+
+function updateFilterSummary(name) {
+  const summary = document.querySelector(`[data-summary-for="${name}"]`);
+  if (!summary) return;
+  const labels = checkedLabels(name);
+  const defaults = {
+    industries: 'Все подходящие отрасли',
+    segments: 'Выберите один или несколько',
+    regions: 'Регион не выбран',
+    company_scales: 'Любой',
+    contact_requirements: 'Выберите обязательные поля',
+  };
+  if (!labels.length) {
+    summary.textContent = defaults[name] || 'Не выбрано';
+  } else if (labels.length <= 2) {
+    summary.textContent = labels.join(', ');
+  } else {
+    summary.textContent = `${labels.slice(0, 2).join(', ')} +${labels.length - 2}`;
+  }
+}
+
+function filterMenuOptions(input, name) {
+  const q = input.value.trim().toLowerCase();
+  document
+    .querySelectorAll(`[data-filter-list="${name}"] .filter-menu-row`)
+    .forEach(row => {
+      row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+}
+
+function handleScaleChange(input) {
+  const boxes = [...document.querySelectorAll('input[name="company_scales"]')];
+  if (input.value === 'any' && input.checked) {
+    boxes.forEach(box => {
+      if (box !== input) box.checked = false;
+    });
+  } else if (input.checked) {
+    const anyBox = boxes.find(box => box.value === 'any');
+    if (anyBox) anyBox.checked = false;
+  }
+  if (!boxes.some(box => box.checked)) {
+    const anyBox = boxes.find(box => box.value === 'any');
+    if (anyBox) anyBox.checked = true;
+  }
+  updateFilterSummary('company_scales');
+}
+
+function togglePhonePopover(event) {
+  event.stopPropagation();
+  const popover = document.getElementById('phone-filter-popover');
+  const trigger = document.getElementById('phone-filter-trigger');
+  const isOpen = popover.classList.contains('contact-phone-popover--open');
+  popover.classList.toggle('contact-phone-popover--open', !isOpen);
+  popover.setAttribute('aria-hidden', isOpen ? 'true' : 'false');
+  trigger.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+}
+
+function closePhonePopover() {
+  const popover = document.getElementById('phone-filter-popover');
+  const trigger = document.getElementById('phone-filter-trigger');
+  if (!popover || !trigger) return;
+  popover.classList.remove('contact-phone-popover--open');
+  popover.setAttribute('aria-hidden', 'true');
+  trigger.setAttribute('aria-expanded', 'false');
+}
+
+function selectPhoneRequirement(value) {
+  const input = document.getElementById('contact-phone-requirement');
+  if (!input) return;
+  input.value = value;
+  input.dataset.label = 'Телефоны';
+  input.checked = true;
+  updateFilterSummary('contact_requirements');
+}
+
+document.addEventListener('click', (event) => {
+  const popover = document.getElementById('phone-filter-popover');
+  const trigger = document.getElementById('phone-filter-trigger');
+  if (!popover || !trigger) return;
+  if (!popover.contains(event.target) && !trigger.contains(event.target)) {
+    closePhonePopover();
+  }
+});
+
+// ── Количество компаний ───────────────────────────────────────────────────
+function getResearchCount(form) {
+  const raw = form.querySelector('input[name="count"]')?.value || '';
+  const value = parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+// ── Запуск поиска ──────────────────────────────────────────────────────────
+let pollInterval = null;
+let currentRunId = null;
+
+// ID запущенного/поставленного на паузу таска при загрузке страницы
+const BOOT_RUNNING_ID = (function() {
+  const row = document.querySelector('.run-row');
+  if (!row) return null;
+  const badge = row.querySelector('.badge-yellow, .badge-orange');
+  return badge ? parseInt(row.dataset.runId, 10) : null;
+})();
+
+function showRunPanel(runId) {
+  currentRunId = runId;
+  document.getElementById('run-panel').style.display      = 'block';
+  document.getElementById('run-status-badge').textContent = 'Выполняется...';
+  document.getElementById('run-status-badge').style.color = '';
+  document.getElementById('run-summary').style.display    = 'none';
+}
+
+// Авто-возобновление при перезагрузке страницы
+if (BOOT_RUNNING_ID) {
+  showRunPanel(BOOT_RUNNING_ID);
+  const bootRow   = document.querySelector(`.run-row[data-run-id="${BOOT_RUNNING_ID}"]`);
+  const isPaused  = bootRow && bootRow.querySelector('.badge-orange');
+  const startBtn  = document.getElementById('start-btn');
+  startBtn.disabled    = true;
+  document.getElementById('start-btn-label').textContent = isPaused ? 'На паузе...' : 'Выполняется...';
+  pollStatus();
+  pollInterval = setInterval(pollStatus, 2000);
+}
+
+document.getElementById('research-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+
+  if (!BACKEND_SUPPORTS_CONTACT_REQUIREMENTS) {
+    alert('Backend запущен в старой версии. Перезапустите Flask-сервер, чтобы фильтры требований применялись.');
+    return;
+  }
+
+  const segs = this.querySelectorAll('input[name="segments"]:checked');
+  // Сегменты необязательны — если не выбрано, backend использует 'electronics' по умолчанию
+
+  const regs = this.querySelectorAll('input[name="regions"]:checked');
+  if (regs.length === 0) {
+    alert('Выберите хотя бы один регион');
+    return;
+  }
+
+  const reqs = this.querySelectorAll('input[name="contact_requirements"]:checked');
+  if (reqs.length === 0) {
+    alert('Выберите хотя бы одно требование к контакту');
+    return;
+  }
+
+  const countValue = getResearchCount(this);
+  if (!countValue) {
+    alert('Введите количество компаний больше нуля');
+    return;
+  }
+
+  const startBtn = document.getElementById('start-btn');
+  startBtn.disabled    = true;
+  document.getElementById('start-btn-label').textContent = 'Выполняется...';
+
+  document.getElementById('run-progress-strip').style.display = 'none';
+  document.getElementById('log-console').innerHTML            = '';
+
+  // Собираем параметры до отправки (нужны для вставки строки истории)
+  const runConfig = {
+    segments: checkedLabels('segments').join(', '),
+    industries: checkedLabels('industries').join(', ') || 'все отрасли',
+    regions:  checkedLabels('regions').join(', '),
+    scales:   checkedLabels('company_scales').join(', '),
+    requirements: checkedLabels('contact_requirements').join(', '),
+    count:    String(countValue),
+  };
+
+  fetch('/research/start', { method: 'POST', body: new FormData(this) })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        if (!Array.isArray(d.contact_requirements)) {
+          alert('Backend не подтвердил требования к результату. Перезапустите Flask-сервер и запустите поиск заново.');
+          startBtn.disabled    = false;
+          document.getElementById('start-btn-label').textContent = 'Запустить поиск';
+          return;
+        }
+        insertRunHistoryRow(d.run_id, runConfig);
+        showRunPanel(d.run_id);
+        pollInterval = setInterval(pollStatus, 2000);
+      } else {
+        alert('Ошибка запуска: ' + (d.error || ''));
+        startBtn.disabled    = false;
+        document.getElementById('start-btn-label').textContent = 'Запустить поиск';
+      }
+    });
+});
+
+function pollStatus() {
+  if (!currentRunId) return;
+  fetch(`/research/status/${currentRunId}`)
+    .then(r => r.json())
+    .then(d => {
+      const logEl  = document.getElementById('log-console');
+      const badge  = document.getElementById('run-status-badge');
+      const log    = Array.isArray(d.log) ? d.log : (d.log || '').split('\n').filter(Boolean);
+
+      logEl.innerHTML = log.map(l => `<div class="log-line">${escapeHtml(l)}</div>`).join('');
+      logEl.scrollTop = logEl.scrollHeight;
+
+      updatePauseBtn(d.status);
+      updateProgressStrip(d.found_count, d.target_count, d.status);
+      updateRunHistoryRow(currentRunId, d.found_count, d.target_count, d.status);
+
+      // Если строка текущего запуска раскрыта — обновляем список контактов
+      if (_openRows.has(String(currentRunId))) {
+        fetchRunContacts(String(currentRunId));
+      }
+
+      if (d.status === 'done') {
+        clearInterval(pollInterval);
+        updatePauseBtn('done');
+        badge.textContent     = '✅ Завершено';
+        badge.style.color     = '#16a34a';
+        const summary         = document.getElementById('run-summary');
+        summary.style.display = 'flex';
+        document.getElementById('run-found-text').textContent =
+          `Сохранено в базу: ${d.found_count} новых контактов`;
+        const btn         = document.getElementById('start-btn');
+        btn.disabled      = false;
+        document.getElementById('start-btn-label').textContent = 'Запустить поиск';
+      } else if (d.status === 'failed') {
+        clearInterval(pollInterval);
+        badge.textContent = '❌ Ошибка (см. лог)';
+        badge.style.color = '#dc2626';
+        const btn         = document.getElementById('start-btn');
+        btn.disabled      = false;
+        document.getElementById('start-btn-label').textContent = 'Запустить поиск';
+      } else if (d.status === 'paused') {
+        badge.textContent = '⏸ На паузе';
+        badge.style.color = '#b45309';
+        document.getElementById('start-btn-label').textContent = 'На паузе...';
+      } else if (d.status === 'finishing') {
+        badge.textContent = 'Завершаем...';
+        badge.style.color = '#2563eb';
+        document.getElementById('start-btn').textContent = 'Завершаем...';
+      } else if (d.status === 'interrupted') {
+        clearInterval(pollInterval);
+        badge.textContent = '⚠️ Прервано';
+        badge.style.color = '#b45309';
+        const btn         = document.getElementById('start-btn');
+        btn.disabled      = false;
+        document.getElementById('start-btn-label').textContent = 'Запустить поиск';
+        updateRunHistoryRow(currentRunId, d.found_count, d.target_count, 'interrupted');
+        if (_openRows.has(String(currentRunId))) fetchRunContacts(String(currentRunId));
+      }
+    });
+}
+
+// ── Кнопка паузы в панели ──────────────────────────────────────────────────
+function updatePauseBtn(status) {
+  const btn = document.getElementById('pause-btn');
+  const finishBtn = document.getElementById('finish-btn');
+  if (!btn || !finishBtn) return;
+  if (status === 'running') {
+    btn.style.display  = '';
+    document.getElementById('pause-btn-label').textContent = 'Пауза';
+    document.getElementById('pause-icon').style.display=''; document.getElementById('resume-icon').style.display='none';
+    btn.dataset.state  = 'running';
+    btn.disabled       = false;
+    btn.classList.remove('btn-pause--resume');
+    finishBtn.style.display = '';
+    finishBtn.disabled = false;
+  } else if (status === 'paused') {
+    btn.style.display  = '';
+    document.getElementById('pause-btn-label').textContent = 'Продолжить';
+    document.getElementById('pause-icon').style.display='none'; document.getElementById('resume-icon').style.display='';
+    btn.dataset.state  = 'paused';
+    btn.disabled       = false;
+    btn.classList.add('btn-pause--resume');
+    finishBtn.style.display = '';
+    finishBtn.disabled = false;
+  } else if (status === 'finishing') {
+    btn.style.display = 'none';
+    finishBtn.style.display = '';
+    finishBtn.disabled = true;
+    finishBtn.textContent = 'Завершаем...';
+  } else {
+    btn.style.display = 'none';
+    finishBtn.style.display = 'none';
+    document.getElementById('finish-btn-label').textContent = 'Завершить';
+  }
+}
+
+function clickPause() {
+  const btn      = document.getElementById('pause-btn');
+  const isPaused = btn.dataset.state === 'paused';
+  btn.disabled   = true;
+  fetch(`/research/run/${currentRunId}/${isPaused ? 'resume' : 'pause'}`, { method: 'POST' })
+    .then(() => { /* pollStatus обновит состояние */ });
+}
+
+function clickFinish() {
+  if (!currentRunId) return;
+  if (!confirm('Завершить поиск сейчас? Уже найденные компании останутся в базе.')) return;
+  const btn = document.getElementById('finish-btn');
+  btn.disabled = true;
+  btn.textContent = 'Завершаем...';
+  fetch(`/research/run/${currentRunId}/finish`, { method: 'POST' })
+    .then(() => { pollStatus(); });
+}
+
+// ── Пауза/возобновление из строки истории ──────────────────────────────────
+function rowPause(runId, btnEl) {
+  btnEl.disabled = true;
+  fetch(`/research/run/${runId}/pause`, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) _updateRowActions(runId, 'paused');
+    });
+}
+
+function rowResume(runId, btnEl) {
+  btnEl.disabled = true;
+  fetch(`/research/run/${runId}/resume`, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) _updateRowActions(runId, 'running');
+    });
+}
+
+function rowFinish(runId, btnEl) {
+  if (!confirm('Завершить этот поиск сейчас? Уже найденные компании останутся в базе.')) return;
+  btnEl.disabled = true;
+  fetch(`/research/run/${runId}/finish`, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) _updateRowActions(runId, 'finishing');
+    });
+}
+
+function _updateRowActions(runId, status) {
+  const cell = document.getElementById(`actions-${runId}`);
+  if (!cell) return;
+  // Обновляем только кнопку паузы/возобновления, оставляем ✕
+  const dangerBtn = cell.querySelector('.btn-icon-danger');
+  let newBtn = '';
+  if (status === 'running') {
+    newBtn = `<button class="btn-icon btn-icon-pause" title="Пауза" onclick="rowPause(${runId}, this)">⏸</button>` +
+      `<button class="btn-icon btn-icon-finish" title="Завершить поиск" onclick="rowFinish(${runId}, this)">✓</button>`;
+  } else if (status === 'paused') {
+    newBtn = `<button class="btn-icon btn-icon-resume" title="Продолжить" onclick="rowResume(${runId}, this)">▶</button>` +
+      `<button class="btn-icon btn-icon-finish" title="Завершить поиск" onclick="rowFinish(${runId}, this)">✓</button>`;
+  } else if (status === 'finishing') {
+    newBtn = `<button class="btn-icon btn-icon-finish" title="Завершается" disabled>✓</button>`;
+  }
+  cell.innerHTML = newBtn + (dangerBtn ? dangerBtn.outerHTML : '');
+}
+
+function updateProgressStrip(found, target, status) {
+  const strip = document.getElementById('run-progress-strip');
+  if (!['running', 'paused', 'finishing', 'done'].includes(status)) return;
+  strip.style.display = 'block';
+
+  const pct       = target ? Math.min(100, Math.round(found / target * 100)) : 0;
+  const remaining = Math.max(0, (target || 0) - found);
+
+  document.getElementById('progress-bar-fill').style.width = pct + '%';
+  document.getElementById('progress-label').textContent    =
+    `${found} / ${target || '?'}`;
+
+  if (status === 'running') {
+    document.getElementById('progress-bar-fill').style.background = '#2563eb';
+    document.getElementById('progress-sub').textContent =
+      remaining > 0
+        ? `Осталось найти: ${remaining} ${pluralCompany(remaining)}`
+        : 'Финальная обработка...';
+  } else if (status === 'paused') {
+    document.getElementById('progress-bar-fill').style.background = '#f59e0b';
+    document.getElementById('progress-sub').textContent =
+      `На паузе — найдено ${found} из ${target || '?'}, осталось ${remaining}`;
+  } else if (status === 'finishing') {
+    document.getElementById('progress-bar-fill').style.background = '#2563eb';
+    document.getElementById('progress-sub').textContent =
+      `Завершаем поиск — найдено ${found}, сохраняем результат`;
+  } else {
+    document.getElementById('progress-bar-fill').style.background = '#16a34a';
+    document.getElementById('progress-sub').textContent =
+      found > 0 ? `Готово — все ${found} сохранены в базу` : 'Поиск завершён, новых контактов не найдено';
+  }
+}
+
+function pluralCompany(n) {
+  if (n % 10 === 1 && n % 100 !== 11) return 'компания';
+  if ([2,3,4].includes(n % 10) && ![12,13,14].includes(n % 100)) return 'компании';
+  return 'компаний';
+}
+
+function updateRunHistoryRow(runId, found, target, status) {
+  const row = document.querySelector(`.run-row[data-run-id="${runId}"]`);
+  if (!row) return;
+  const cells    = row.querySelectorAll('td');
+  const foundCell  = cells[4]; // 0=chevron,1=#,2=date,3=params,4=found,5=status
+  const statusCell = cells[5];
+
+  if (status === 'running') {
+    const remaining = Math.max(0, (target || 0) - found);
+    foundCell.innerHTML =
+      `<strong>${found}</strong>` +
+      (target ? `<span class="cell-sub" style="display:block">цель ${target}, осталось ${remaining}</span>` : '');
+    statusCell.innerHTML = '<span class="badge badge-yellow">Выполняется</span>';
+    _updateRowActions(runId, 'running');
+  } else if (status === 'paused') {
+    const remaining = Math.max(0, (target || 0) - found);
+    foundCell.innerHTML =
+      `<strong>${found}</strong>` +
+      (target ? `<span class="cell-sub" style="display:block">цель ${target}, осталось ${remaining}</span>` : '');
+    statusCell.innerHTML = '<span class="badge badge-orange">На паузе</span>';
+    _updateRowActions(runId, 'paused');
+  } else if (status === 'finishing') {
+    const remaining = Math.max(0, (target || 0) - found);
+    foundCell.innerHTML =
+      `<strong>${found}</strong>` +
+      (target ? `<span class="cell-sub" style="display:block">цель ${target}, осталось ${remaining}</span>` : '');
+    statusCell.innerHTML = '<span class="badge badge-yellow">Завершается</span>';
+    _updateRowActions(runId, 'finishing');
+  } else if (status === 'done') {
+    foundCell.innerHTML  = `<strong>${found}</strong>`;
+    statusCell.innerHTML = '<span class="badge badge-green">Завершён</span>';
+    _loadedRuns.delete(String(runId));
+    if (_openRows.has(String(runId))) fetchRunContacts(String(runId));
+  } else if (status === 'interrupted') {
+    foundCell.innerHTML  = `<strong>${found}</strong>`;
+    statusCell.innerHTML = '<span class="badge badge-grey">Прервано</span>';
+    _loadedRuns.delete(String(runId));
+    if (_openRows.has(String(runId))) fetchRunContacts(String(runId));
+  }
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ── Вставка строки нового запуска в таблицу истории ────────────────────────
+function insertRunHistoryRow(runId, cfg) {
+  // Если строка уже есть (перезапуск) — не дублируем
+  if (document.querySelector(`.run-row[data-run-id="${runId}"]`)) return;
+
+  const now     = new Date();
+  const timeStr = now.getFullYear() + '-'
+    + String(now.getMonth()+1).padStart(2,'0') + '-'
+    + String(now.getDate()).padStart(2,'0') + ' '
+    + String(now.getHours()).padStart(2,'0') + ':'
+    + String(now.getMinutes()).padStart(2,'0');
+
+  const mainTr = document.createElement('tr');
+  mainTr.className = 'run-row';
+  mainTr.dataset.runId = String(runId);
+  mainTr.dataset.found = '0';
+  mainTr.setAttribute('onclick', 'toggleRunDetails(this)');
+  mainTr.innerHTML = `
+    <td><span class="run-chevron">▶</span></td>
+    <td>${runId}</td>
+    <td>${timeStr}</td>
+    <td>
+      <span class="cell-main">${escapeHtml(cfg.segments)}</span>
+      <span class="cell-sub">${escapeHtml(cfg.industries)} · ${escapeHtml(cfg.regions)} · ${escapeHtml(cfg.scales)} · поля: ${escapeHtml(cfg.requirements)}, цель=${escapeHtml(cfg.count)}</span>
+    </td>
+    <td id="found-${runId}"><strong>0</strong></td>
+    <td id="status-${runId}"><span class="badge badge-yellow">Выполняется</span></td>
+    <td onclick="event.stopPropagation()" class="run-actions" id="actions-${runId}">
+      <button class="btn-icon btn-icon-pause" title="Пауза" onclick="rowPause(${runId},this)">⏸</button>
+      <button class="btn-icon btn-icon-finish" title="Завершить поиск" onclick="rowFinish(${runId},this)">✓</button>
+      <button class="btn-icon-danger" title="Удалить" onclick="deleteRun(${runId},this)">✕</button>
+    </td>`;
+
+  const detailTr = document.createElement('tr');
+  detailTr.className = 'run-detail-row';
+  detailTr.id = `detail-${runId}`;
+  detailTr.style.display = 'none';
+  detailTr.innerHTML = `<td colspan="7" style="padding:0">
+    <div class="run-detail-content" id="detail-content-${runId}">
+      <div class="run-detail-loading">Ищем... появится сразу после первой находки</div>
+    </div></td>`;
+
+  // Вставляем вверх таблицы (самый свежий)
+  const tbody = document.querySelector('#runs-table tbody');
+  if (tbody) {
+    tbody.insertBefore(detailTr, tbody.firstChild);
+    tbody.insertBefore(mainTr,   tbody.firstChild);
+    // Скрываем заглушку "запусков не было"
+    const empty = document.getElementById('runs-empty');
+    if (empty) empty.style.display = 'none';
+    document.getElementById('runs-table').style.display = '';
+  }
+}
+
+// ── Раскрытие строки истории ───────────────────────────────────────────────
+const _loadedRuns = new Set(); // runId завершённых запусков с загруженными данными
+const _openRows   = new Set(); // runId открытых строк
+
+function isRowRunning(runId) {
+  const row = document.querySelector(`.run-row[data-run-id="${runId}"]`);
+  return row ? !!row.querySelector('.badge-yellow') : false;
+}
+
+function isRowInterrupted(runId) {
+  const row = document.querySelector(`.run-row[data-run-id="${runId}"]`);
+  return row ? !!row.querySelector('.badge-grey') : false;
+}
+
+function toggleRunDetails(row) {
+  const runId     = row.dataset.runId;
+  const detailRow = document.getElementById('detail-' + runId);
+  const chevron   = row.querySelector('.run-chevron');
+  const isOpen    = detailRow.style.display !== 'none';
+
+  if (isOpen) {
+    detailRow.style.display = 'none';
+    chevron.textContent     = '▶';
+    _openRows.delete(runId);
+    return;
+  }
+
+  detailRow.style.display = 'table-row';
+  chevron.textContent     = '▼';
+  _openRows.add(runId);
+
+  // Завершённые строки кешируем; текущие — всегда грузим свежие данные
+  if (_loadedRuns.has(runId)) return;
+  fetchRunContacts(runId);
+}
+
+function fetchRunContacts(runId) {
+  const el = document.getElementById('detail-content-' + runId);
+  if (!el) return;
+
+  const running = isRowRunning(runId);
+
+  // Показываем "Загружаем..." только если таблицы ещё нет
+  if (!el.querySelector('table')) {
+    el.innerHTML = running
+      ? '<div class="run-detail-loading">Ищем... появится сразу после первой находки</div>'
+      : '<div class="run-detail-loading">Загружаем...</div>';
+  }
+
+  fetch(`/research/run/${runId}/contacts`)
+    .then(r => r.json())
+    .then(contacts => {
+      if (!contacts.length) {
+        if (running) {
+          // Ещё выполняется — оставляем "Ищем..."
+          return;
+        }
+        const mainRow  = document.querySelector(`.run-row[data-run-id="${runId}"]`);
+        const savedCnt = mainRow ? parseInt(mainRow.dataset.found || '0', 10) : 0;
+        if (isRowInterrupted(runId) && savedCnt > 0) {
+          el.innerHTML = `<div class="run-detail-empty" style="color:#b45309">⚠️ Поиск был прерван перезапуском сервера — ${savedCnt} контактов найдено, но не сохранено в базу</div>`;
+        } else {
+          el.innerHTML = '<div class="run-detail-empty">Контактов для этого запуска нет</div>';
+        }
+        _loadedRuns.add(runId);
+        return;
+      }
+
+      const requirements = Array.isArray(contacts[0]?._contact_requirements)
+        ? contacts[0]._contact_requirements
+        : null;
+      const hasRequirement = (name) => !requirements || requirements.includes(name);
+      const showWebsite = hasRequirement('website');
+      const showEmail = hasRequirement('email') || hasRequirement('personal_email') || hasRequirement('generic_email');
+      const showPhone = hasRequirement('phone') || hasRequirement('mobile_phone') || hasRequirement('generic_phone');
+      const showInn = hasRequirement('inn');
+
+      const columns = [
+        { header: 'Компания', cell: c => escapeHtml(c.company_name || '—') },
+        ...(showWebsite ? [{
+          header: 'Сайт',
+          cell: c => c.website ? `<a class="link" href="${escapeHtml(c.website)}" target="_blank">${escapeHtml(c.website)}</a>` : '—'
+        }] : []),
+        { header: 'ЛПР', cell: c => escapeHtml(c.person_name || '—') },
+        { header: 'Должность', cell: c => escapeHtml(c.title || '—') },
+        ...(showEmail ? [{ header: 'Email', cell: c => escapeHtml(c.email || '—') }] : []),
+        ...(showPhone ? [{ header: 'Телефон', cell: c => escapeHtml(c.phone || '—') }] : []),
+        ...(showInn ? [{ header: 'ИНН', cell: c => escapeHtml(c.inn || '—') }] : []),
+        { header: 'Сегмент', cell: c => escapeHtml(c.segment || '—') }
+      ];
+
+      const rows = contacts.map(c => `
+        <tr>${columns.map(col => `<td>${col.cell(c)}</td>`).join('')}</tr>`).join('');
+      el.innerHTML = `
+        <table class="table run-contacts-table">
+          <thead><tr>${columns.map(col => `<th>${col.header}</th>`).join('')}</tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+
+      if (!running) _loadedRuns.add(runId);
+    })
+    .catch(() => {
+      el.innerHTML = '<div class="run-detail-empty">Ошибка загрузки</div>';
+    });
+}
+
+// ── Удаление строки истории ────────────────────────────────────────────────
+function deleteRun(runId, btn) {
+  if (!confirm('Удалить запуск #' + runId + ' из истории?')) return;
+  fetch(`/research/run/${runId}/delete`, { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        const row       = btn.closest('tr');
+        const detailRow = document.getElementById('detail-' + runId);
+        row.remove();
+        if (detailRow) detailRow.remove();
+        const tbody = document.querySelector('#runs-table tbody');
+        if (tbody && !tbody.querySelector('tr')) {
+          document.querySelector('#runs-table').style.display = 'none';
+          const empty = document.getElementById('runs-empty');
+          if (empty) empty.style.display = '';
+        }
+      }
+    });
+}
+</script>
+
+<style>
+.badge-grey   { background:#f1f5f9; color:#64748b; border:1px solid #cbd5e1; }
+.badge-orange { background:#fff7ed; color:#b45309; border:1px solid #fed7aa; }
+.btn-pause {
+  padding: 4px 12px; border-radius: 6px; border: 1px solid #cbd5e1;
+  background: #fff; color: #374151; font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; gap: 4px;
+}
+.btn-pause:hover { background: #f1f5f9; }
+.btn-pause--resume { background: #f0fdf4; border-color: #86efac; color: #15803d; }
+.btn-pause--resume:hover { background: #dcfce7; }
+.btn-finish {
+  padding: 4px 12px; border-radius: 6px; border: 1px solid #bbf7d0;
+  background: #f0fdf4; color: #166534; font-size: 13px; cursor: pointer;
+}
+.btn-finish:hover { background: #dcfce7; }
+.btn-finish:disabled { opacity: .65; cursor: default; }
+.btn-icon {
+  background: none; border: none; cursor: pointer;
+  color: #94a3b8; font-size: 13px; padding: 2px 5px; border-radius: 4px;
+}
+.btn-icon-pause:hover  { color: #f59e0b; background: #fef3c7; }
+.btn-icon-resume:hover { color: #16a34a; background: #dcfce7; }
+.btn-icon-finish:hover { color: #16a34a; background: #dcfce7; }
+.run-row { cursor: pointer; }
+.run-row:hover { background: #f8fafc; }
+.run-chevron { font-size: 10px; color: #94a3b8; transition: transform .15s; display:inline-block; }
+.btn-icon-danger {
+  background: none; border: none; cursor: pointer;
+  color: #94a3b8; font-size: 14px; padding: 2px 6px; border-radius: 4px;
+  line-height: 1;
+}
+.btn-icon-danger:hover { color: #ef4444; background: #fee2e2; }
+.run-detail-row td { background: #f8fafc; border-top: none; }
+.run-detail-content { padding: 8px 12px 12px; }
+.run-detail-loading, .run-detail-empty { padding: 12px; color: #64748b; font-size: 13px; }
+.run-contacts-table { margin: 0; font-size: 13px; }
+.run-contacts-table th { background: #f1f5f9; font-size: 12px; }
+</style>
+{% endblock %}

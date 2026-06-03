@@ -1,0 +1,426 @@
+{% from "macros/icon.html" import icon %}
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<script>
+  // Init theme from localStorage BEFORE render to avoid flash
+  (function(){
+    var t = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ABCENTRUM{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+
+<style>
+/* ── Bell & notification panel ── */
+
+/* Кнопка колокольчика в сайдбаре */
+.notif-bell-wrap { position: relative; }
+.notif-bell-btn {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 12px; border: none;
+  background: none; cursor: pointer;
+  border-radius: 8px; font-size: 13.5px; font-family: inherit;
+  transition: background .15s, color .15s;
+  color: var(--sb-text);
+}
+.notif-bell-btn:hover { background: var(--sb-hover, rgba(255,255,255,.08)); }
+.notif-count {
+  position: absolute; top: 2px; left: 20px;
+  background: #EF4444; color: #fff; border-radius: 99px;
+  font-size: 10px; font-weight: 700; min-width: 17px; height: 17px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 4px; pointer-events: none; line-height: 1;
+  box-shadow: 0 0 0 2px var(--sb-bg, #1c3a34);
+}
+
+/* Backdrop */
+.notif-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0);
+  backdrop-filter: blur(0px);
+  -webkit-backdrop-filter: blur(0px);
+  z-index: 9990;
+  display: none;
+  transition: background .2s, backdrop-filter .2s;
+}
+.notif-backdrop.visible {
+  background: rgba(0,0,0,.45);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+/* Модальное окно уведомлений */
+.notif-panel {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%) scale(.96);
+  width: min(680px, calc(100vw - 40px));
+  min-height: 60vh;
+  max-height: 90vh;
+  border-radius: 18px;
+  z-index: 9999;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity .18s ease, transform .18s ease;
+  /* Светлая тема */
+  background: #ffffff;
+  border: 1px solid #e8e5de;
+  box-shadow: 0 8px 16px rgba(0,0,0,.06), 0 24px 64px rgba(0,0,0,.16);
+}
+.notif-panel.open {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+[data-theme="dark"] .notif-panel {
+  background: #2a2d32;
+  border-color: rgba(255,255,255,.10);
+  box-shadow: 0 8px 16px rgba(0,0,0,.3), 0 24px 64px rgba(0,0,0,.55);
+}
+
+/* Заголовок панели */
+.notif-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 20px 14px; flex-shrink: 0;
+  background: #f8f8f4;
+  border-bottom: 1px solid #eceae4;
+  border-radius: 18px 18px 0 0;
+}
+[data-theme="dark"] .notif-panel-head {
+  background: #32363b;
+  border-bottom-color: rgba(255,255,255,.08);
+}
+.notif-panel-title { font-weight: 650; font-size: 15px; color: #111; }
+[data-theme="dark"] .notif-panel-title { color: #eaeaea; }
+.notif-read-all {
+  background: none; border: none; color: #2a7a4f; font-size: 12.5px;
+  cursor: pointer; font-family: inherit; padding: 4px 10px;
+  border-radius: 6px; transition: background .12s;
+}
+.notif-read-all:hover { background: rgba(42,122,79,.1); }
+[data-theme="dark"] .notif-read-all { color: #86efac; }
+
+/* Список уведомлений */
+.notif-list { overflow-y: auto; flex: 1; }
+.notif-empty {
+  padding: 48px 24px; text-align: center;
+  color: #aaa; font-size: 14px;
+}
+[data-theme="dark"] .notif-empty { color: #555; }
+.notif-item {
+  padding: 14px 20px; border-bottom: 1px solid #f0ede8;
+  cursor: pointer; transition: background .12s;
+  display: flex; gap: 12px; align-items: flex-start;
+  background: #ffffff;
+}
+[data-theme="dark"] .notif-item {
+  background: #2a2d32;
+  border-bottom-color: rgba(255,255,255,.06);
+}
+.notif-item:last-child { border-bottom: none; }
+.notif-item:hover { background: #f5f4ef; }
+[data-theme="dark"] .notif-item:hover { background: #32363b; }
+.notif-item.unread { background: #f0f7ee; }
+[data-theme="dark"] .notif-item.unread { background: rgba(134,239,172,.06); }
+.notif-item.unread:hover { background: #e6f2e4; }
+[data-theme="dark"] .notif-item.unread:hover { background: rgba(134,239,172,.11); }
+
+/* Точка непрочитанного */
+.notif-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #22c55e; flex-shrink: 0; margin-top: 6px;
+}
+.notif-dot.read { background: transparent; }
+
+/* Тело уведомления */
+.notif-body { flex: 1; min-width: 0; }
+.notif-summary {
+  font-size: 13.5px; font-weight: 500; color: #1a1a1a;
+  margin-bottom: 4px; line-height: 1.45; word-break: break-word;
+}
+[data-theme="dark"] .notif-summary { color: #e0e0e0; }
+.notif-meta { font-size: 12px; color: #888; line-height: 1.7; }
+[data-theme="dark"] .notif-meta { color: #909090; }
+.notif-detail {
+  display: none; margin-top: 10px; font-size: 12.5px; color: #444;
+  line-height: 1.65; background: rgba(0,0,0,.04); border-radius: 7px;
+  padding: 10px 12px; white-space: pre-wrap; word-break: break-word;
+  border-left: 3px solid var(--border);
+}
+[data-theme="dark"] .notif-detail { background: rgba(255,255,255,.06); color: #c0c0c0; }
+.notif-item.expanded .notif-detail { display: block; }
+.notif-chevron { font-size: 10px; color: #aaa; margin-left: 5px; display: inline-block; transition: transform .2s; }
+.notif-item.expanded .notif-chevron { transform: rotate(180deg); }
+
+/* Бейджи типов */
+.notif-type-badge {
+  font-size: 11px; font-weight: 600; border-radius: 5px;
+  padding: 2px 7px; margin-right: 6px;
+}
+.badge-ooo   { background: rgba(245,158,11,.13); color: #92400e; }
+.badge-gone  { background: rgba(239,68,68,.12); color: #991b1b; }
+.badge-reply  { background: rgba(34,197,94,.12);  color: #15803d; }
+.badge-bounce { background: rgba(239,68,68,.12);  color: #991b1b; }
+[data-theme="dark"] .badge-bounce { background: rgba(239,68,68,.2); color: #f87171; }
+[data-theme="dark"] .badge-ooo   { background: rgba(245,158,11,.2); color: #fbbf24; }
+[data-theme="dark"] .badge-gone  { background: rgba(239,68,68,.2); color: #f87171; }
+[data-theme="dark"] .badge-reply { background: rgba(34,197,94,.2); color: #4ade80; }
+</style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <svg class="sidebar-logo-mark" width="22" height="22" viewBox="0 0 22 22" fill="none">
+          <rect x="2" y="2" width="8" height="8" rx="2.5" fill="#1C3A34"/>
+          <rect x="12" y="2" width="8" height="8" rx="2.5" fill="#1C3A34" opacity="0.60"/>
+          <rect x="2" y="12" width="8" height="8" rx="2.5" fill="#1C3A34" opacity="0.60"/>
+          <rect x="12" y="12" width="8" height="8" rx="2.5" fill="#C8E87A"/>
+        </svg>
+        ABCENTRUM
+      </div>
+      <nav class="sidebar-nav">
+        <a href="{{ url_for('dashboard') }}" class="nav-item {% if request.endpoint == 'dashboard' %}active{% endif %}">
+          <span class="nav-icon">{{ icon("home") }}</span>
+          Главная
+        </a>
+        <a href="{{ url_for('research') }}" class="nav-item {% if request.endpoint == 'research' %}active{% endif %}">
+          <span class="nav-icon">{{ icon("search") }}</span>
+          Поиск
+        </a>
+        <a href="{{ url_for('contacts') }}" class="nav-item {% if request.endpoint == 'contacts' %}active{% endif %}">
+          <span class="nav-icon">{{ icon("contact") }}</span>
+          Контакты
+        </a>
+        <a href="{{ url_for('campaigns') }}" class="nav-item {% if request.endpoint == 'campaigns' %}active{% endif %}">
+          <span class="nav-icon">{{ icon("mail") }}</span>
+          Рассылки
+        </a>
+        <a href="{{ url_for('settings') }}" class="nav-item {% if request.endpoint == 'settings' %}active{% endif %}">
+          <span class="nav-icon">{{ icon("settings") }}</span>
+          Настройки
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <a href="{{ url_for('logout') }}" class="nav-item logout">
+          <span class="nav-icon">{{ icon("logout") }}</span>
+          Выйти
+        </a>
+      </div>
+    </aside>
+
+    <main class="content">
+      <div class="content-header">
+        <h1>{% block heading %}{% endblock %}</h1>
+        <div class="content-header-right">
+          <div class="header-actions">{% block header_actions %}{% endblock %}</div>
+          <div class="header-tools">
+            <!-- Bell notifications -->
+            <div class="notif-bell-wrap" id="notif-wrap">
+              <button class="header-tool-btn" id="notif-bell" onclick="toggleNotifPanel()" title="Уведомления">
+                {{ icon("bell", size=18) }}
+                <span class="notif-count" id="notif-count" style="display:none">0</span>
+              </button>
+            </div>
+            <!-- Theme toggle -->
+            <button class="header-tool-btn" onclick="toggleTheme()" id="theme-btn" title="Переключить тему">
+              <span class="icon-sun">{{ icon("sun", size=18) }}</span>
+              <span class="icon-moon">{{ icon("moon", size=18) }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script>
+  function toggleTheme() {
+    var current = document.documentElement.getAttribute('data-theme') || 'light';
+    var next    = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    var label = document.getElementById('theme-label');
+    if (label) label.textContent = next === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+  }
+  // Sync label on load
+  (function(){
+    var t = document.documentElement.getAttribute('data-theme') || 'light';
+    var label = document.getElementById('theme-label');
+    if (label) label.textContent = t === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+  })();
+  </script>
+  {% block scripts %}{% endblock %}
+
+<script>
+(function(){
+  var panelOpen = false;
+
+  window.toggleNotifPanel = function() {
+    panelOpen = !panelOpen;
+    var panel    = document.getElementById('notif-panel');
+    var backdrop = document.getElementById('notif-backdrop');
+    if (panelOpen) {
+      backdrop.style.display = 'block';
+      panel.style.display    = 'flex';
+      requestAnimationFrame(function() {
+        backdrop.classList.add('visible');
+        panel.classList.add('open');
+      });
+      loadNotifications();
+    } else {
+      closePanel();
+    }
+  };
+
+  function closePanel() {
+    panelOpen = false;
+    var panel    = document.getElementById('notif-panel');
+    var backdrop = document.getElementById('notif-backdrop');
+    panel.classList.remove('open');
+    backdrop.classList.remove('visible');
+    setTimeout(function() {
+      panel.style.display    = 'none';
+      backdrop.style.display = 'none';
+    }, 200);
+  }
+
+  // Закрыть по клику на backdrop (обработчик уже inline в HTML)
+  // Закрыть по Escape
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && panelOpen) closePanel();
+  });
+
+  function timeAgo(dt) {
+    if (!dt) return '';
+    var d = new Date(dt.replace(' ','T') + (dt.indexOf('T') === -1 ? 'Z' : '')), now = new Date();
+    var diff = Math.round((now - d) / 60000);
+    if (diff < 2)    return 'только что';
+    if (diff < 60)   return diff + ' мин назад';
+    if (diff < 1440) return Math.round(diff / 60) + ' ч назад';
+    return Math.round(diff / 1440) + ' д назад';
+  }
+
+  function typeBadge(t) {
+    if (t === 'bounce') return '<span class="notif-type-badge badge-bounce">Bounce</span>';
+    if (t === 'ooo')  return '<span class="notif-type-badge badge-ooo">Автоответ</span>';
+    if (t === 'gone') return '<span class="notif-type-badge badge-gone">Ушёл из компании</span>';
+    return '<span class="notif-type-badge badge-reply">Ответ</span>';
+  }
+
+  window.loadNotifications = function() {
+    fetch('/api/notifications', {credentials: 'same-origin'})
+      .then(function(r) { return r.json(); })
+      .then(function(items) {
+        var list = document.getElementById('notif-list');
+        if (!items.length) {
+          list.innerHTML = '<div class="notif-empty">Нет уведомлений</div>';
+          return;
+        }
+        list.innerHTML = items.map(function(n) {
+          var det = n.details || {};
+
+          // Строим detail-блок: body_preview + что было сделано
+          var detailLines = [];
+          if (det.body_preview) detailLines.push(det.body_preview);
+          if (det.action_done)  detailLines.push('\n✅ ' + det.action_done);
+          if (det.actions && det.actions.length) {
+            det.actions.forEach(function(a) { detailLines.push('✅ ' + a); });
+          }
+          if (det.new_emails && det.new_emails.length) detailLines.push('📧 ' + det.new_emails.join(', '));
+          if (det.new_phones && det.new_phones.length) detailLines.push('📞 ' + det.new_phones.join(', '));
+          if (det.new_name) detailLines.push('👤 ' + det.new_name);
+
+          var detailHtml = detailLines.length
+            ? '<div class="notif-detail">' + detailLines.join('\n').replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</div>'
+            : '';
+
+          var from = n.from_email ? ' · ' + n.from_email : '';
+          var hasDetail = detailLines.length > 0;
+          var chevron = hasDetail ? '<span class="notif-chevron">▼</span>' : '';
+
+          return '<div class="notif-item ' + (n.read_at ? '' : 'unread') + '" data-nid="' + n.id + '" onclick="toggleNotif(' + n.id + ', this)">'
+            + '<div class="notif-dot ' + (n.read_at ? 'read' : '') + '"></div>'
+            + '<div class="notif-body">'
+            + '<div class="notif-summary">' + typeBadge(n.type) + (n.summary || '') + chevron + '</div>'
+            + '<div class="notif-meta">' + timeAgo(n.created_at) + from + '</div>'
+            + detailHtml
+            + '</div></div>';
+        }).join('');
+      })
+      .catch(function() {});
+  };
+
+  window.toggleNotif = function(id, el) {
+    el.classList.toggle('expanded');
+    if (el.classList.contains('unread')) {
+      el.classList.remove('unread');
+      var dot = el.querySelector('.notif-dot');
+      if (dot) dot.classList.add('read');
+      fetch('/api/notifications/' + id + '/read', {method: 'POST', credentials: 'same-origin'});
+      refreshCount();
+    }
+  };
+
+  window.markRead = function(id, el) {
+    toggleNotif(id, el);
+  };
+
+  window.markAllRead = function() {
+    fetch('/api/notifications/read-all', {method: 'POST', credentials: 'same-origin'})
+      .then(function() { loadNotifications(); refreshCount(); });
+  };
+
+  function refreshCount() {
+    fetch('/api/notifications/count', {credentials: 'same-origin'})
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var badge = document.getElementById('notif-count');
+        if (!badge) return;
+        if (d.unread > 0) {
+          badge.textContent  = d.unread > 99 ? '99+' : d.unread;
+          badge.style.display = 'flex';
+        } else {
+          badge.style.display = 'none';
+        }
+      }).catch(function() {});
+  }
+
+  {% if session.get('logged_in') %}
+  refreshCount();
+  setInterval(refreshCount, 60000);
+  {% endif %}
+})();
+</script>
+
+
+  <!-- Notification modal — прямой потомок body, поверх всего -->
+  <div class="notif-backdrop" id="notif-backdrop" onclick="toggleNotifPanel()"></div>
+  <div class="notif-panel" id="notif-panel">
+    <div class="notif-panel-head">
+      <span class="notif-panel-title">Уведомления</span>
+      <button class="notif-read-all" onclick="markAllRead()">Прочитать все</button>
+    </div>
+    <div id="notif-list" class="notif-list">
+      <div class="notif-empty">Нет уведомлений</div>
+    </div>
+  </div>
+</body>
+</html>
