@@ -6,6 +6,7 @@ __pycache__/
 .DS_Store
 Research/
 import_*.py
+!scripts/import_*.py
 enrich_okved.py
 CLAUDE.md
 STATUS.md
