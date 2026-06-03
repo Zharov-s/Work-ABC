@@ -106,12 +106,15 @@ def dashboard():
 def contacts():
     conn = get_db()
 
-    q       = request.args.get('q', '').strip()
-    segment = request.args.get('segment', '')
-    region  = request.args.get('region', '')
-    status  = request.args.get('status', '')
-    page    = max(1, int(request.args.get('page', 1)))
-    per_page = 50
+    q         = request.args.get('q', '').strip()
+    segment   = request.args.get('segment', '')
+    region    = request.args.get('region', '')
+    status    = request.args.get('status', '')
+    okved_raw = request.args.get('okved', '')
+    page      = max(1, int(request.args.get('page', 1)))
+    per_page  = 50
+
+    okved_codes = [c.strip() for c in okved_raw.split(',') if c.strip()]
 
     filters = []
     params  = []
@@ -127,6 +130,10 @@ def contacts():
     if status:
         filters.append('status = ?')
         params.append(status)
+    if okved_codes:
+        okved_cond = ' OR '.join(['okved LIKE ?' for _ in okved_codes])
+        filters.append(f'({okved_cond})')
+        params += [f'{code}%' for code in okved_codes]
 
     where = ('WHERE ' + ' AND '.join(filters)) if filters else ''
 
@@ -154,6 +161,7 @@ def contacts():
         filter_segment=segment,
         filter_region=region,
         filter_status=status,
+        filter_okved=okved_raw,
     )
 
 

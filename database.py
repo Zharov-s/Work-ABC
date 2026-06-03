@@ -258,6 +258,7 @@ def init_db():
         ('lpr_confidence', 'REAL DEFAULT 0.0'),
         ('ogrn', 'TEXT'),
         ('source_summary', 'TEXT'),
+        ('okved', 'TEXT'),
     ]:
         if _col not in _ctcols:
             conn.execute(f'ALTER TABLE contacts ADD COLUMN {_col} {_def}')

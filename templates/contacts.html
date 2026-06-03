@@ -3,6 +3,10 @@
 {% block title %}Контакты — ABCENTRUM{% endblock %}
 {% block heading %}Контакты <span class="count-badge">{{ total }}</span>{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/filter_tree.css') }}">
+{% endblock %}
+
 {% block header_actions %}
   <button class="btn btn-secondary" id="validate-btn" onclick="validateEmails()">
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M5 8.5l2.5 2.5 4-4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -36,7 +40,7 @@
 </div>
 
 <!-- Фильтры -->
-<form method="get" class="filter-bar">
+<form method="get" class="filter-bar" id="contacts-filter-form">
   <input type="text" name="q" placeholder="Поиск по компании, имени, email..." value="{{ q }}" class="filter-input filter-input--wide">
   <select name="segment" class="filter-select">
     <option value="">Все сегменты</option>
@@ -56,9 +60,34 @@
     <option value="sent" {% if filter_status == 'sent' %}selected{% endif %}>Отправлено</option>
     <option value="unsubscribed" {% if filter_status == 'unsubscribed' %}selected{% endif %}>Отписка</option>
   </select>
+
+  <!-- Hidden field — filled by FilterTree JS with comma-separated OKVED codes -->
+  <input type="hidden" name="okved" id="okved-filter-input" value="{{ filter_okved }}">
+
+  <!-- Baryshiha filter toggle button -->
+  <button type="button" class="ft-toggle-btn" id="ft-toggle-btn" onclick="ftTogglePanel()">
+    <span class="ft-toggle-arrow">▶</span>
+    Барышиха
+    <span class="ft-toggle-badge" id="ft-badge" style="display:none">0</span>
+  </button>
+
   <button type="submit" class="btn btn-primary">Найти</button>
   <a href="{{ url_for('contacts') }}" class="btn btn-link">Сбросить</a>
 </form>
+
+<!-- Active OKVED chips shown when panel is closed but filter is active -->
+<div class="ft-active-chips" id="ft-active-chips" style="display:none"></div>
+
+<!-- Hierarchical VRI / OKVED filter panel -->
+<div class="ft-panel" id="ft-panel" style="display:none">
+  <div class="ft-panel-header">
+    <span class="ft-panel-title">Фильтр по ВРИ / ОКВЭД</span>
+    <button type="button" class="ft-panel-clear" onclick="ftClearAll()">Сбросить всё</button>
+  </div>
+  <div class="ft-panel-body">
+    <div id="ft-root"></div>
+  </div>
+</div>
 
 <!-- Таблица -->
 <div class="table-wrapper">
@@ -183,46 +212,40 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/filter_data.js') }}"></script>
+<script src="{{ url_for('static', filename='js/filter_tree.js') }}"></script>
 <script>
+// ── Contacts page JS ─────────────────────────────────────────────────────────
+
 function validateEmails() {
   const btn   = document.getElementById('validate-btn');
   const label = document.getElementById('validate-label');
   btn.disabled  = true;
   label.textContent = 'Проверяем...';
-
   fetch('/contacts/validate-emails', { method: 'POST' })
     .then(r => r.json())
     .then(d => {
       if (d.ok) {
         label.textContent = `✓ ${d.valid} валидных · ${d.invalid} невалидных`;
-        setTimeout(() => {
-          label.textContent = 'Проверить email';
-          btn.disabled = false;
-          location.reload();
-        }, 3000);
-      } else {
-        label.textContent = 'Ошибка проверки';
-        btn.disabled = false;
-      }
+        setTimeout(() => { label.textContent = 'Проверить email'; btn.disabled = false; location.reload(); }, 3000);
+      } else { label.textContent = 'Ошибка проверки'; btn.disabled = false; }
     })
     .catch(() => { label.textContent = 'Проверить email'; btn.disabled = false; });
 }
 
 function updateSelection() {
   const checks = document.querySelectorAll('.row-check:checked');
-  const bar    = document.getElementById('selection-bar');
-  const cnt    = document.getElementById('selection-count');
-  const n      = checks.length;
+  const bar = document.getElementById('selection-bar');
+  const cnt = document.getElementById('selection-count');
+  const n   = checks.length;
   if (n > 0) {
     bar.style.display = 'flex';
     cnt.textContent   = `Выбрано: ${n} / 30`;
-    cnt.style.color   = n > 30 ? '#dc2626' : '#111';
+    cnt.style.color   = n > 30 ? '#dc2626' : '';
     const ok = n > 0 && n <= 30;
     document.getElementById('send-mitino-btn').disabled  = !ok;
     document.getElementById('send-grekova-btn').disabled = !ok;
-  } else {
-    bar.style.display = 'none';
-  }
+  } else { bar.style.display = 'none'; }
 }
 
 function clearSelection() {
@@ -253,9 +276,114 @@ function exportSelected() {
 
 function deleteContact(id, btn) {
   if (!confirm('Удалить контакт?')) return;
-  fetch(`/contacts/${id}/delete`, {method:'POST'})
+  fetch(`/contacts/${id}/delete`, { method: 'POST' })
     .then(r => r.json())
     .then(d => { if (d.ok) btn.closest('tr').remove(); });
 }
+
+// ── Hierarchical VRI/OKVED filter ───────────────────────────────────────────
+
+(function () {
+  const hiddenInput = document.getElementById('okved-filter-input');
+  const toggleBtn   = document.getElementById('ft-toggle-btn');
+  const panel       = document.getElementById('ft-panel');
+  const badge       = document.getElementById('ft-badge');
+  const chipsEl     = document.getElementById('ft-active-chips');
+  const root        = document.getElementById('ft-root');
+
+  let panelOpen = false;
+
+  // Init state from current URL value
+  const state = new FilterState(FILTER_GROUPS);
+  const initialCodes = hiddenInput.value
+    ? hiddenInput.value.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+  if (initialCodes.length) {
+    state.loadFromCodes(initialCodes);
+    _openPanel(); // auto-open when filter is already active
+  }
+
+  const tree = new FilterTree(root, state).onChange(codes => {
+    hiddenInput.value = codes.join(',');
+    _updateBadgeAndChips(codes);
+  });
+
+  // Sync initial badge state (no onChange fires on load)
+  _updateBadgeAndChips(initialCodes);
+
+  // ── Public helpers called from inline handlers ──────────────────────────
+
+  window.ftTogglePanel = function () {
+    panelOpen ? _closePanel() : _openPanel();
+  };
+
+  window.ftClearAll = function () {
+    state.clearAll();
+    tree.refresh();
+    hiddenInput.value = '';
+    _updateBadgeAndChips([]);
+  };
+
+  window.ftRemoveCode = function (code) {
+    for (const g of FILTER_GROUPS) {
+      for (const v of g.children) {
+        for (const o of v.children) {
+          if (o.code === code) {
+            state.setOkved(o, false);
+            tree.refresh();
+            const codes = state.getSelectedCodes();
+            hiddenInput.value = codes.join(',');
+            _updateBadgeAndChips(codes);
+            return;
+          }
+        }
+      }
+    }
+  };
+
+  // ── Private ─────────────────────────────────────────────────────────────
+
+  function _openPanel() {
+    panelOpen = true;
+    panel.style.display = 'block';
+    toggleBtn.classList.add('panel-open');
+    chipsEl.style.display = 'none';
+  }
+
+  function _closePanel() {
+    panelOpen = false;
+    panel.style.display = 'none';
+    toggleBtn.classList.remove('panel-open');
+    const codes = state.getSelectedCodes();
+    if (codes.length) _renderChips(codes);
+    else chipsEl.style.display = 'none';
+  }
+
+  function _updateBadgeAndChips(codes) {
+    if (codes.length) {
+      badge.textContent   = codes.length;
+      badge.style.display = 'inline-flex';
+      toggleBtn.classList.add('active');
+    } else {
+      badge.style.display = 'none';
+      toggleBtn.classList.remove('active');
+    }
+    if (!panelOpen) {
+      if (codes.length) _renderChips(codes);
+      else chipsEl.style.display = 'none';
+    }
+  }
+
+  function _renderChips(codes) {
+    const shown = codes.slice(0, 14);
+    const extra = codes.length - shown.length;
+    chipsEl.innerHTML =
+      shown.map(c =>
+        `<span class="ft-chip">${c}<button class="ft-chip-remove" type="button" onclick="ftRemoveCode('${c}')" title="Убрать">×</button></span>`
+      ).join('') +
+      (extra > 0 ? `<span class="ft-chip">+${extra} ещё</span>` : '');
+    chipsEl.style.display = 'flex';
+  }
+})();
 </script>
 {% endblock %}
