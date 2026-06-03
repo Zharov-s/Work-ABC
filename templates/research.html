@@ -4,6 +4,15 @@
 {% block title %}Поиск — ABCENTRUM{% endblock %}
 {% block heading %}Поиск ЛПР{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/filter_tree.css') }}">
+<style>
+#ft-root-research .ft-row { padding: 4px 14px 4px 10px; min-height: 30px; }
+#ft-root-research .ft-row--group { min-height: 34px; }
+#ft-root-research { padding: 4px 0 8px; }
+</style>
+{% endblock %}
+
 {% block content %}
 {% set industry_options = industries|default({
   'construction': 'Строительство',
@@ -52,6 +61,21 @@
       </div>
       {% endif %}
       <form id="research-form">
+
+        <!-- Барышиха (ВРИ / ОКВЭД) -->
+        <input type="hidden" name="okved_codes" id="okved-research-input" value="">
+        <div class="accordion" id="baryshiha-accordion">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div>
+              <div class="accordion-title">Барышиха</div>
+              <div class="accordion-desc" id="baryshiha-desc">ВРИ и ОКВЭД не выбраны</div>
+            </div>
+            <span class="accordion-chevron">▾</span>
+          </div>
+          <div class="accordion-body" style="display:none; padding:0">
+            <div id="ft-root-research"></div>
+          </div>
+        </div>
 
         <!-- Отрасль -->
         <div class="accordion">
@@ -425,6 +449,18 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/filter_data.js') }}"></script>
+<script src="{{ url_for('static', filename='js/filter_tree.js') }}"></script>
+<script>
+(function () {
+  const state = new FilterState(FILTER_GROUPS);
+  new FilterTree(document.getElementById('ft-root-research'), state).onChange(function (codes) {
+    document.getElementById('okved-research-input').value = codes.join(',');
+    document.getElementById('baryshiha-desc').textContent =
+      codes.length ? 'Выбрано ОКВЭД: ' + codes.length : 'ВРИ и ОКВЭД не выбраны';
+  });
+})();
+</script>
 <script>
 const BACKEND_SUPPORTS_CONTACT_REQUIREMENTS = {{ 'true' if supports_contact_requirements else 'false' }};
 
