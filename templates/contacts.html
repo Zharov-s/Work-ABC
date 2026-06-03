@@ -303,9 +303,12 @@ function deleteContact(id, btn) {
     _openPanel(); // auto-open when filter is already active
   }
 
+  let _submitTimer = null;
   const tree = new FilterTree(root, state).onChange(codes => {
     hiddenInput.value = codes.join(',');
     _updateBadgeAndChips(codes);
+    clearTimeout(_submitTimer);
+    _submitTimer = setTimeout(() => document.getElementById('contacts-filter-form').submit(), 300);
   });
 
   // Sync initial badge state (no onChange fires on load)
