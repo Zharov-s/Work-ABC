@@ -4,3 +4,14 @@ __pycache__/
 *.pyc
 *.pyo
 .DS_Store
+Research/
+import_*.py
+enrich_okved.py
+CLAUDE.md
+STATUS.md
+WEBAPP_PLAN.md
+RESEARCH_MAP.md
+RESEARCH_RULES.md
+SEARCH_ARCHITECTURE.md
+mitino-email_html/
+grekova_email_html/
