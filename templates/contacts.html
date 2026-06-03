@@ -82,7 +82,10 @@
 <div class="ft-panel" id="ft-panel" style="display:none">
   <div class="ft-panel-header">
     <span class="ft-panel-title">Фильтр по ВРИ / ОКВЭД</span>
-    <button type="button" class="ft-panel-clear" onclick="ftClearAll()">Сбросить всё</button>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button type="button" class="ft-panel-clear" onclick="ftClearAll()">Сбросить всё</button>
+      <button type="button" class="btn btn-primary" style="height:28px;padding:0 14px;font-size:12px" onclick="ftApply()">Применить</button>
+    </div>
   </div>
   <div class="ft-panel-body">
     <div id="ft-root"></div>
@@ -303,13 +306,12 @@ function deleteContact(id, btn) {
     _openPanel(); // auto-open when filter is already active
   }
 
-  let _submitTimer = null;
   const tree = new FilterTree(root, state).onChange(codes => {
     hiddenInput.value = codes.join(',');
     _updateBadgeAndChips(codes);
-    clearTimeout(_submitTimer);
-    _submitTimer = setTimeout(() => document.getElementById('contacts-filter-form').submit(), 300);
   });
+
+  if (initialCodes.length) tree.expandSelected();
 
   // Sync initial badge state (no onChange fires on load)
   _updateBadgeAndChips(initialCodes);
@@ -318,6 +320,10 @@ function deleteContact(id, btn) {
 
   window.ftTogglePanel = function () {
     panelOpen ? _closePanel() : _openPanel();
+  };
+
+  window.ftApply = function () {
+    document.getElementById('contacts-filter-form').submit();
   };
 
   window.ftClearAll = function () {

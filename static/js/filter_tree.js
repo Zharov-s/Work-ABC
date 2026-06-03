@@ -277,6 +277,19 @@ class FilterTree {
     if (!this._expanded.has(id)) this._toggleExpand(id);
   }
 
+  expandSelected() {
+    for (const group of this.state.groups) {
+      if (this.state.groupState(group) !== 'none') {
+        this.expandGroup(group.id);
+        for (const vri of group.children) {
+          if (this.state.vriState(vri) !== 'none') {
+            this.expandGroup(vri.id);
+          }
+        }
+      }
+    }
+  }
+
   _syncExpandBtn(id) {
     const btn = this.container.querySelector(`[data-expand-id="${id}"]`);
     if (!btn) return;
