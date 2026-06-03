@@ -5,6 +5,8 @@ Dedup rules:
 - Skip if INN already exists in contacts
 - Skip if normalized company name already exists
 - UNIQUE(email) ON CONFLICT IGNORE handles email-level conflicts
+
+Run with --backfill to update okved for already-imported records only.
 """
 import re
 import sqlite3
@@ -38,6 +40,14 @@ def normalize_name(name: str) -> str:
             name = name[len(prefix):]
             break
     return name.strip()
+
+
+def extract_okved_code(raw: str | None) -> str | None:
+    """Extract OKVED code from string like '28.22 Производство подъёмного оборудования'."""
+    if not raw:
+        return None
+    m = re.match(r'^(\d{2}(?:\.\d+)*)', str(raw).strip())
+    return m.group(1) if m else None
 
 
 def classify_emails(emails: list[str]) -> tuple[str | None, str | None, str | None]:
@@ -83,13 +93,54 @@ def parse_emails(raw: str | None) -> list[str]:
     return [e.strip().lower() for e in raw.split() if "@" in e.strip()]
 
 
-def main():
+def backfill_okved() -> None:
+    """Update okved column for records already imported from Производство.xlsx."""
+    wb = openpyxl.load_workbook(XLSX_PATH, read_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+
+    updated = 0
+    for row in rows:
+        inn = str(row[1]).strip() if row[1] else None
+        okved = extract_okved_code(row[8])
+        if not okved:
+            continue
+
+        if inn:
+            r = conn.execute("SELECT id, okved FROM contacts WHERE inn=?", (inn,)).fetchone()
+            if r and not r["okved"]:
+                conn.execute("UPDATE contacts SET okved=? WHERE id=?", (okved, r["id"]))
+                updated += 1
+        else:
+            company_name = (row[0] or "").strip()
+            norm = normalize_name(company_name)
+            rows_db = conn.execute(
+                "SELECT id, okved, company_name FROM contacts WHERE source_url='Производство.xlsx'"
+            ).fetchall()
+            for db_row in rows_db:
+                if normalize_name(db_row["company_name"]) == norm and not db_row["okved"]:
+                    conn.execute("UPDATE contacts SET okved=? WHERE id=?", (okved, db_row["id"]))
+                    updated += 1
+
+    conn.commit()
+    conn.close()
+    print(f"Backfill complete: {updated} records updated with okved codes")
+
+
+def main() -> None:
     if not XLSX_PATH.exists():
         print(f"ERROR: File not found: {XLSX_PATH}")
         sys.exit(1)
     if not DB_PATH.exists():
         print(f"ERROR: Database not found: {DB_PATH}")
         sys.exit(1)
+
+    if "--backfill" in sys.argv:
+        backfill_okved()
+        return
 
     wb = openpyxl.load_workbook(XLSX_PATH, read_only=True)
     ws = wb.active
@@ -99,7 +150,6 @@ def main():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
 
-    # Build dedup sets from existing DB
     existing_inns = {
         r[0] for r in conn.execute("SELECT inn FROM contacts WHERE inn IS NOT NULL AND inn != ''").fetchall()
     }
@@ -126,17 +176,16 @@ def main():
         phone_raw = row[5]
         email_raw = row[6]
         website = (row[7] or "").strip() or None
+        okved = extract_okved_code(row[8])
         segment = (row[12] or "").strip() or None
 
         if not company_name:
             continue
 
-        # Dedup by INN
         if inn and inn in existing_inns:
             skipped_inn += 1
             continue
 
-        # Dedup by normalized company name
         norm = normalize_name(company_name)
         if norm in existing_names:
             skipped_name += 1
@@ -145,7 +194,6 @@ def main():
         emails = parse_emails(email_raw)
         primary, personal_email, generic_email = classify_emails(emails)
 
-        # Dedup by primary email
         if primary and primary.lower() in existing_emails:
             skipped_email += 1
             continue
@@ -157,13 +205,13 @@ def main():
                (company_name, inn, person_name, title,
                 email, personal_email, generic_email,
                 phone, mobile_phone, generic_phone,
-                website, segment, date_found, source_url, status)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                website, segment, okved, date_found, source_url, status)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 company_name, inn, person_name, title,
                 primary, personal_email, generic_email,
                 phone, mobile_phone, generic_phone,
-                website, segment, today, "Производство.xlsx", "new",
+                website, segment, okved, today, "Производство.xlsx", "new",
             )
         )
         inserted += 1
