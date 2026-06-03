@@ -1,0 +1,73 @@
+{
+  "property": {
+    "name": "Promtechnopark Mitino",
+    "address": "Moscow, Baryshiha 37a",
+    "positioning": "premium class A+ urban light-industrial / office / showroom / service environment",
+    "target_logic": "urban production-client headquarters",
+    "commissioning": "Q3 2026",
+    "power_mw": 1.5,
+    "production_rent_rub_m2_year_before_vat": 18000,
+    "office_rent_rub_m2_year_before_vat_from": 28000,
+    "opex_cap_rub_m2_year_before_vat": 3000,
+    "vat_percent": 22
+  },
+  "fit_labels": [
+    "PASS_STRONG",
+    "PASS_CONDITIONAL",
+    "REJECT_SEGMENT",
+    "REJECT_ECONOMICS",
+    "REJECT_CONTACT",
+    "HOLD"
+  ],
+  "priority_segments": [
+    "electronics",
+    "electronic assembly",
+    "instrumentation",
+    "industrial automation",
+    "server equipment",
+    "telecom equipment",
+    "network equipment",
+    "PAK hardware",
+    "medtech",
+    "diagnostics",
+    "laboratory equipment",
+    "clean assembly",
+    "robotics",
+    "drones",
+    "mechatronics",
+    "photonics",
+    "optics",
+    "laser systems",
+    "microelectronics",
+    "federal brand service centers",
+    "showroom plus office plus light assembly",
+    "R&D plus testing plus pilot production"
+  ],
+  "conditional_segments": [
+    "software with own hardware or lab",
+    "integrator with assembly or service center",
+    "consumer goods with showroom and light assembly",
+    "fashion or beauty with samples, repair, customization or quality control",
+    "R&D company with funding, contracts, resident status or headcount"
+  ],
+  "reject_segments": [
+    "classic warehouse",
+    "e-commerce fulfilment",
+    "pallet storage",
+    "3PL logistics",
+    "dark store",
+    "heavy production",
+    "dirty production",
+    "hazardous production",
+    "pure office",
+    "pure software without hardware",
+    "pure consulting",
+    "pure retail",
+    "horeca",
+    "cheap workshop only"
+  ],
+  "required_accelerated_contact_gate": {
+    "email": "verified direct person-level corporate email tied to selected LPR",
+    "phone": "verified direct LPR mobile or verified company phone with named extension tied to selected LPR"
+  }
+}

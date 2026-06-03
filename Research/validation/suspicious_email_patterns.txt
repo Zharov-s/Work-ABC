@@ -1,0 +1,8 @@
+^(ceo|director|admin|boss|owner|founder|general)\@
+^(pr|press|media|marketing|hr|career|corp|communications|comms)\d*\@
+^(test|demo|sample)\@
+\+
+no-reply@
+noreply@
+do-not-reply@
+^(office|contact|mail|sales|support|info)\d*@
