@@ -247,6 +247,214 @@ def init_db():
         );
     ''')
 
+    # ── Этап 3: новые таблицы новой архитектуры ──────────────────────────────
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS companies (
+            id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id                  TEXT    NOT NULL UNIQUE,
+            company_name_original       TEXT,
+            company_name_normalized     TEXT,
+            legal_name_found            TEXT,
+            inn                         TEXT,
+            ogrn                        TEXT,
+            registration_address        TEXT,
+            website                     TEXT,
+            city                        TEXT,
+            region                      TEXT,
+            segment                     TEXT,
+            industry_group_final        TEXT,
+            activity_type_final         TEXT,
+            okved_main_code             TEXT,
+            okved_main_activity         TEXT,
+            okved_additional_activities TEXT,
+            okved_section               TEXT,
+            okved_status                TEXT,
+            okved_match_method          TEXT,
+            okved_confidence_score      REAL    DEFAULT 0.0,
+            match_status                TEXT    DEFAULT 'manual_review',
+            confidence_score            REAL    DEFAULT 0.0,
+            contacts_count              INTEGER DEFAULT 0,
+            source_inn                  TEXT,
+            source_address              TEXT,
+            source_website              TEXT,
+            review_comment              TEXT,
+            checked_at                  TEXT,
+            created_at                  TEXT    DEFAULT (datetime('now')),
+            updated_at                  TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS company_contacts (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id   TEXT    NOT NULL REFERENCES companies(company_id),
+            contact_name TEXT,
+            position     TEXT,
+            status       TEXT    DEFAULT 'active',
+            source       TEXT,
+            notes        TEXT,
+            created_at   TEXT    DEFAULT (datetime('now')),
+            updated_at   TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS company_channels (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id       TEXT    NOT NULL REFERENCES companies(company_id),
+            contact_id       INTEGER REFERENCES company_contacts(id),
+            channel_type     TEXT    NOT NULL,
+            value            TEXT    NOT NULL,
+            value_normalized TEXT,
+            is_primary       INTEGER DEFAULT 0,
+            status           TEXT    DEFAULT 'active',
+            sendable_status  TEXT,
+            source_column    TEXT,
+            is_free_email    INTEGER DEFAULT 0,
+            bounce_count     INTEGER DEFAULT 0,
+            last_verified_at TEXT,
+            replaced_by_id   INTEGER REFERENCES company_channels(id),
+            created_at       TEXT    DEFAULT (datetime('now')),
+            updated_at       TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS company_okveds (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id    TEXT    NOT NULL REFERENCES companies(company_id),
+            okved_code    TEXT    NOT NULL,
+            okved_name    TEXT,
+            okved_role    TEXT    DEFAULT 'main',
+            okved_section TEXT,
+            okved_class   TEXT,
+            okved_status  TEXT,
+            source        TEXT,
+            created_at    TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS okved_nodes (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            level         TEXT    NOT NULL,
+            code          TEXT    NOT NULL UNIQUE,
+            name          TEXT,
+            parent_code   TEXT,
+            company_count INTEGER DEFAULT 0,
+            created_at    TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS industry_groups (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id      TEXT    NOT NULL UNIQUE,
+            name          TEXT    NOT NULL,
+            company_count INTEGER DEFAULT 0,
+            created_at    TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS external_company_candidates (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            external_source     TEXT    NOT NULL,
+            external_id         TEXT,
+            company_name        TEXT,
+            inn                 TEXT,
+            ogrn                TEXT,
+            website             TEXT,
+            website_domain      TEXT,
+            email               TEXT,
+            email_domain        TEXT,
+            region              TEXT,
+            city                TEXT,
+            okved_main_code     TEXT,
+            industry_group      TEXT,
+            raw_json            TEXT,
+            dedupe_status       TEXT    DEFAULT 'new',
+            matched_company_id  TEXT    REFERENCES companies(company_id),
+            dedupe_score        REAL    DEFAULT 0.0,
+            dedupe_notes        TEXT,
+            imported_at         TEXT,
+            rejected_at         TEXT,
+            reject_reason       TEXT,
+            filter_request_json TEXT,
+            created_at          TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS saved_filter_presets (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT    NOT NULL,
+            filter_json TEXT    NOT NULL,
+            scope       TEXT    DEFAULT 'internal',
+            created_at  TEXT    DEFAULT (datetime('now')),
+            updated_at  TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS email_campaigns (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            name               TEXT    NOT NULL,
+            template_key       TEXT    NOT NULL,
+            subject            TEXT,
+            filter_json        TEXT,
+            status             TEXT    DEFAULT 'draft',
+            test_sent_at       TEXT,
+            started_at         TEXT,
+            finished_at        TEXT,
+            total_recipients   INTEGER DEFAULT 0,
+            total_sent         INTEGER DEFAULT 0,
+            total_failed       INTEGER DEFAULT 0,
+            total_opened       INTEGER DEFAULT 0,
+            total_clicked      INTEGER DEFAULT 0,
+            total_replied      INTEGER DEFAULT 0,
+            total_bounced      INTEGER DEFAULT 0,
+            total_unsubscribed INTEGER DEFAULT 0,
+            created_at         TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS email_campaign_recipients (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id    INTEGER NOT NULL REFERENCES email_campaigns(id),
+            company_id     TEXT    REFERENCES companies(company_id),
+            contact_id     INTEGER REFERENCES company_contacts(id),
+            channel_id     INTEGER REFERENCES company_channels(id),
+            email          TEXT    NOT NULL,
+            status         TEXT    DEFAULT 'pending',
+            tracking_token TEXT    UNIQUE,
+            sent_at        TEXT,
+            opened_at      TEXT,
+            clicked_at     TEXT,
+            replied_at     TEXT,
+            bounced_at     TEXT,
+            error_msg      TEXT,
+            created_at     TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS email_events (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            campaign_id  INTEGER REFERENCES email_campaigns(id),
+            recipient_id INTEGER REFERENCES email_campaign_recipients(id),
+            event_type   TEXT    NOT NULL,
+            email        TEXT,
+            url          TEXT,
+            user_agent   TEXT,
+            ip_hash      TEXT,
+            raw_json     TEXT,
+            created_at   TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS contact_change_log (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id   TEXT    REFERENCES companies(company_id),
+            channel_id   INTEGER REFERENCES company_channels(id),
+            contact_id   INTEGER REFERENCES company_contacts(id),
+            change_type  TEXT    NOT NULL,
+            old_value    TEXT,
+            new_value    TEXT,
+            reason       TEXT,
+            source       TEXT,
+            actor        TEXT    DEFAULT 'system',
+            created_at   TEXT    DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_companies_company_id  ON companies(company_id);
+        CREATE INDEX IF NOT EXISTS idx_companies_inn         ON companies(inn);
+        CREATE INDEX IF NOT EXISTS idx_companies_region      ON companies(region);
+        CREATE INDEX IF NOT EXISTS idx_companies_okved       ON companies(okved_main_code);
+        CREATE INDEX IF NOT EXISTS idx_companies_industry    ON companies(industry_group_final);
+        CREATE INDEX IF NOT EXISTS idx_cchannels_cid         ON company_channels(company_id);
+        CREATE INDEX IF NOT EXISTS idx_cchannels_val         ON company_channels(channel_type, value);
+        CREATE INDEX IF NOT EXISTS idx_cokveds_cid           ON company_okveds(company_id);
+        CREATE INDEX IF NOT EXISTS idx_cokveds_code          ON company_okveds(okved_code);
+        CREATE INDEX IF NOT EXISTS idx_okved_nodes_code      ON okved_nodes(code);
+        CREATE INDEX IF NOT EXISTS idx_okved_nodes_parent    ON okved_nodes(parent_code);
+        CREATE INDEX IF NOT EXISTS idx_industry_groups_id    ON industry_groups(group_id);
+        CREATE INDEX IF NOT EXISTS idx_ext_cand_status       ON external_company_candidates(dedupe_status);
+        CREATE INDEX IF NOT EXISTS idx_ext_cand_inn          ON external_company_candidates(inn);
+        CREATE INDEX IF NOT EXISTS idx_email_camp_status     ON email_campaigns(status);
+        CREATE INDEX IF NOT EXISTS idx_ecr_campaign_id       ON email_campaign_recipients(campaign_id);
+        CREATE INDEX IF NOT EXISTS idx_ecr_token             ON email_campaign_recipients(tracking_token);
+        CREATE INDEX IF NOT EXISTS idx_cclog_cid             ON contact_change_log(company_id);
+    """)
+
     # Новые колонки contacts: lead_score, confidence fields, ogrn
     _ctcols = [r[1] for r in conn.execute('PRAGMA table_info(contacts)').fetchall()]
     for _col, _def in [
