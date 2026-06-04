@@ -221,6 +221,11 @@ def api_ai_finalize(run_id):
         candidates_out.append({**candidate, 'id': cid, 'dedupe_status': status,
                                 'dedupe_notes': dedup['notes']})
 
+    try:
+        from services.notifications_service import create_search_completed_notification
+        create_search_completed_notification({'saved': saved, 'stats': stats, 'provider': 'ollama'})
+    except Exception:
+        pass
     return jsonify({'ok': True, 'saved': saved, 'stats': stats, 'candidates': candidates_out})
 
 

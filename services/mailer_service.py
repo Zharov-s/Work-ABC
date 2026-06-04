@@ -20,7 +20,20 @@ from mailer import (
 
 # ── Re-exports ────────────────────────────────────────────────────────────────
 def send_campaign(template_key: str, raw_addresses: str) -> dict:
-    return _send_campaign(template_key, raw_addresses)
+    result = _send_campaign(template_key, raw_addresses)
+    if result.get('ok') or result.get('total_sent', 0) > 0:
+        try:
+            from services.notifications_service import create_campaign_notification
+            meta = TEMPLATE_META.get(template_key, {})
+            result_copy = dict(result, subject=meta.get('subject', template_key))
+            create_campaign_notification(result_copy, meta.get('subject', template_key))
+        except Exception:
+            pass
+    return result
+
+def send_campaign_from_audience(template_key: str, emails: list[str]) -> dict:
+    raw = '\n'.join(emails)
+    return send_campaign(template_key, raw)
 
 def send_pending_campaign(template_key: str, requested_count=None) -> dict:
     return _send_pending(template_key, requested_count)

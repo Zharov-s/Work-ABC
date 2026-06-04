@@ -324,10 +324,21 @@
   }
 
   function typeBadge(t) {
-    if (t === 'bounce') return '<span class="notif-type-badge badge-bounce">Bounce</span>';
-    if (t === 'ooo')  return '<span class="notif-type-badge badge-ooo">Автоответ</span>';
-    if (t === 'gone') return '<span class="notif-type-badge badge-gone">Ушёл из компании</span>';
-    return '<span class="notif-type-badge badge-reply">Ответ</span>';
+    var BADGES = {
+      'bounce':                  ['badge-bounce', 'Bounce'],
+      'ooo':                     ['badge-ooo',    'Автоответ'],
+      'gone':                    ['badge-gone',   'Ушёл из компании'],
+      'reply':                   ['badge-reply',  'Ответ'],
+      'campaign_completed':      ['badge-reply',  '✅ Рассылка'],
+      'campaign_failed':         ['badge-bounce', '❌ Ошибка рассылки'],
+      'new_replies_detected':    ['badge-reply',  'Новые ответы'],
+      'contacts_need_update':    ['badge-ooo',    'Контакты'],
+      'external_search_completed':['badge-reply', '🔍 Поиск'],
+      'import_completed':        ['badge-reply',  '📥 Импорт'],
+      'data_quality_warning':    ['badge-ooo',    '⚠️ Качество'],
+    };
+    var b = BADGES[t] || ['badge-reply', t];
+    return '<span class="notif-type-badge ' + b[0] + '">' + b[1] + '</span>';
   }
 
   window.loadNotifications = function() {
@@ -352,6 +363,22 @@
           if (det.new_emails && det.new_emails.length) detailLines.push('📧 ' + det.new_emails.join(', '));
           if (det.new_phones && det.new_phones.length) detailLines.push('📞 ' + det.new_phones.join(', '));
           if (det.new_name) detailLines.push('👤 ' + det.new_name);
+          // Campaign completion details
+          if (n.type === 'campaign_completed' || n.type === 'campaign_failed') {
+            if (det.subject)      detailLines.push('📧 Тема: ' + det.subject);
+            if (det.total_sent)   detailLines.push('✉️ Отправлено: '  + det.total_sent);
+            if (det.total_failed) detailLines.push('❌ Ошибок: '       + det.total_failed);
+            if (det.opens)        detailLines.push('👁️ Открытий: '     + det.opens);
+            if (det.clicks)       detailLines.push('🖱️ Кликов: '       + det.clicks);
+            if (det.bounced)      detailLines.push('⚠️ Bounce: '       + det.bounced);
+          }
+          if (n.type === 'external_search_completed') {
+            if (det.saved !== undefined)     detailLines.push('💾 Сохранено: ' + det.saved);
+            var s = det.stats || {};
+            if (s.new)               detailLines.push('🆕 Новых: '         + s.new);
+            if (s.possible_duplicate)detailLines.push('⚠️ Возм. дублей: ' + s.possible_duplicate);
+            if (s.duplicate)         detailLines.push('🔁 Дублей: '       + s.duplicate);
+          }
 
           var detailHtml = detailLines.length
             ? '<div class="notif-detail">' + detailLines.join('\n').replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</div>'

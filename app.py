@@ -788,23 +788,8 @@ def validate_emails_route():
 @app.route('/api/notifications')
 @login_required
 def api_notifications():
-    conn = get_db()
-    rows = conn.execute(
-        """SELECT id, type, company_name, from_email, summary, details_json,
-                  created_at, read_at
-           FROM notifications ORDER BY id DESC LIMIT 50"""
-    ).fetchall()
-    conn.close()
-    result = []
-    for r in rows:
-        d = dict(r)
-        try:
-            d['details'] = json.loads(d['details_json'] or '{}')
-        except Exception:
-            d['details'] = {}
-        del d['details_json']
-        result.append(d)
-    return jsonify(result)
+    from services.notifications_service import get_notifications
+    return jsonify(get_notifications(50))
 
 
 @app.route('/api/notifications/count')
