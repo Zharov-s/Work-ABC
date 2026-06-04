@@ -1,0 +1,459 @@
+{% from "macros/icon.html" import icon %}
+{% extends "base.html" %}
+{% block title %}Поиск компаний — ABCENTRUM{% endblock %}
+{% block heading %}Поиск новых компаний{% endblock %}
+
+{% block extra_css %}
+<style>
+.search-layout { display:flex; gap:16px; align-items:flex-start; }
+
+/* Sidebar — reuse same fp-panel style as companies */
+.search-sidebar { width:264px; min-width:264px; flex-shrink:0; }
+.fp-panel,.fp-panel-header,.fp-panel-title,.fp-reset-btn,
+.fp-section,.fp-section-label,.fp-mode,.fp-mode-btn,.fp-input,
+.fp-toggle,.fp-footer,.fp-save-link,.fp-chips,.fp-chip,.fp-chip-n,
+.fp-tree,.fp-tree-row,.fp-tree-section-row,.fp-tree-arr,.fp-tree-chk,
+.fp-tree-lbl,.fp-tree-cnt,.fp-tree-children,.fp-tree-leaf,.fp-empty-tree
+{ /* inherited from companies page via main.css */ }
+
+/* Search main panel */
+.search-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:12px; }
+
+/* Controls bar */
+.search-controls {
+  background:var(--panel-bg); border:1px solid var(--panel-border);
+  border-radius:var(--panel-radius); box-shadow:var(--panel-shadow);
+  padding:14px 16px;
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+}
+.search-controls-label { font-size:13px; color:var(--text-2); flex-shrink:0; }
+.provider-select {
+  padding:6px 10px; border-radius:6px; border:1px solid var(--inp-border);
+  background:var(--inp-bg); color:var(--inp-text); font-family:inherit; font-size:13px;
+}
+.search-limit {
+  width:72px; padding:6px 10px; border-radius:6px; border:1px solid var(--inp-border);
+  background:var(--inp-bg); color:var(--inp-text); font-family:inherit; font-size:13px;
+  text-align:center;
+}
+
+/* Stats row */
+.search-stats {
+  display:flex; gap:8px; flex-wrap:wrap;
+}
+.stat-pill {
+  display:flex; align-items:center; gap:6px;
+  padding:7px 12px; border-radius:99px;
+  border:1px solid var(--panel-border);
+  background:var(--panel-bg); font-size:12.5px;
+  box-shadow:var(--shadow-sm);
+}
+.stat-pill-n { font-weight:700; font-size:14px; color:var(--text); }
+.stat-pill-l { color:var(--text-2); }
+.stat-pill.new      { border-color:var(--bdg-green-bdr);background:var(--bdg-green-bg); }
+.stat-pill.new      .stat-pill-n { color:var(--bdg-green-text); }
+.stat-pill.dupe     { border-color:var(--bdg-red-bdr);  background:var(--bdg-red-bg); }
+.stat-pill.dupe     .stat-pill-n { color:var(--bdg-red-text); }
+.stat-pill.possible { border-color:var(--bdg-yel-bdr);  background:var(--bdg-yel-bg); }
+.stat-pill.possible .stat-pill-n { color:var(--bdg-yel-text); }
+.stat-pill.review   { border-color:var(--bdg-blue-bdr); background:var(--bdg-blue-bg); }
+.stat-pill.review   .stat-pill-n { color:var(--bdg-blue-text); }
+
+/* Filter tabs */
+.cand-tabs { display:flex; gap:6px; flex-wrap:wrap; }
+.cand-tab {
+  padding:5px 13px; border-radius:99px; border:1px solid var(--border);
+  background:var(--btn-2-bg); color:var(--text-2); font-size:12.5px;
+  cursor:pointer; font-family:inherit; transition:all .12s; font-weight:500;
+}
+.cand-tab:hover { border-color:var(--accent); color:var(--accent); }
+.cand-tab.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+.cand-tab-n { font-size:11px; opacity:.75; }
+
+/* Results panel */
+.cand-panel {
+  background:var(--panel-bg); border:1px solid var(--panel-border);
+  border-radius:var(--panel-radius); box-shadow:var(--panel-shadow); overflow:hidden;
+}
+.cand-panel-header {
+  padding:11px 16px; border-bottom:1px solid var(--panel-border);
+  background:var(--panel-hdr-bg); display:flex; align-items:center;
+  justify-content:space-between;
+}
+.cand-panel-title { font-size:13px; font-weight:600; color:var(--text); }
+.cand-panel-info  { font-size:12px; color:var(--text-2); }
+
+/* Candidate cards */
+.cand-list { padding:8px; }
+.cand-card {
+  display:flex; gap:12px; align-items:flex-start;
+  padding:12px 10px; border-radius:10px; border:1px solid var(--panel-border);
+  background:var(--surface); margin-bottom:7px; transition:background .12s;
+}
+.cand-card:last-child { margin-bottom:0; }
+.cand-card:hover { background:var(--surface-2); }
+.cand-card-body { flex:1; min-width:0; }
+.cand-name { font-weight:600; font-size:13.5px; color:var(--text); margin-bottom:3px; }
+.cand-meta { font-size:12px; color:var(--text-2); display:flex; flex-wrap:wrap; gap:8px; }
+.cand-meta-item { display:flex; align-items:center; gap:3px; }
+.cand-actions { display:flex; gap:5px; flex-shrink:0; align-items:center; }
+.cand-btn {
+  padding:5px 11px; border-radius:6px; border:1px solid var(--border);
+  background:var(--btn-2-bg); color:var(--text-2); font-size:12px;
+  cursor:pointer; font-family:inherit; font-weight:500; transition:all .12s;
+  white-space:nowrap;
+}
+.cand-btn:hover { border-color:var(--accent); color:var(--accent); }
+.cand-btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+.cand-btn-primary:hover { background:var(--accent-hover); color:#fff; }
+.cand-btn-danger { border-color:var(--bdg-red-bdr); color:var(--bdg-red-text); }
+.cand-btn-danger:hover { background:var(--bdg-red-bg); }
+
+/* Status badges */
+.ds-new      { background:var(--bdg-green-bg); color:var(--bdg-green-text); border:1px solid var(--bdg-green-bdr); }
+.ds-duplicate{ background:var(--bdg-red-bg);   color:var(--bdg-red-text);   border:1px solid var(--bdg-red-bdr); }
+.ds-possible { background:var(--bdg-yel-bg);   color:var(--bdg-yel-text);   border:1px solid var(--bdg-yel-bdr); }
+.ds-review   { background:var(--bdg-blue-bg);  color:var(--bdg-blue-text);  border:1px solid var(--bdg-blue-bdr); }
+.ds-imported { background:var(--bdg-gray-bg);  color:var(--bdg-gray-text);  border:1px solid var(--bdg-gray-bdr); }
+.ds-rejected { background:var(--bdg-gray-bg);  color:var(--bdg-gray-text);  border:1px solid var(--bdg-gray-bdr); opacity:.6; }
+
+.cand-status-badge {
+  display:inline-block; padding:2px 8px; border-radius:99px;
+  font-size:11.5px; font-weight:600;
+}
+.cand-empty { padding:64px 20px; text-align:center; color:var(--text-2); font-size:14px; }
+.cand-spinner {
+  display:inline-block; width:18px; height:18px;
+  border:2px solid var(--border); border-top-color:var(--accent);
+  border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:6px;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="search-layout">
+
+  <!-- ── Filter sidebar ── -->
+  <aside class="search-sidebar">
+    <div class="fp-panel">
+      <div class="fp-panel-header">
+        <span class="fp-panel-title">Фильтры поиска</span>
+        <button class="fp-reset-btn" onclick="sReset()">Сбросить</button>
+      </div>
+      <div class="fp-section">
+        <div class="fp-section-label">Сфера деятельности (ОКВЭД)</div>
+        <div class="fp-mode">
+          <button class="fp-mode-btn active" id="s-mode-main" onclick="sSetMode('main')">Основной</button>
+          <button class="fp-mode-btn" id="s-mode-all" onclick="sSetMode('all')">Все ОКВЭД</button>
+        </div>
+        <input class="fp-input" id="s-okved-q" type="text" placeholder="Поиск по коду…" oninput="sBuildTree(this.value)">
+        <div class="fp-tree" id="s-tree"></div>
+      </div>
+      <div class="fp-section">
+        <div class="fp-section-label">Регион</div>
+        <div class="fp-chips" id="s-regions"></div>
+      </div>
+      <div class="fp-section">
+        <div class="fp-section-label">Отрасль</div>
+        <div class="fp-chips" id="s-industries"></div>
+      </div>
+      <div class="fp-footer">
+        <span style="font-size:12px;color:var(--text-2)">scope: external</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <div class="search-main">
+
+    <!-- Controls -->
+    <div class="search-controls">
+      <span class="search-controls-label">Источник:</span>
+      <select class="provider-select" id="s-provider">
+        <option value="mock">Mock (тест)</option>
+        <option value="kontur" disabled>Контур.Фокус (не подключён)</option>
+        <option value="dadata" disabled>DaData (не подключён)</option>
+      </select>
+      <span class="search-controls-label">Лимит:</span>
+      <input class="search-limit" id="s-limit" type="number" value="20" min="1" max="50">
+      <button class="btn btn-primary" id="s-run-btn" onclick="sRunSearch()">
+        {{ icon("search") }} Найти компании
+      </button>
+      <span id="s-run-status" style="font-size:12.5px;color:var(--text-2)"></span>
+    </div>
+
+    <!-- Stats -->
+    <div class="search-stats" id="s-stats" style="display:none">
+      <div class="stat-pill new">    <span class="stat-pill-n" id="st-new">0</span><span class="stat-pill-l">Новых</span></div>
+      <div class="stat-pill possible"><span class="stat-pill-n" id="st-pos">0</span><span class="stat-pill-l">Возм. дубли</span></div>
+      <div class="stat-pill dupe">   <span class="stat-pill-n" id="st-dup">0</span><span class="stat-pill-l">Дубли</span></div>
+      <div class="stat-pill review"> <span class="stat-pill-n" id="st-rev">0</span><span class="stat-pill-l">На проверку</span></div>
+      <div class="stat-pill">        <span class="stat-pill-n" id="st-imp">0</span><span class="stat-pill-l">Импортировано</span></div>
+    </div>
+
+    <!-- Status filter tabs -->
+    <div class="cand-tabs" id="s-tabs">
+      <button class="cand-tab active" onclick="sCandFilter(null,this)">Все</button>
+      <button class="cand-tab" onclick="sCandFilter('new',this)">Новые</button>
+      <button class="cand-tab" onclick="sCandFilter('possible_duplicate',this)">Возм. дубли</button>
+      <button class="cand-tab" onclick="sCandFilter('needs_review',this)">Проверка</button>
+      <button class="cand-tab" onclick="sCandFilter('imported',this)">Импортированные</button>
+    </div>
+
+    <!-- Results -->
+    <div class="cand-panel">
+      <div class="cand-panel-header">
+        <span class="cand-panel-title">Кандидаты</span>
+        <span class="cand-panel-info" id="s-cand-info">—</span>
+      </div>
+      <div id="s-cand-list" class="cand-list">
+        <div class="cand-empty">Выберите фильтры и нажмите «Найти компании»</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var SF = { mode:'main', okved:[], regions:[], industries:[], _tree:[], _rdata:[], _idata:[] };
+var _candFilter = null;
+
+// ── Init ──────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  Promise.all([
+    fetch('/api/filters/okved-tree').then(function(r){return r.json();}),
+    fetch('/api/filters/regions').then(function(r){return r.json();}),
+    fetch('/api/filters/industry-groups').then(function(r){return r.json();}),
+  ]).then(function(res){
+    SF._tree=res[0]; SF._rdata=res[1]; SF._idata=res[2];
+    sBuildTree('');
+    _chips('s-regions',   res[1],'region',   SF.regions);
+    _chips('s-industries',res[2],'name',      SF.industries);
+  });
+  // Load existing candidates
+  loadCandidates(null);
+});
+
+// ── Filter sidebar (same as companies) ───────────────────────────
+function sSetMode(m){
+  SF.mode=m;
+  document.getElementById('s-mode-main').classList.toggle('active',m==='main');
+  document.getElementById('s-mode-all').classList.toggle('active',m==='all');
+}
+function sReset(){
+  SF.okved=[]; SF.regions=[]; SF.industries=[]; SF.mode='main';
+  document.getElementById('s-okved-q').value='';
+  sSetMode('main'); sBuildTree('');
+  _chips('s-regions',SF._rdata,'region',SF.regions);
+  _chips('s-industries',SF._idata,'name',SF.industries);
+}
+function sBuildTree(q){
+  var el=document.getElementById('s-tree'); if(!el) return;
+  q=(q||'').toLowerCase();
+  var html='';
+  SF._tree.forEach(function(sect){
+    var sm=!q||(sect.section+' '+sect.name).toLowerCase().indexOf(q)!==-1;
+    var ch=''; var cMatch=false;
+    (sect.classes||[]).forEach(function(cls){
+      var cm=!q||(cls.code+' '+cls.name).toLowerCase().indexOf(q)!==-1;
+      var lh='';
+      (cls.codes||[]).forEach(function(code){
+        var dm=!q||(code.code+' '+code.name).toLowerCase().indexOf(q)!==-1;
+        if(!dm&&q) return; cMatch=cm=sm=true;
+        var on=SF.okved.indexOf(code.code)!==-1;
+        lh+='<div class="fp-tree-row fp-tree-leaf" onclick="sTogOkved(\''+code.code+'\')">'
+          +'<div class="fp-tree-chk'+(on?' on':'')+'"></div>'
+          +'<span class="fp-tree-lbl">'+code.code+' — '+_e(code.name)+'</span>'
+          +(code.company_count?'<span class="fp-tree-cnt">'+code.company_count+'</span>':'')+'</div>';
+      });
+      if(!cm&&!lh&&q) return;
+      var on=SF.okved.indexOf(cls.code)!==-1;
+      ch+='<div><div class="fp-tree-row" onclick="sTogOkved(\''+cls.code+'\')">'
+        +'<span class="fp-tree-arr'+(q?' open':'') +'" data-scls="'+cls.code+'">▶</span>'
+        +'<div class="fp-tree-chk'+(on?' on':'')+'"></div>'
+        +'<span class="fp-tree-lbl">'+cls.code+' — '+_e(cls.name)+'</span>'
+        +'<span class="fp-tree-cnt">'+cls.company_count+'</span></div>'
+        +'<div class="fp-tree-children" id="scl-'+cls.code+'" style="display:'+(q?'block':'none')+'">'+lh+'</div></div>';
+    });
+    if(!sm&&!ch&&q) return;
+    var on=SF.okved.indexOf(sect.section)!==-1;
+    html+='<div><div class="fp-tree-row fp-tree-section-row" onclick="sTogOkved(\''+sect.section+'\')">'
+      +'<span class="fp-tree-arr'+(q?' open':'')+'" data-ssec="'+sect.section+'">▶</span>'
+      +'<div class="fp-tree-chk'+(on?' on':'')+'"></div>'
+      +'<span class="fp-tree-lbl"><b>'+sect.section+'</b> — '+_e(sect.name)+'</span>'
+      +'<span class="fp-tree-cnt">'+sect.company_count+'</span></div>'
+      +'<div class="fp-tree-children" id="sse-'+sect.section+'" style="display:'+(q?'block':'none')+'">'+ch+'</div></div>';
+  });
+  el.innerHTML=html||'<div class="fp-empty-tree">Ничего не найдено</div>';
+}
+
+function sTogOkved(code){
+  var idx=SF.okved.indexOf(code);
+  if(idx===-1) SF.okved.push(code); else SF.okved.splice(idx,1);
+  sBuildTree(document.getElementById('s-okved-q').value);
+}
+
+// Tree expand
+document.addEventListener('click',function(e){
+  var arr=e.target.closest('.fp-tree-arr');
+  if(!arr) return; e.stopPropagation();
+  var id=arr.dataset.ssec?'sse-'+arr.dataset.ssec:arr.dataset.scls?'scl-'+arr.dataset.scls:null;
+  if(!id) return;
+  var ch=document.getElementById(id); if(!ch) return;
+  var open=ch.style.display!=='none';
+  ch.style.display=open?'none':'block';
+  arr.classList.toggle('open',!open);
+});
+
+function _chips(elId,items,key,arr){
+  var el=document.getElementById(elId); if(!el) return;
+  if(!items.length){el.innerHTML='<span style="font-size:12px;color:var(--text-3)">—</span>';return;}
+  el.innerHTML=items.map(function(item){
+    var val=item[key],n=item.company_count||'',on=arr.indexOf(val)!==-1;
+    return '<button class="fp-chip'+(on?' on':'')+'" onclick="sChip(\''+elId+'\',\''+_e(val)+'\')">'
+      +_e(val)+(n?'<span class="fp-chip-n"> '+n+'</span>':'')+' </button>';
+  }).join('');
+}
+
+function sChip(elId,val){
+  var arr=elId==='s-regions'?SF.regions:SF.industries;
+  var idx=arr.indexOf(val); if(idx===-1) arr.push(val); else arr.splice(idx,1);
+  _chips(elId,elId==='s-regions'?SF._rdata:SF._idata,elId==='s-regions'?'region':'name',arr);
+}
+
+// ── Build filter request ─────────────────────────────────────────
+function sGetReq(){
+  return {
+    okved_include: SF.okved.slice(),
+    okved_mode: SF.mode,
+    regions: SF.regions.slice(),
+    industry_groups: SF.industries.slice(),
+    scope: 'external',
+  };
+}
+
+// ── Run search ───────────────────────────────────────────────────
+function sRunSearch(){
+  var btn=document.getElementById('s-run-btn');
+  var status=document.getElementById('s-run-status');
+  btn.disabled=true;
+  status.innerHTML='<span class="cand-spinner"></span>Поиск…';
+  document.getElementById('s-cand-list').innerHTML='<div class="cand-empty"><span class="cand-spinner"></span> Поиск компаний…</div>';
+
+  fetch('/api/search/external',{
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      filter:sGetReq(),
+      provider:document.getElementById('s-provider').value,
+      limit:parseInt(document.getElementById('s-limit').value)||20
+    })
+  }).then(function(r){return r.json();})
+    .then(function(d){
+      btn.disabled=false;
+      if(!d.ok){ status.textContent='Ошибка: '+(d.error||''); return; }
+      status.textContent='Найдено: '+d.total_found+' · Сохранено: '+d.saved;
+      loadCandidates(_candFilter);
+      loadStats();
+    })
+    .catch(function(e){ btn.disabled=false; status.textContent='Ошибка: '+e.message; });
+}
+
+// ── Load candidates ──────────────────────────────────────────────
+function sCandFilter(status,btn){
+  _candFilter=status;
+  document.querySelectorAll('.cand-tab').forEach(function(el){ el.classList.remove('active'); });
+  if(btn) btn.classList.add('active');
+  loadCandidates(status);
+}
+
+function loadCandidates(status){
+  var params=status?'?status='+status+'&limit=100':'?limit=100';
+  fetch('/api/search/candidates'+params,{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      document.getElementById('s-cand-info').textContent='Всего: '+d.total;
+      _renderCands(d.candidates||[]);
+      if(d.stats) _applyStats(d.stats);
+    });
+}
+
+function loadStats(){
+  fetch('/api/search/stats',{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){ _applyStats(d); });
+}
+
+function _applyStats(s){
+  document.getElementById('s-stats').style.display='flex';
+  document.getElementById('st-new').textContent=s.new||0;
+  document.getElementById('st-pos').textContent=s.possible_duplicate||0;
+  document.getElementById('st-dup').textContent=s.duplicate||0;
+  document.getElementById('st-rev').textContent=s.needs_review||0;
+  document.getElementById('st-imp').textContent=s.imported||0;
+}
+
+function _renderCands(cands){
+  var el=document.getElementById('s-cand-list');
+  if(!cands.length){
+    el.innerHTML='<div class="cand-empty">Нет кандидатов. Запустите поиск.</div>'; return;
+  }
+  var ST={
+    new:{cls:'ds-new',lbl:'Новый'},
+    duplicate:{cls:'ds-duplicate',lbl:'Дубль'},
+    possible_duplicate:{cls:'ds-possible',lbl:'Возм. дубль'},
+    needs_review:{cls:'ds-review',lbl:'Проверка'},
+    imported:{cls:'ds-imported',lbl:'Импортирован'},
+    rejected:{cls:'ds-rejected',lbl:'Отклонён'},
+  };
+  el.innerHTML=cands.map(function(c){
+    var s=ST[c.dedupe_status]||{cls:'ds-review',lbl:c.dedupe_status};
+    var isNew=c.dedupe_status==='new'||c.dedupe_status==='needs_review';
+    var isPoss=c.dedupe_status==='possible_duplicate';
+    return '<div class="cand-card" id="cand-'+c.id+'">'
+      +'<div class="cand-card-body">'
+      +'<div class="cand-name">'+_e(c.company_name||'—')
+      +'&ensp;<span class="cand-status-badge '+s.cls+'">'+s.lbl+'</span>'
+      +(c.dedupe_notes?'<span style="font-size:11px;color:var(--text-3);margin-left:6px">'+_e(c.dedupe_notes)+'</span>':'')
+      +'</div>'
+      +'<div class="cand-meta">'
+      +(c.inn?'<span class="cand-meta-item">ИНН '+_e(c.inn)+'</span>':'')
+      +(c.region?'<span class="cand-meta-item">📍 '+_e(c.region)+'</span>':'')
+      +(c.okved_main_code?'<span class="cand-meta-item">ОКВЭД '+_e(c.okved_main_code)+'</span>':'')
+      +(c.email?'<span class="cand-meta-item">✉ '+_e(c.email)+'</span>':'')
+      +(c.website?'<span class="cand-meta-item"><a href="'+_e(c.website)+'" target="_blank" style="color:var(--link)">↗ Сайт</a></span>':'')
+      +'</div>'
+      +'</div>'
+      +'<div class="cand-actions">'
+      +(isNew||isPoss ? '<button class="cand-btn cand-btn-primary" onclick="sImport('+c.id+')">↓ Импорт</button>' : '')
+      +(c.dedupe_status!=='rejected'&&c.dedupe_status!=='imported' ? '<button class="cand-btn cand-btn-danger" onclick="sReject('+c.id+')">✕</button>' : '')
+      +'</div>'
+      +'</div>';
+  }).join('');
+}
+
+function sImport(id){
+  fetch('/api/search/candidates/'+id+'/import',{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.ok){ _removeCard(id,'Импортировано'); loadStats(); }
+      else alert('Ошибка: '+d.error);
+    });
+}
+
+function sReject(id){
+  fetch('/api/search/candidates/'+id+'/reject',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'})
+    .then(function(){ _removeCard(id,'Отклонено'); loadStats(); });
+}
+
+function _removeCard(id,msg){
+  var el=document.getElementById('cand-'+id);
+  if(el){ el.style.opacity='.4'; el.style.transition='opacity .2s'; setTimeout(function(){ loadCandidates(_candFilter); },500); }
+}
+
+function _e(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+{% endblock %}

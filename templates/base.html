@@ -198,7 +198,7 @@
           <span class="nav-icon">{{ icon("building") }}</span>
           Компании
         </a>
-        <a href="{{ url_for('research') }}" class="nav-item {% if request.endpoint == 'research' %}active{% endif %}">
+        <a href="{{ url_for('search.search_page') }}" class="nav-item {% if request.endpoint in ('search.search_page','research') %}active{% endif %}">
           <span class="nav-icon">{{ icon("search") }}</span>
           Поиск
         </a>
