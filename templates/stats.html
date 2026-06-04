@@ -1,0 +1,213 @@
+{% from "macros/icon.html" import icon %}
+{% extends "base.html" %}
+{% block title %}Статистика — ABCENTRUM{% endblock %}
+{% block heading %}Статистика{% endblock %}
+
+{% block extra_css %}
+<style>
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; margin-bottom:20px; }
+.stat-card  {
+  background:var(--panel-bg); border:1px solid var(--panel-border);
+  border-radius:var(--panel-radius); box-shadow:var(--panel-shadow);
+  padding:16px; text-align:center;
+}
+.stat-card-n { font-size:28px; font-weight:750; color:var(--accent); line-height:1.1; }
+.stat-card-l { font-size:12px; color:var(--text-2); margin-top:4px; }
+.stat-card.warn .stat-card-n { color:var(--bdg-yel-text); }
+.stat-card.err  .stat-card-n { color:var(--bdg-red-text); }
+.stat-card.ok   .stat-card-n { color:var(--bdg-green-text); }
+
+.stats-section { margin-bottom:24px; }
+.stats-section-title {
+  font-size:11px; font-weight:700; color:var(--text-2);
+  text-transform:uppercase; letter-spacing:.07em;
+  margin-bottom:12px; padding-bottom:6px;
+  border-bottom:1px solid var(--panel-border);
+}
+
+.stats-row-panel {
+  background:var(--panel-bg); border:1px solid var(--panel-border);
+  border-radius:var(--panel-radius); box-shadow:var(--panel-shadow);
+  overflow:hidden; margin-bottom:12px;
+}
+.stats-row-panel-hdr {
+  padding:10px 16px; background:var(--panel-hdr-bg);
+  border-bottom:1px solid var(--panel-border);
+  font-size:13px; font-weight:600; color:var(--text);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.stats-bar-list { padding:12px 16px; }
+.stats-bar-row  { display:flex; align-items:center; gap:10px; margin-bottom:8px; font-size:13px; }
+.stats-bar-row:last-child { margin-bottom:0; }
+.stats-bar-label { min-width:160px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.stats-bar-track { flex:1; height:8px; background:var(--surface-2); border-radius:99px; overflow:hidden; }
+.stats-bar-fill  { height:8px; background:var(--accent); border-radius:99px; transition:width .4s ease; }
+.stats-bar-n     { min-width:40px; text-align:right; font-size:12px; color:var(--text-2); font-variant-numeric:tabular-nums; }
+
+.rate-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px; }
+.rate-card {
+  flex:1; min-width:120px;
+  background:var(--panel-bg); border:1px solid var(--panel-border);
+  border-radius:10px; padding:14px 12px; text-align:center; box-shadow:var(--shadow-sm);
+}
+.rate-card-n { font-size:22px; font-weight:750; color:var(--accent); }
+.rate-card-l { font-size:11.5px; color:var(--text-2); margin-top:3px; }
+
+.campaigns-recent { padding:0 16px 12px; }
+.camp-row {
+  display:flex; align-items:center; gap:10px;
+  padding:9px 0; border-bottom:1px solid var(--panel-border);
+  font-size:13px;
+}
+.camp-row:last-child { border-bottom:none; }
+.camp-name { flex:1; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.camp-date { font-size:12px; color:var(--text-3); white-space:nowrap; }
+.camp-sent { font-size:12px; color:var(--text-2); white-space:nowrap; }
+.camp-badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:11.5px; font-weight:600; }
+
+.stats-layout { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media(max-width:900px){ .stats-layout { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="stats-loading" style="text-align:center;padding:64px;color:var(--text-2)">
+  <div style="width:24px;height:24px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px"></div>
+  Загрузка статистики…
+</div>
+<div id="stats-main" style="display:none"></div>
+
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  fetch('/api/stats/dashboard', {credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      document.getElementById('stats-loading').style.display='none';
+      var el = document.getElementById('stats-main');
+      el.style.display='block';
+      el.innerHTML = _buildStats(d);
+    });
+});
+
+function _buildStats(d) {
+  var co = d.companies||{}, ch = d.channels||{}, ext = d.external||{}, camp = d.campaigns||{};
+  var html = '';
+
+  // ── Companies ────────────────────────────────────────────────
+  html += '<div class="stats-section"><div class="stats-section-title">База компаний</div>';
+  html += '<div class="stats-grid">'
+    + _card(co.total,         'Всего компаний')
+    + _card(co.with_email,    'С email',        'ok')
+    + _card(co.with_phone,    'С телефоном',    'ok')
+    + _card(co.with_website,  'С сайтом',       'ok')
+    + _card(co.with_okved,    'С ОКВЭД',        'ok')
+    + _card(co.without_okved, 'Без ОКВЭД',      'warn')
+    + _card(co.manual_review, 'На проверке',    'warn')
+    + _card(co.has_bounce,    'Есть bounce',    'err')
+    + '</div></div>';
+
+  // ── Channels ─────────────────────────────────────────────────
+  html += '<div class="stats-section"><div class="stats-section-title">Каналы связи</div>';
+  html += '<div class="stats-grid">'
+    + _card(ch.active,        'Активных каналов', 'ok')
+    + _card(ch.bounced,       'Bounced',           ch.bounced>0?'err':'')
+    + _card(ch.unsubscribed,  'Отписки',           ch.unsubscribed>0?'warn':'')
+    + _card(ch.needs_review,  'На подтверждении',  ch.needs_review>0?'warn':'')
+    + '</div></div>';
+
+  // ── Email rates ───────────────────────────────────────────────
+  html += '<div class="stats-section"><div class="stats-section-title">Рассылки — общая статистика</div>';
+  html += '<div class="rate-row">'
+    + _rate(camp.total,      'Кампаний')
+    + _rate(camp.sent,       'Отправлено')
+    + _rate(camp.opens,      'Открытий')
+    + _rate(camp.clicks,     'Кликов')
+    + _rate(camp.unsubs,     'Отписок')
+    + _rate(camp.failed,     'Ошибок')
+    + _rate(camp.open_rate + '%',  'Open rate',  true)
+    + _rate(camp.click_rate + '%', 'Click rate', true)
+    + '</div>';
+
+  // Recent campaigns
+  if ((d.recent_campaigns||[]).length) {
+    html += '<div class="stats-row-panel"><div class="stats-row-panel-hdr">Последние рассылки <a href="/campaigns" style="font-size:12px;font-weight:400;color:var(--link)">Все →</a></div>';
+    html += '<div class="campaigns-recent">';
+    (d.recent_campaigns||[]).forEach(function(c){
+      var sc = c.status==='done'?'badge-green':c.status==='partial'?'badge-yellow':'badge-gray';
+      var sl = {done:'Готово',partial:'Частично',sending:'В процессе'}[c.status]||c.status;
+      html += '<div class="camp-row">'
+        +'<span class="camp-name">'+_e(c.subject||c.template||'—')+'</span>'
+        +'<span class="camp-date">'+_e((c.sent_at||'').slice(0,10))+'</span>'
+        +'<span class="camp-sent">'+c.total_sent+' отпр.</span>'
+        +'<span class="camp-badge '+sc+'">'+sl+'</span>'
+        +'</div>';
+    });
+    html += '</div></div>';
+  }
+  html += '</div>';
+
+  // ── External search ───────────────────────────────────────────
+  html += '<div class="stats-section"><div class="stats-section-title">Внешний поиск — кандидаты</div>';
+  html += '<div class="stats-grid">'
+    + _card(ext.total,              'Всего кандидатов')
+    + _card(ext.new,                'Новых',            'ok')
+    + _card(ext.possible_duplicate, 'Возм. дублей',     'warn')
+    + _card(ext.imported,           'Импортировано',    'ok')
+    + '</div></div>';
+
+  // ── Charts: distributions ─────────────────────────────────────
+  html += '<div class="stats-layout">';
+
+  if ((d.top_regions||[]).length) {
+    var maxR = Math.max.apply(null, d.top_regions.map(function(r){return r.n;}));
+    html += '<div class="stats-row-panel"><div class="stats-row-panel-hdr">Топ регионов</div><div class="stats-bar-list">';
+    d.top_regions.forEach(function(r){
+      html += '<div class="stats-bar-row">'
+        +'<span class="stats-bar-label">'+_e(r.region)+'</span>'
+        +'<div class="stats-bar-track"><div class="stats-bar-fill" style="width:'+Math.round(r.n/maxR*100)+'%"></div></div>'
+        +'<span class="stats-bar-n">'+r.n+'</span></div>';
+    });
+    html += '</div></div>';
+  }
+
+  if ((d.top_industries||[]).length) {
+    var maxI = Math.max.apply(null, d.top_industries.map(function(r){return r.n;}));
+    html += '<div class="stats-row-panel"><div class="stats-row-panel-hdr">Топ отраслей</div><div class="stats-bar-list">';
+    d.top_industries.forEach(function(r){
+      html += '<div class="stats-bar-row">'
+        +'<span class="stats-bar-label">'+_e(r.name)+'</span>'
+        +'<div class="stats-bar-track"><div class="stats-bar-fill" style="width:'+Math.round(r.n/maxI*100)+'%"></div></div>'
+        +'<span class="stats-bar-n">'+r.n+'</span></div>';
+    });
+    html += '</div></div>';
+  }
+
+  if ((d.top_okved||[]).length) {
+    var maxO = Math.max.apply(null, d.top_okved.map(function(r){return r.n;}));
+    html += '<div class="stats-row-panel"><div class="stats-row-panel-hdr">Разделы ОКВЭД</div><div class="stats-bar-list">';
+    d.top_okved.forEach(function(r){
+      html += '<div class="stats-bar-row">'
+        +'<span class="stats-bar-label"><b>'+_e(r.okved_section)+'</b></span>'
+        +'<div class="stats-bar-track"><div class="stats-bar-fill" style="width:'+Math.round(r.n/maxO*100)+'%"></div></div>'
+        +'<span class="stats-bar-n">'+r.n+'</span></div>';
+    });
+    html += '</div></div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function _card(n, label, cls) {
+  return '<div class="stat-card'+(cls?' '+cls:'')+'"><div class="stat-card-n">'+(n||0)+'</div><div class="stat-card-l">'+label+'</div></div>';
+}
+function _rate(n, label, isStr) {
+  return '<div class="rate-card"><div class="rate-card-n">'+(isStr?n:(n||0))+'</div><div class="rate-card-l">'+label+'</div></div>';
+}
+function _e(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+{% endblock %}

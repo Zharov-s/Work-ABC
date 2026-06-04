@@ -31,6 +31,7 @@ from routes.filters_routes import filters_bp
 from routes.companies_routes import companies_bp
 from routes.campaigns_routes import campaigns_bp
 from routes.contacts_routes import contacts_bp
+from routes.stats_routes import stats_bp
 from routes.search_routes import search_bp
 
 app = Flask(__name__)
@@ -38,6 +39,7 @@ app.register_blueprint(filters_bp)
 app.register_blueprint(companies_bp)
 app.register_blueprint(campaigns_bp)
 app.register_blueprint(contacts_bp)
+app.register_blueprint(stats_bp)
 app.register_blueprint(search_bp)
 app.secret_key = os.getenv('SECRET_KEY', 'abcentrum-dev-key')
 

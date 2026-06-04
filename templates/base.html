@@ -210,6 +210,10 @@
           <span class="nav-icon">{{ icon("mail") }}</span>
           Рассылки
         </a>
+        <a href="{{ url_for('stats.stats_page') }}" class="nav-item {% if request.endpoint == 'stats.stats_page' %}active{% endif %}">
+          <span class="nav-icon">{{ icon("chart") }}</span>
+          Статистика
+        </a>
         <a href="{{ url_for('settings') }}" class="nav-item {% if request.endpoint == 'settings' %}active{% endif %}">
           <span class="nav-icon">{{ icon("settings") }}</span>
           Настройки
