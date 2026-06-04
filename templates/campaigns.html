@@ -3,6 +3,55 @@
 {% block title %}Рассылки — ABCENTRUM{% endblock %}
 {% block heading %}Рассылки{% endblock %}
 
+{% block extra_css %}
+<style>
+/* ── Filter-based audience panel ───────────────────────────────── */
+.cmp-filter-panel {
+  background:var(--panel-bg); border:1px solid var(--panel-border);
+  border-radius:var(--panel-radius); box-shadow:var(--panel-shadow);
+  margin-bottom:20px; overflow:hidden;
+}
+.cmp-filter-hdr {
+  padding:12px 16px; background:var(--panel-hdr-bg);
+  border-bottom:1px solid var(--panel-border);
+  display:flex; align-items:center; justify-content:space-between;
+}
+.cmp-filter-hdr-title { font-size:13px; font-weight:600; color:var(--text); }
+.cmp-filter-hdr-sub   { font-size:12px; color:var(--text-2); }
+.cmp-filter-body { padding:16px; }
+.cmp-filter-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+.cmp-filter-label { font-size:12px; font-weight:600; color:var(--text-2); text-transform:uppercase; letter-spacing:.05em; min-width:80px; }
+.cmp-chips { display:flex; flex-wrap:wrap; gap:5px; }
+.cmp-chip {
+  padding:4px 10px; border-radius:99px; border:1px solid var(--border);
+  background:var(--btn-2-bg); font-size:12px; cursor:pointer;
+  color:var(--text-2); font-family:inherit; transition:all .12s;
+}
+.cmp-chip:hover { border-color:var(--accent); color:var(--accent); }
+.cmp-chip.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+.cmp-okved-input {
+  padding:6px 10px; border-radius:6px; border:1px solid var(--inp-border);
+  background:var(--inp-bg); color:var(--inp-text); font-family:inherit; font-size:13px; width:220px;
+}
+.cmp-okved-input:focus { outline:none; border-color:var(--inp-focus); }
+.cmp-audience-result {
+  padding:12px 14px; border-radius:8px; margin-top:10px;
+  background:var(--surface-2); border:1px solid var(--panel-border);
+  font-size:13px;
+}
+.cmp-audience-row { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:8px; }
+.cmp-audience-stat { text-align:center; }
+.cmp-audience-n { font-size:22px; font-weight:750; color:var(--accent); }
+.cmp-audience-l { font-size:11.5px; color:var(--text-2); }
+.cmp-checklist { margin-top:12px; }
+.cmp-check-row { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px; }
+.cmp-check-ok  { color:var(--bdg-green-text); }
+.cmp-check-err { color:var(--bdg-red-text); }
+.cmp-check-icon { font-size:14px; width:18px; text-align:center; }
+</style>
+{% endblock %}
+
+
 {% block content %}
 <div class="campaigns-layout">
 
@@ -832,5 +881,88 @@ function scanReplies() {
     })
     .catch(function(){ btn.disabled=false; btn.textContent='Проверить ответы'; });
 }
+
+/* ── Filter-based audience JS ─────────────────────────────────────── */
+var _cfRegions = [], _cfRegionsData = [], _cfAudienceEmails = [], _cfTestSent = false;
+
+document.addEventListener('DOMContentLoaded', function() {
+  fetch('/api/filters/regions', {credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      _cfRegionsData = d;
+      var el = document.getElementById('cf-regions'); if(!el) return;
+      el.innerHTML = d.slice(0,12).map(function(r){
+        return '<button class="cmp-chip" onclick="cfTogReg(''+r.region+'')" data-r="'+r.region+'">'+r.region+'</button>';
+      }).join('');
+    });
+});
+
+function cfTogReg(reg) {
+  var idx = _cfRegions.indexOf(reg);
+  if(idx === -1) _cfRegions.push(reg); else _cfRegions.splice(idx,1);
+  document.querySelectorAll('#cf-regions .cmp-chip').forEach(function(el){
+    el.classList.toggle('on', _cfRegions.indexOf(el.dataset.r) !== -1);
+  });
+}
+
+function _cfGetFilter() {
+  var okvedRaw = (document.getElementById('cf-okved').value||'').trim();
+  var okvedList = okvedRaw ? okvedRaw.split(',').map(function(s){return s.trim();}).filter(Boolean) : [];
+  return { okved_include: okvedList, okved_mode:'main', regions: _cfRegions.slice() };
+}
+
+function cfBuildAudience() {
+  var tmpl = document.getElementById('cf-template').value;
+  var res  = document.getElementById('cf-result');
+  res.style.display = 'block';
+  res.innerHTML = '<span style="color:var(--text-2);font-size:13px">Подбираю аудиторию…</span>';
+
+  fetch('/api/campaigns/audience-from-filter', {
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({filter: _cfGetFilter(), template: tmpl})
+  }).then(function(r){return r.json();}).then(function(d){
+    _cfAudienceEmails = (d.emails||[]).map(function(e){return e.email;});
+    document.getElementById('cf-send-btn').style.display = d.ready_count > 0 ? 'inline-flex' : 'none';
+    res.innerHTML =
+      '<div class="cmp-audience-row">'
+      +'<div class="cmp-audience-stat"><div class="cmp-audience-n">'+d.total_companies+'</div><div class="cmp-audience-l">компаний найдено</div></div>'
+      +'<div class="cmp-audience-stat"><div class="cmp-audience-n" style="color:var(--bdg-green-text)">'+d.ready_count+'</div><div class="cmp-audience-l">готовы к отправке</div></div>'
+      +'<div class="cmp-audience-stat"><div class="cmp-audience-n" style="color:var(--bdg-yel-text)">'+d.skipped_count+'</div><div class="cmp-audience-l">пропущено</div></div>'
+      +'</div>'
+      +(d.ready_count > 0
+        ? '<div style="font-size:12.5px;color:var(--text-2);margin-top:6px">Нажмите «Отправить рассылку» для запуска по '+d.ready_count+' адресам.</div>'
+        : '<div style="font-size:12.5px;color:var(--bdg-red-text);margin-top:6px">Нет получателей. Измените фильтр.</div>');
+  }).catch(function(e){ res.innerHTML = '<div style="color:var(--bdg-red-text)">Ошибка: '+e.message+'</div>'; });
+}
+
+function cfSend() {
+  if(!_cfAudienceEmails.length) { cfBuildAudience(); return; }
+  if(!confirm('Запустить рассылку на '+_cfAudienceEmails.length+' адресов?')) return;
+  var tmpl = document.getElementById('cf-template').value;
+  var btn = document.getElementById('cf-send-btn');
+  btn.disabled = true; btn.textContent = '⏳ Отправляю…';
+
+  fetch('/api/campaigns/send-from-filter', {
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({filter: _cfGetFilter(), template: tmpl})
+  }).then(function(r){return r.json();}).then(function(d){
+    btn.disabled = false; btn.textContent = 'Отправить рассылку';
+    var res = document.getElementById('cf-result');
+    if(d.ok) {
+      res.innerHTML += '<div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:var(--bdg-green-bg);border:1px solid var(--bdg-green-bdr);color:var(--bdg-green-text);font-size:13px">✓ Отправлено: '+d.total_sent+' · Ошибок: '+d.total_failed+'</div>';
+      if(d.mailing_stats) {
+        document.getElementById('mailing-total').textContent = d.mailing_stats.total;
+        document.getElementById('mailing-sent').textContent  = d.mailing_stats.sent;
+        document.getElementById('mailing-remaining').textContent = d.mailing_stats.remaining;
+      }
+      setTimeout(function(){location.reload();}, 2500);
+    } else {
+      res.innerHTML += '<div style="margin-top:10px;color:var(--bdg-red-text);font-size:13px">Ошибка: '+(d.error||'')+'</div>';
+    }
+  });
+}
+/* ─────────────────────────────────────────────────────────────────── */
 </script>
 {% endblock %}
