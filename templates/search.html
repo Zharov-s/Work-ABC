@@ -1,394 +1,601 @@
 {% from "macros/icon.html" import icon %}
 {% extends "base.html" %}
 {% block title %}Поиск компаний — ABCENTRUM{% endblock %}
-{% block heading %}Поиск новых компаний{% endblock %}
+{% block heading %}Поиск{% endblock %}
 
 {% block extra_css %}
 <style>
-.search-layout { display:flex; gap:16px; align-items:flex-start; }
-
-/* Sidebar — reuse same fp-panel style as companies */
-.search-sidebar { width:264px; min-width:264px; flex-shrink:0; }
-.fp-panel,.fp-panel-header,.fp-panel-title,.fp-reset-btn,
-.fp-section,.fp-section-label,.fp-mode,.fp-mode-btn,.fp-input,
-.fp-toggle,.fp-footer,.fp-save-link,.fp-chips,.fp-chip,.fp-chip-n,
-.fp-tree,.fp-tree-row,.fp-tree-section-row,.fp-tree-arr,.fp-tree-chk,
-.fp-tree-lbl,.fp-tree-cnt,.fp-tree-children,.fp-tree-leaf,.fp-empty-tree
-{ /* inherited from companies page via main.css */ }
-
-/* Search main panel */
-.search-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:12px; }
-
-/* Controls bar */
-.search-controls {
-  background:var(--panel-bg); border:1px solid var(--panel-border);
-  border-radius:var(--panel-radius); box-shadow:var(--panel-shadow);
-  padding:14px 16px;
-  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+/* ── Mode toggle ─────────────────────────────────────────────────── */
+.search-mode-bar {
+  display: flex; gap: 0; margin-bottom: 20px;
+  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  border-radius: 10px; padding: 4px;
+  box-shadow: var(--panel-shadow); width: fit-content;
 }
-.search-controls-label { font-size:13px; color:var(--text-2); flex-shrink:0; }
-.provider-select {
-  padding:6px 10px; border-radius:6px; border:1px solid var(--inp-border);
+.search-mode-btn {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 20px; border-radius: 7px;
+  border: none; background: none; cursor: pointer;
+  font-family: inherit; font-size: 13.5px; font-weight: 500;
+  color: var(--text-2); transition: all .15s;
+}
+.search-mode-btn .mode-icon { font-size: 16px; }
+.search-mode-btn .mode-sub {
+  font-size: 11px; color: var(--text-3); display: block;
+  font-weight: 400; margin-top: 1px; text-align: left;
+}
+.search-mode-btn:hover { color: var(--text); }
+.search-mode-btn.active {
+  background: var(--accent); color: #fff;
+  box-shadow: 0 2px 8px rgba(28,58,52,.25);
+}
+.search-mode-btn.active .mode-sub { color: rgba(255,255,255,.7); }
+
+/* ── Shared layout ───────────────────────────────────────────────── */
+.search-body { display: flex; gap: 16px; align-items: flex-start; }
+.search-sidebar {
+  width: 264px; min-width: 264px; flex-shrink: 0;
+  position: sticky; top: 0;
+  max-height: calc(100vh - 160px); overflow-y: auto;
+}
+.search-sidebar::-webkit-scrollbar { width: 3px; }
+.search-sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.search-main { flex: 1; min-width: 0; }
+
+/* ── Filter panel (shared) ───────────────────────────────────────── */
+.fp-panel { background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:var(--panel-radius); box-shadow:var(--panel-shadow); overflow:hidden; }
+.fp-panel-header { padding:11px 14px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--panel-border); background:var(--panel-hdr-bg); }
+.fp-panel-title  { font-size:13px; font-weight:600; color:var(--text); }
+.fp-reset-btn    { font-size:11.5px; color:var(--text-2); background:none; border:none; cursor:pointer; padding:2px 6px; border-radius:4px; font-family:inherit; }
+.fp-reset-btn:hover { color:var(--text); background:var(--surface-2); }
+.fp-section      { padding:12px 14px; border-bottom:1px solid var(--panel-border); }
+.fp-section:last-child { border-bottom:none; }
+.fp-section-label{ font-size:11px; font-weight:600; color:var(--text-2); text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px; }
+.fp-mode         { display:flex; gap:4px; margin-bottom:9px; }
+.fp-mode-btn     { flex:1; padding:5px 0; border-radius:6px; border:1px solid var(--border); background:var(--btn-2-bg); color:var(--text-2); font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; transition:all .12s; text-align:center; }
+.fp-mode-btn.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+.fp-input        { width:100%; padding:7px 10px; border:1px solid var(--inp-border); border-radius:6px; font-size:13px; background:var(--inp-bg); color:var(--inp-text); font-family:inherit; margin-bottom:6px; transition:border-color .15s; }
+.fp-input:focus  { outline:none; border-color:var(--inp-focus); box-shadow:0 0 0 3px var(--inp-focus-ring); }
+.fp-input::placeholder { color:var(--inp-ph); }
+.fp-tree         { max-height:220px; overflow-y:auto; margin-top:2px; }
+.fp-tree::-webkit-scrollbar { width:3px; }
+.fp-tree::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+.fp-tree-row     { display:flex; align-items:center; gap:6px; padding:4px 6px; border-radius:6px; cursor:pointer; user-select:none; font-size:12.5px; color:var(--text); transition:background .1s; }
+.fp-tree-row:hover { background:var(--surface-2); }
+.fp-tree-section-row { font-weight:600; }
+.fp-tree-arr     { font-size:8px; color:var(--text-3); width:10px; text-align:center; transition:transform .15s; flex-shrink:0; }
+.fp-tree-arr.open{ transform:rotate(90deg); }
+.fp-tree-chk     { width:14px; height:14px; border:1.5px solid var(--border); border-radius:3px; flex-shrink:0; transition:all .1s; position:relative; }
+.fp-tree-chk.on  { background:var(--accent); border-color:var(--accent); }
+.fp-tree-chk.on::after { content:''; position:absolute; left:3px; top:1px; width:5px; height:8px; border:2px solid #fff; border-top:none; border-left:none; transform:rotate(40deg); }
+.fp-tree-lbl     { flex:1; line-height:1.35; }
+.fp-tree-cnt     { font-size:11px; color:var(--text-3); flex-shrink:0; }
+.fp-tree-children{ padding-left:14px; display:none; }
+.fp-tree-leaf    { padding-left:6px; }
+.fp-chips        { display:flex; flex-wrap:wrap; gap:5px; max-height:100px; overflow-y:auto; }
+.fp-chip         { padding:3px 9px; border-radius:99px; border:1px solid var(--border); background:var(--btn-2-bg); font-size:12px; cursor:pointer; color:var(--text-2); font-family:inherit; transition:all .12s; }
+.fp-chip:hover   { border-color:var(--accent); color:var(--accent); }
+.fp-chip.on      { background:var(--accent); border-color:var(--accent); color:#fff; }
+.fp-chip-n       { opacity:.65; font-size:11px; }
+.fp-toggle       { display:flex; align-items:center; gap:8px; padding:4px 0; cursor:pointer; font-size:13px; color:var(--text); user-select:none; }
+.fp-toggle input { accent-color:var(--accent); cursor:pointer; }
+.fp-footer       { padding:10px 14px; background:var(--panel-hdr-bg); border-top:1px solid var(--panel-border); font-size:12px; color:var(--text-2); display:flex; align-items:center; justify-content:space-between; gap:8px; }
+
+/* ── Internal search table ───────────────────────────────────────── */
+.int-panel { background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:var(--panel-radius); box-shadow:var(--panel-shadow); overflow:hidden; }
+.int-panel-header { padding:11px 16px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--panel-border); background:var(--panel-hdr-bg); min-height:44px; }
+.int-panel-info { font-size:12.5px; color:var(--text-2); }
+table.int-tbl { width:100%; border-collapse:collapse; font-size:13.5px; }
+table.int-tbl th { text-align:left; padding:8px 12px; background:var(--tbl-hdr-bg); border-bottom:1px solid var(--tbl-border); font-size:11.5px; font-weight:600; color:var(--tbl-hdr-text); white-space:nowrap; text-transform:uppercase; letter-spacing:.04em; }
+table.int-tbl td { padding:9px 12px; border-bottom:1px solid var(--tbl-border); vertical-align:middle; }
+table.int-tbl tr:last-child td { border-bottom:none; }
+table.int-tbl tbody tr:hover td { background:var(--tbl-row-hover); cursor:pointer; }
+.tbl-name-cell { font-weight:600; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tbl-muted     { font-size:12px; color:var(--text-2); }
+.tbl-code      { display:inline-block; font-size:12px; font-weight:600; background:var(--surface-2); border:1px solid var(--border); border-radius:5px; padding:1px 6px; color:var(--accent); }
+.tbl-has { color:var(--accent); }
+.tbl-no  { color:var(--text-3); }
+.tbl-badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:11.5px; font-weight:600; white-space:nowrap; }
+.st-verified { background:var(--bdg-green-bg); color:var(--bdg-green-text); border:1px solid var(--bdg-green-bdr); }
+.st-likely   { background:var(--bdg-blue-bg);  color:var(--bdg-blue-text);  border:1px solid var(--bdg-blue-bdr); }
+.st-review   { background:var(--bdg-yel-bg);   color:var(--bdg-yel-text);   border:1px solid var(--bdg-yel-bdr); }
+.st-conflict { background:var(--bdg-red-bg);   color:var(--bdg-red-text);   border:1px solid var(--bdg-red-bdr); }
+.st-default  { background:var(--bdg-gray-bg);  color:var(--bdg-gray-text);  border:1px solid var(--bdg-gray-bdr); }
+.int-pagination { padding:11px 16px; display:flex; align-items:center; justify-content:center; gap:4px; border-top:1px solid var(--panel-border); background:var(--panel-hdr-bg); }
+.pg-btn { min-width:32px; height:32px; padding:0 8px; border-radius:6px; border:1px solid var(--border); background:var(--btn-2-bg); color:var(--text-2); font-size:13px; cursor:pointer; font-family:inherit; transition:all .12s; }
+.pg-btn:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.pg-btn:disabled { opacity:.35; cursor:default; }
+.pg-btn.curr { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+.pg-sep { color:var(--text-3); padding:0 2px; }
+.tbl-spin { display:inline-block; width:18px; height:18px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:tspin .7s linear infinite; vertical-align:middle; margin-right:6px; }
+@keyframes tspin { to { transform:rotate(360deg); } }
+.tbl-empty-row td { text-align:center; padding:56px 20px; color:var(--text-2); }
+
+/* ── AI search panel ─────────────────────────────────────────────── */
+.ai-config-panel { background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:var(--panel-radius); box-shadow:var(--panel-shadow); padding:16px; margin-bottom:14px; }
+.ai-config-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.ai-config-label { font-size:12px; font-weight:600; color:var(--text-2); text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; }
+.ai-select, .ai-input-num {
+  padding:7px 10px; border-radius:6px; border:1px solid var(--inp-border);
   background:var(--inp-bg); color:var(--inp-text); font-family:inherit; font-size:13px;
 }
-.search-limit {
-  width:72px; padding:6px 10px; border-radius:6px; border:1px solid var(--inp-border);
-  background:var(--inp-bg); color:var(--inp-text); font-family:inherit; font-size:13px;
-  text-align:center;
-}
+.ai-select { min-width:200px; }
+.ai-input-num { width:72px; text-align:center; }
+.ai-select:focus, .ai-input-num:focus { outline:none; border-color:var(--inp-focus); }
+.ai-divider { width:1px; height:28px; background:var(--border); }
 
-/* Stats row */
-.search-stats {
-  display:flex; gap:8px; flex-wrap:wrap;
-}
-.stat-pill {
-  display:flex; align-items:center; gap:6px;
-  padding:7px 12px; border-radius:99px;
-  border:1px solid var(--panel-border);
-  background:var(--panel-bg); font-size:12.5px;
-  box-shadow:var(--shadow-sm);
-}
+/* Progress */
+.ai-progress { background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:var(--panel-radius); box-shadow:var(--panel-shadow); overflow:hidden; margin-bottom:14px; display:none; }
+.ai-progress-header { padding:11px 16px; background:var(--panel-hdr-bg); border-bottom:1px solid var(--panel-border); display:flex; align-items:center; justify-content:space-between; }
+.ai-progress-title { font-size:13px; font-weight:600; color:var(--text); }
+.ai-progress-meta { font-size:12px; color:var(--text-2); }
+.ai-bar-wrap { height:4px; background:var(--surface-2); }
+.ai-bar { height:4px; background:var(--accent); width:0%; transition:width .4s ease; }
+.ai-log { padding:10px 14px; max-height:160px; overflow-y:auto; font-size:12px; color:var(--text-2); font-family:'Menlo','Consolas',monospace; line-height:1.6; }
+.ai-log::-webkit-scrollbar { width:3px; }
+.ai-log::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+.ai-log-line { padding:1px 0; }
+.ai-log-line.ok  { color:var(--bdg-green-text); }
+.ai-log-line.err { color:var(--bdg-red-text); }
+
+/* Stats pills */
+.ai-stats { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; }
+.stat-pill { display:flex; align-items:center; gap:6px; padding:7px 12px; border-radius:99px; border:1px solid var(--panel-border); background:var(--panel-bg); font-size:12.5px; box-shadow:var(--shadow-sm); }
 .stat-pill-n { font-weight:700; font-size:14px; color:var(--text); }
 .stat-pill-l { color:var(--text-2); }
-.stat-pill.new      { border-color:var(--bdg-green-bdr);background:var(--bdg-green-bg); }
-.stat-pill.new      .stat-pill-n { color:var(--bdg-green-text); }
-.stat-pill.dupe     { border-color:var(--bdg-red-bdr);  background:var(--bdg-red-bg); }
-.stat-pill.dupe     .stat-pill-n { color:var(--bdg-red-text); }
-.stat-pill.possible { border-color:var(--bdg-yel-bdr);  background:var(--bdg-yel-bg); }
-.stat-pill.possible .stat-pill-n { color:var(--bdg-yel-text); }
-.stat-pill.review   { border-color:var(--bdg-blue-bdr); background:var(--bdg-blue-bg); }
-.stat-pill.review   .stat-pill-n { color:var(--bdg-blue-text); }
+.stat-pill.s-new { border-color:var(--bdg-green-bdr); background:var(--bdg-green-bg); }
+.stat-pill.s-new .stat-pill-n { color:var(--bdg-green-text); }
+.stat-pill.s-dup { border-color:var(--bdg-red-bdr); background:var(--bdg-red-bg); }
+.stat-pill.s-dup .stat-pill-n { color:var(--bdg-red-text); }
+.stat-pill.s-pos { border-color:var(--bdg-yel-bdr); background:var(--bdg-yel-bg); }
+.stat-pill.s-pos .stat-pill-n { color:var(--bdg-yel-text); }
+.stat-pill.s-rev { border-color:var(--bdg-blue-bdr); background:var(--bdg-blue-bg); }
+.stat-pill.s-rev .stat-pill-n { color:var(--bdg-blue-text); }
 
-/* Filter tabs */
-.cand-tabs { display:flex; gap:6px; flex-wrap:wrap; }
-.cand-tab {
-  padding:5px 13px; border-radius:99px; border:1px solid var(--border);
-  background:var(--btn-2-bg); color:var(--text-2); font-size:12.5px;
-  cursor:pointer; font-family:inherit; transition:all .12s; font-weight:500;
-}
-.cand-tab:hover { border-color:var(--accent); color:var(--accent); }
-.cand-tab.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
-.cand-tab-n { font-size:11px; opacity:.75; }
-
-/* Results panel */
-.cand-panel {
-  background:var(--panel-bg); border:1px solid var(--panel-border);
-  border-radius:var(--panel-radius); box-shadow:var(--panel-shadow); overflow:hidden;
-}
-.cand-panel-header {
-  padding:11px 16px; border-bottom:1px solid var(--panel-border);
-  background:var(--panel-hdr-bg); display:flex; align-items:center;
-  justify-content:space-between;
-}
-.cand-panel-title { font-size:13px; font-weight:600; color:var(--text); }
-.cand-panel-info  { font-size:12px; color:var(--text-2); }
+/* Candidate filter tabs */
+.cand-filter-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+.cft { padding:5px 13px; border-radius:99px; border:1px solid var(--border); background:var(--btn-2-bg); color:var(--text-2); font-size:12.5px; cursor:pointer; font-family:inherit; font-weight:500; transition:all .12s; }
+.cft:hover { border-color:var(--accent); color:var(--accent); }
+.cft.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
 
 /* Candidate cards */
+.cand-panel { background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:var(--panel-radius); box-shadow:var(--panel-shadow); overflow:hidden; }
+.cand-panel-hdr { padding:11px 16px; background:var(--panel-hdr-bg); border-bottom:1px solid var(--panel-border); display:flex; align-items:center; justify-content:space-between; }
+.cand-panel-ttl { font-size:13px; font-weight:600; color:var(--text); }
+.cand-panel-inf { font-size:12px; color:var(--text-2); }
 .cand-list { padding:8px; }
-.cand-card {
-  display:flex; gap:12px; align-items:flex-start;
-  padding:12px 10px; border-radius:10px; border:1px solid var(--panel-border);
-  background:var(--surface); margin-bottom:7px; transition:background .12s;
-}
+.cand-card { display:flex; gap:12px; align-items:flex-start; padding:12px 10px; border-radius:10px; border:1px solid var(--panel-border); background:var(--surface); margin-bottom:6px; transition:background .12s; }
 .cand-card:last-child { margin-bottom:0; }
 .cand-card:hover { background:var(--surface-2); }
-.cand-card-body { flex:1; min-width:0; }
-.cand-name { font-weight:600; font-size:13.5px; color:var(--text); margin-bottom:3px; }
-.cand-meta { font-size:12px; color:var(--text-2); display:flex; flex-wrap:wrap; gap:8px; }
-.cand-meta-item { display:flex; align-items:center; gap:3px; }
-.cand-actions { display:flex; gap:5px; flex-shrink:0; align-items:center; }
-.cand-btn {
-  padding:5px 11px; border-radius:6px; border:1px solid var(--border);
-  background:var(--btn-2-bg); color:var(--text-2); font-size:12px;
-  cursor:pointer; font-family:inherit; font-weight:500; transition:all .12s;
-  white-space:nowrap;
-}
+.cand-body { flex:1; min-width:0; }
+.cand-name { font-weight:600; font-size:13.5px; color:var(--text); margin-bottom:4px; }
+.cand-meta { font-size:12px; color:var(--text-2); display:flex; flex-wrap:wrap; gap:10px; }
+.cand-acts { display:flex; gap:5px; flex-shrink:0; align-items:center; }
+.cand-btn { padding:5px 11px; border-radius:6px; border:1px solid var(--border); background:var(--btn-2-bg); color:var(--text-2); font-size:12px; cursor:pointer; font-family:inherit; font-weight:500; transition:all .12s; white-space:nowrap; }
 .cand-btn:hover { border-color:var(--accent); color:var(--accent); }
-.cand-btn-primary { background:var(--accent); border-color:var(--accent); color:#fff; }
-.cand-btn-primary:hover { background:var(--accent-hover); color:#fff; }
-.cand-btn-danger { border-color:var(--bdg-red-bdr); color:var(--bdg-red-text); }
-.cand-btn-danger:hover { background:var(--bdg-red-bg); }
-
-/* Status badges */
+.cand-btn-ok  { background:var(--accent); border-color:var(--accent); color:#fff; }
+.cand-btn-ok:hover { background:var(--accent-hover); color:#fff; }
+.cand-btn-del { border-color:var(--bdg-red-bdr); color:var(--bdg-red-text); }
+.cand-btn-del:hover { background:var(--bdg-red-bg); }
 .ds-new      { background:var(--bdg-green-bg); color:var(--bdg-green-text); border:1px solid var(--bdg-green-bdr); }
 .ds-duplicate{ background:var(--bdg-red-bg);   color:var(--bdg-red-text);   border:1px solid var(--bdg-red-bdr); }
 .ds-possible { background:var(--bdg-yel-bg);   color:var(--bdg-yel-text);   border:1px solid var(--bdg-yel-bdr); }
 .ds-review   { background:var(--bdg-blue-bg);  color:var(--bdg-blue-text);  border:1px solid var(--bdg-blue-bdr); }
-.ds-imported { background:var(--bdg-gray-bg);  color:var(--bdg-gray-text);  border:1px solid var(--bdg-gray-bdr); }
-.ds-rejected { background:var(--bdg-gray-bg);  color:var(--bdg-gray-text);  border:1px solid var(--bdg-gray-bdr); opacity:.6; }
-
-.cand-status-badge {
-  display:inline-block; padding:2px 8px; border-radius:99px;
-  font-size:11.5px; font-weight:600;
-}
-.cand-empty { padding:64px 20px; text-align:center; color:var(--text-2); font-size:14px; }
-.cand-spinner {
-  display:inline-block; width:18px; height:18px;
-  border:2px solid var(--border); border-top-color:var(--accent);
-  border-radius:50%; animation:spin .7s linear infinite; vertical-align:middle; margin-right:6px;
-}
-@keyframes spin { to { transform:rotate(360deg); } }
+.ds-imported,.ds-rejected { background:var(--bdg-gray-bg); color:var(--bdg-gray-text); border:1px solid var(--bdg-gray-bdr); }
+.cand-ds { display:inline-block; padding:2px 8px; border-radius:99px; font-size:11.5px; font-weight:600; }
+.cand-empty { padding:56px 20px; text-align:center; color:var(--text-2); font-size:14px; }
+.ai-spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; animation:tspin .7s linear infinite; vertical-align:middle; margin-right:5px; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="search-layout">
 
-  <!-- ── Filter sidebar ── -->
+<!-- ── Mode toggle ─────────────────────────────────────────────── -->
+<div class="search-mode-bar">
+  <button class="search-mode-btn active" id="mode-btn-internal" onclick="setMode('internal')">
+    <span class="mode-icon">🔍</span>
+    <span>
+      По базе компаний
+      <span class="mode-sub">Поиск и фильтрация внутренней базы</span>
+    </span>
+  </button>
+  <button class="search-mode-btn" id="mode-btn-ai" onclick="setMode('ai')">
+    <span class="mode-icon">🤖</span>
+    <span>
+      Найти новые компании
+      <span class="mode-sub">ИИ + веб, дедупликация, 1–50 за запрос</span>
+    </span>
+  </button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- MODE 1: Internal search                                        -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="mode-internal">
+<div class="search-body">
   <aside class="search-sidebar">
     <div class="fp-panel">
       <div class="fp-panel-header">
-        <span class="fp-panel-title">Фильтры поиска</span>
-        <button class="fp-reset-btn" onclick="sReset()">Сбросить</button>
+        <span class="fp-panel-title">Фильтры</span>
+        <button class="fp-reset-btn" onclick="intReset()">Сбросить</button>
       </div>
       <div class="fp-section">
-        <div class="fp-section-label">Сфера деятельности (ОКВЭД)</div>
+        <div class="fp-section-label">ОКВЭД</div>
         <div class="fp-mode">
-          <button class="fp-mode-btn active" id="s-mode-main" onclick="sSetMode('main')">Основной</button>
-          <button class="fp-mode-btn" id="s-mode-all" onclick="sSetMode('all')">Все ОКВЭД</button>
+          <button class="fp-mode-btn active" id="int-mode-main" onclick="intSetMode('main')">Основной</button>
+          <button class="fp-mode-btn" id="int-mode-all" onclick="intSetMode('all')">Все</button>
         </div>
-        <input class="fp-input" id="s-okved-q" type="text" placeholder="Поиск по коду…" oninput="sBuildTree(this.value)">
-        <div class="fp-tree" id="s-tree"></div>
+        <input class="fp-input" id="int-okved-q" type="text" placeholder="Поиск по коду…" oninput="intBuildTree(this.value)">
+        <div class="fp-tree" id="int-tree"></div>
       </div>
       <div class="fp-section">
-        <div class="fp-section-label">Регион</div>
-        <div class="fp-chips" id="s-regions"></div>
+        <div class="fp-section-label">Поиск</div>
+        <input class="fp-input" id="int-q" type="text" placeholder="Название, ИНН, сайт…" oninput="intDebounce()">
       </div>
       <div class="fp-section">
         <div class="fp-section-label">Отрасль</div>
-        <div class="fp-chips" id="s-industries"></div>
+        <div class="fp-chips" id="int-industries"></div>
+      </div>
+      <div class="fp-section">
+        <div class="fp-section-label">Регион</div>
+        <div class="fp-chips" id="int-regions"></div>
+      </div>
+      <div class="fp-section">
+        <div class="fp-section-label">Каналы</div>
+        <label class="fp-toggle"><input type="checkbox" id="int-has-email"   onchange="intApply()"> Есть email</label>
+        <label class="fp-toggle"><input type="checkbox" id="int-has-phone"   onchange="intApply()"> Есть телефон</label>
+        <label class="fp-toggle"><input type="checkbox" id="int-has-website" onchange="intApply()"> Есть сайт</label>
       </div>
       <div class="fp-footer">
-        <span style="font-size:12px;color:var(--text-2)">scope: external</span>
+        <span id="int-count">—</span>
       </div>
     </div>
   </aside>
 
-  <!-- ── Main ── -->
   <div class="search-main">
+    <div class="int-panel">
+      <div class="int-panel-header">
+        <span class="int-panel-info" id="int-info">Загрузка…</span>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-secondary btn-sm" onclick="intExport()">{{ icon("export") }} Экспорт</button>
+          <button class="btn btn-primary btn-sm" onclick="intToCompanies()">{{ icon("building") }} Открыть в «Компаниях»</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="int-tbl">
+          <thead>
+            <tr>
+              <th>Компания</th><th>ИНН</th><th>Регион</th>
+              <th>Отрасль</th><th>ОКВЭД</th>
+              <th>Email</th><th>Тел.</th><th>Сайт</th><th>Качество</th>
+            </tr>
+          </thead>
+          <tbody id="int-tbody">
+            <tr class="tbl-loading"><td colspan="9" style="text-align:center;padding:56px 20px;color:var(--text-2)"><span class="tbl-spin"></span>Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="int-pagination" id="int-pg"></div>
+    </div>
+  </div>
+</div>
+</div>
 
-    <!-- Controls -->
-    <div class="search-controls">
-      <span class="search-controls-label">Источник:</span>
-      <select class="provider-select" id="s-provider">
-        <option value="mock">Mock (тест)</option>
-        <option value="kontur" disabled>Контур.Фокус (не подключён)</option>
-        <option value="dadata" disabled>DaData (не подключён)</option>
-      </select>
-      <span class="search-controls-label">Лимит:</span>
-      <input class="search-limit" id="s-limit" type="number" value="20" min="1" max="50">
-      <button class="btn btn-primary" id="s-run-btn" onclick="sRunSearch()">
-        {{ icon("search") }} Найти компании
-      </button>
-      <span id="s-run-status" style="font-size:12.5px;color:var(--text-2)"></span>
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- MODE 2: AI search                                              -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div id="mode-ai" style="display:none">
+<div class="search-body">
+  <aside class="search-sidebar">
+    <div class="fp-panel">
+      <div class="fp-panel-header">
+        <span class="fp-panel-title">Параметры поиска</span>
+        <button class="fp-reset-btn" onclick="aiReset()">Сбросить</button>
+      </div>
+      <div class="fp-section">
+        <div class="fp-section-label">ОКВЭД</div>
+        <div class="fp-mode">
+          <button class="fp-mode-btn active" id="ai-mode-main" onclick="aiSetMode('main')">Основной</button>
+          <button class="fp-mode-btn" id="ai-mode-all"  onclick="aiSetMode('all')">Все</button>
+        </div>
+        <input class="fp-input" id="ai-okved-q" type="text" placeholder="Поиск по коду…" oninput="aiBuildTree(this.value)">
+        <div class="fp-tree" id="ai-tree"></div>
+      </div>
+      <div class="fp-section">
+        <div class="fp-section-label">Регион</div>
+        <div class="fp-chips" id="ai-regions"></div>
+      </div>
+      <div class="fp-section">
+        <div class="fp-section-label">Отрасль</div>
+        <div class="fp-chips" id="ai-industries"></div>
+      </div>
+      <div class="fp-footer" style="flex-direction:column;align-items:flex-start;gap:4px">
+        <div style="font-size:11.5px;color:var(--text-2)">Результаты попадают в список кандидатов — не в базу напрямую.</div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="search-main">
+    <!-- AI config -->
+    <div class="ai-config-panel">
+      <div class="ai-config-row">
+        <span class="ai-config-label">ИИ-модель:</span>
+        <select class="ai-select" id="ai-model">
+          <option value="llama3.1:8b">llama3.1:8b (рекомендуется)</option>
+          <option value="qwen2.5:7b">qwen2.5:7b</option>
+          <option value="gemma3:4b" selected>gemma3:4b (текущий)</option>
+          <option value="mistral:7b">mistral:7b</option>
+          <option value="llama3.2:3b">llama3.2:3b (быстрый)</option>
+        </select>
+        <div class="ai-divider"></div>
+        <span class="ai-config-label">Найти:</span>
+        <input class="ai-input-num" id="ai-count" type="number" value="10" min="1" max="50">
+        <span style="font-size:12.5px;color:var(--text-2)">компаний (1–50)</span>
+        <div class="ai-divider"></div>
+        <button class="btn btn-primary" id="ai-run-btn" onclick="aiRunSearch()">
+          🤖 Запустить поиск
+        </button>
+        <button class="btn btn-secondary" id="ai-stop-btn" onclick="aiStop()" style="display:none">
+          ⏹ Остановить
+        </button>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="ai-progress" id="ai-progress">
+      <div class="ai-progress-header">
+        <span class="ai-progress-title" id="ai-progress-title">Поиск компаний…</span>
+        <span class="ai-progress-meta" id="ai-progress-meta">0 / 0</span>
+      </div>
+      <div class="ai-bar-wrap"><div class="ai-bar" id="ai-bar"></div></div>
+      <div class="ai-log" id="ai-log"></div>
     </div>
 
     <!-- Stats -->
-    <div class="search-stats" id="s-stats" style="display:none">
-      <div class="stat-pill new">    <span class="stat-pill-n" id="st-new">0</span><span class="stat-pill-l">Новых</span></div>
-      <div class="stat-pill possible"><span class="stat-pill-n" id="st-pos">0</span><span class="stat-pill-l">Возм. дубли</span></div>
-      <div class="stat-pill dupe">   <span class="stat-pill-n" id="st-dup">0</span><span class="stat-pill-l">Дубли</span></div>
-      <div class="stat-pill review"> <span class="stat-pill-n" id="st-rev">0</span><span class="stat-pill-l">На проверку</span></div>
-      <div class="stat-pill">        <span class="stat-pill-n" id="st-imp">0</span><span class="stat-pill-l">Импортировано</span></div>
+    <div class="ai-stats" id="ai-stats" style="display:none">
+      <div class="stat-pill s-new"><span class="stat-pill-n" id="st-new">0</span><span class="stat-pill-l">Новых</span></div>
+      <div class="stat-pill s-pos"><span class="stat-pill-n" id="st-pos">0</span><span class="stat-pill-l">Возм. дубли</span></div>
+      <div class="stat-pill s-dup"><span class="stat-pill-n" id="st-dup">0</span><span class="stat-pill-l">Дубли</span></div>
+      <div class="stat-pill s-rev"><span class="stat-pill-n" id="st-rev">0</span><span class="stat-pill-l">На проверку</span></div>
+      <div class="stat-pill">     <span class="stat-pill-n" id="st-imp">0</span><span class="stat-pill-l">Импортировано</span></div>
     </div>
 
-    <!-- Status filter tabs -->
-    <div class="cand-tabs" id="s-tabs">
-      <button class="cand-tab active" onclick="sCandFilter(null,this)">Все</button>
-      <button class="cand-tab" onclick="sCandFilter('new',this)">Новые</button>
-      <button class="cand-tab" onclick="sCandFilter('possible_duplicate',this)">Возм. дубли</button>
-      <button class="cand-tab" onclick="sCandFilter('needs_review',this)">Проверка</button>
-      <button class="cand-tab" onclick="sCandFilter('imported',this)">Импортированные</button>
+    <!-- Candidate filter tabs -->
+    <div class="cand-filter-tabs" id="ai-cand-tabs">
+      <button class="cft on"  onclick="aiCandFilter(null,this)">Все</button>
+      <button class="cft"     onclick="aiCandFilter('new',this)">Новые</button>
+      <button class="cft"     onclick="aiCandFilter('possible_duplicate',this)">Возм. дубли</button>
+      <button class="cft"     onclick="aiCandFilter('needs_review',this)">Проверка</button>
+      <button class="cft"     onclick="aiCandFilter('imported',this)">Импортированные</button>
     </div>
 
-    <!-- Results -->
+    <!-- Candidates -->
     <div class="cand-panel">
-      <div class="cand-panel-header">
-        <span class="cand-panel-title">Кандидаты</span>
-        <span class="cand-panel-info" id="s-cand-info">—</span>
+      <div class="cand-panel-hdr">
+        <span class="cand-panel-ttl">Найденные компании — кандидаты на добавление</span>
+        <span class="cand-panel-inf" id="ai-cand-info">—</span>
       </div>
-      <div id="s-cand-list" class="cand-list">
-        <div class="cand-empty">Выберите фильтры и нажмите «Найти компании»</div>
+      <div id="ai-cand-list" class="cand-list">
+        <div class="cand-empty">Запустите поиск, чтобы найти новые компании. ИИ будет искать через веб и отсекать дубли автоматически.</div>
       </div>
     </div>
-
   </div>
 </div>
+</div>
+
+{% include "partials/company_card.html" %}
 {% endblock %}
 
 {% block scripts %}
 <script>
-var SF = { mode:'main', okved:[], regions:[], industries:[], _tree:[], _rdata:[], _idata:[] };
-var _candFilter = null;
+/* ═══════════════════════════════════════════════════════════════
+   Shared data
+═══════════════════════════════════════════════════════════════ */
+var _sharedTree = [], _sharedRegions = [], _sharedIndustries = [];
+var _currentMode = 'internal';
+var _aiRunId = null, _aiPollTimer = null, _aiCandFilter = null;
 
-// ── Init ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
   Promise.all([
     fetch('/api/filters/okved-tree').then(function(r){return r.json();}),
     fetch('/api/filters/regions').then(function(r){return r.json();}),
     fetch('/api/filters/industry-groups').then(function(r){return r.json();}),
-  ]).then(function(res){
-    SF._tree=res[0]; SF._rdata=res[1]; SF._idata=res[2];
-    sBuildTree('');
-    _chips('s-regions',   res[1],'region',   SF.regions);
-    _chips('s-industries',res[2],'name',      SF.industries);
+  ]).then(function(res) {
+    _sharedTree = res[0]; _sharedRegions = res[1]; _sharedIndustries = res[2];
+    // Internal mode
+    INT.tree = res[0]; INT.rdata = res[1]; INT.idata = res[2];
+    intBuildTree('');
+    _chips('int-industries', res[2], 'name',   INT.industries);
+    _chips('int-regions',    res[1], 'region', INT.regions);
+    intApply();
+    // AI mode
+    AI.rdata = res[1]; AI.idata = res[2];
+    aiBuildTree('');
+    _chips('ai-regions',    res[1], 'region', AI.regions);
+    _chips('ai-industries', res[2], 'name',   AI.industries);
   });
-  // Load existing candidates
-  loadCandidates(null);
+  aiLoadCandidates(null);
+  aiLoadStats();
 });
 
-// ── Filter sidebar (same as companies) ───────────────────────────
-function sSetMode(m){
-  SF.mode=m;
-  document.getElementById('s-mode-main').classList.toggle('active',m==='main');
-  document.getElementById('s-mode-all').classList.toggle('active',m==='all');
+/* ── Mode switch ─────────────────────────────────────────────── */
+function setMode(m) {
+  _currentMode = m;
+  document.getElementById('mode-internal').style.display = m === 'internal' ? 'block' : 'none';
+  document.getElementById('mode-ai').style.display       = m === 'ai'       ? 'block' : 'none';
+  document.getElementById('mode-btn-internal').classList.toggle('active', m === 'internal');
+  document.getElementById('mode-btn-ai').classList.toggle('active', m === 'ai');
 }
-function sReset(){
-  SF.okved=[]; SF.regions=[]; SF.industries=[]; SF.mode='main';
-  document.getElementById('s-okved-q').value='';
-  sSetMode('main'); sBuildTree('');
-  _chips('s-regions',SF._rdata,'region',SF.regions);
-  _chips('s-industries',SF._idata,'name',SF.industries);
+
+/* ═══════════════════════════════════════════════════════════════
+   MODE 1 — Internal
+═══════════════════════════════════════════════════════════════ */
+var INT = { mode:'main', okved:[], regions:[], industries:[], _timer:null, tree:[], rdata:[], idata:[] };
+var _intPage = 1, _intTotalPages = 1, _intLastReq = {};
+
+function intSetMode(m){ INT.mode=m; document.getElementById('int-mode-main').classList.toggle('active',m==='main'); document.getElementById('int-mode-all').classList.toggle('active',m==='all'); intApply(); }
+function intReset(){ INT.okved=[]; INT.regions=[]; INT.industries=[]; INT.mode='main'; document.getElementById('int-q').value=''; document.getElementById('int-okved-q').value=''; ['int-has-email','int-has-phone','int-has-website'].forEach(function(id){ var el=document.getElementById(id); if(el) el.checked=false; }); intSetMode('main'); intBuildTree(''); _chips('int-industries',INT.idata,'name',INT.industries); _chips('int-regions',INT.rdata,'region',INT.regions); intApply(); }
+function intDebounce(){ clearTimeout(INT._timer); INT._timer=setTimeout(intApply,350); }
+
+function intApply(){
+  _intPage=1;
+  var req={ q:document.getElementById('int-q').value||'', okved_include:INT.okved.slice(), okved_mode:INT.mode, regions:INT.regions.slice(), industry_groups:INT.industries.slice(), has_email:!!(document.getElementById('int-has-email')||{}).checked, has_phone:!!(document.getElementById('int-has-phone')||{}).checked, has_website:!!(document.getElementById('int-has-website')||{}).checked };
+  // Count preview
+  fetch('/api/filters/count-preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req)}).then(function(r){return r.json();}).then(function(d){ document.getElementById('int-count').textContent='Найдено: '+d.total+' · '+d.with_email+' с email'; });
+  intLoad(req,1);
 }
-function sBuildTree(q){
-  var el=document.getElementById('s-tree'); if(!el) return;
-  q=(q||'').toLowerCase();
-  var html='';
-  SF._tree.forEach(function(sect){
-    var sm=!q||(sect.section+' '+sect.name).toLowerCase().indexOf(q)!==-1;
-    var ch=''; var cMatch=false;
-    (sect.classes||[]).forEach(function(cls){
-      var cm=!q||(cls.code+' '+cls.name).toLowerCase().indexOf(q)!==-1;
-      var lh='';
-      (cls.codes||[]).forEach(function(code){
-        var dm=!q||(code.code+' '+code.name).toLowerCase().indexOf(q)!==-1;
-        if(!dm&&q) return; cMatch=cm=sm=true;
-        var on=SF.okved.indexOf(code.code)!==-1;
-        lh+='<div class="fp-tree-row fp-tree-leaf" onclick="sTogOkved(\''+code.code+'\')">'
-          +'<div class="fp-tree-chk'+(on?' on':'')+'"></div>'
-          +'<span class="fp-tree-lbl">'+code.code+' — '+_e(code.name)+'</span>'
-          +(code.company_count?'<span class="fp-tree-cnt">'+code.company_count+'</span>':'')+'</div>';
-      });
-      if(!cm&&!lh&&q) return;
-      var on=SF.okved.indexOf(cls.code)!==-1;
-      ch+='<div><div class="fp-tree-row" onclick="sTogOkved(\''+cls.code+'\')">'
-        +'<span class="fp-tree-arr'+(q?' open':'') +'" data-scls="'+cls.code+'">▶</span>'
-        +'<div class="fp-tree-chk'+(on?' on':'')+'"></div>'
-        +'<span class="fp-tree-lbl">'+cls.code+' — '+_e(cls.name)+'</span>'
-        +'<span class="fp-tree-cnt">'+cls.company_count+'</span></div>'
-        +'<div class="fp-tree-children" id="scl-'+cls.code+'" style="display:'+(q?'block':'none')+'">'+lh+'</div></div>';
+
+function intLoad(req,page){
+  _intPage=page||1; _intLastReq=Object.assign({},req||_intLastReq,{page:_intPage,per_page:50});
+  var tbody=document.getElementById('int-tbody');
+  tbody.innerHTML='<tr><td colspan="9" style="text-align:center;padding:48px;color:var(--text-2)"><span class="tbl-spin"></span>Загрузка…</td></tr>';
+  fetch('/api/companies/filter',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_intLastReq)})
+    .then(function(r){return r.json();}).then(function(d){
+      _intTotalPages=d.total_pages||1;
+      document.getElementById('int-info').textContent='Найдено: '+d.total+' компаний · стр. '+d.page+' из '+d.total_pages;
+      if(!d.companies||!d.companies.length){ tbody.innerHTML='<tr class="tbl-empty-row"><td colspan="9">Компании не найдены.</td></tr>'; document.getElementById('int-pg').innerHTML=''; return; }
+      tbody.innerHTML=d.companies.map(function(c){
+        var st=c.match_status||'manual_review';
+        var sc={verified:'st-verified',likely:'st-likely',conflict:'st-conflict',manual_review:'st-review'}[st]||'st-default';
+        var sl={verified:'Подтверждён',likely:'Вероятно',conflict:'Конфликт',manual_review:'Проверка',not_found:'Не найден'}[st]||'—';
+        var ok=c.okved_main_code&&c.okved_main_code!=='NOT_FOUND'?c.okved_main_code:null;
+        return '<tr onclick="openCompanyCard(\''+c.company_id+'\')" title="Открыть карточку">'
+          +'<td class="tbl-name-cell">'+_e(c.company_name_original||'—')+'</td>'
+          +'<td class="tbl-muted" style="font-family:monospace">'+_e(c.inn||'—')+'</td>'
+          +'<td class="tbl-muted">'+_e(c.region||'—')+'</td>'
+          +'<td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--text-2)" title="'+_e(c.industry_group_final||'')+'">'+_e(c.industry_group_final||'—')+'</td>'
+          +'<td>'+(ok?'<span class="tbl-code">'+ok+'</span>':'<span class="tbl-no">—</span>')+'</td>'
+          +'<td><span class="'+(c.emails_all?'tbl-has':'tbl-no')+'">'+(c.emails_all?'✓':'—')+'</span></td>'
+          +'<td><span class="'+(c.mobile_phones_all||c.landline_phones_all?'tbl-has':'tbl-no')+'">'+(c.mobile_phones_all||c.landline_phones_all?'✓':'—')+'</span></td>'
+          +'<td>'+(c.website?'<a href="'+_e(c.website)+'" target="_blank" onclick="event.stopPropagation()" style="color:var(--link);font-size:12px">↗</a>':'<span class="tbl-no">—</span>')+'</td>'
+          +'<td><span class="tbl-badge '+sc+'">'+sl+'</span></td>'
+          +'</tr>';
+      }).join('');
+      _intRenderPg(d.page,d.total_pages);
     });
-    if(!sm&&!ch&&q) return;
-    var on=SF.okved.indexOf(sect.section)!==-1;
-    html+='<div><div class="fp-tree-row fp-tree-section-row" onclick="sTogOkved(\''+sect.section+'\')">'
-      +'<span class="fp-tree-arr'+(q?' open':'')+'" data-ssec="'+sect.section+'">▶</span>'
-      +'<div class="fp-tree-chk'+(on?' on':'')+'"></div>'
-      +'<span class="fp-tree-lbl"><b>'+sect.section+'</b> — '+_e(sect.name)+'</span>'
-      +'<span class="fp-tree-cnt">'+sect.company_count+'</span></div>'
-      +'<div class="fp-tree-children" id="sse-'+sect.section+'" style="display:'+(q?'block':'none')+'">'+ch+'</div></div>';
-  });
-  el.innerHTML=html||'<div class="fp-empty-tree">Ничего не найдено</div>';
 }
 
-function sTogOkved(code){
-  var idx=SF.okved.indexOf(code);
-  if(idx===-1) SF.okved.push(code); else SF.okved.splice(idx,1);
-  sBuildTree(document.getElementById('s-okved-q').value);
+function _intRenderPg(p,t){
+  var el=document.getElementById('int-pg');
+  if(t<=1){el.innerHTML='';return;}
+  var h='<button class="pg-btn" onclick="_intGo('+(p-1)+')" '+(p<=1?'disabled':'')+'>‹</button>';
+  var s=Math.max(1,p-2),e=Math.min(t,p+2);
+  if(s>1) h+='<button class="pg-btn" onclick="_intGo(1)">1</button>'+(s>2?'<span class="pg-sep">…</span>':'');
+  for(var i=s;i<=e;i++) h+='<button class="pg-btn'+(i===p?' curr':'')+'" onclick="_intGo('+i+')">'+i+'</button>';
+  if(e<t) h+=(e<t-1?'<span class="pg-sep">…</span>':'')+'<button class="pg-btn" onclick="_intGo('+t+')">'+t+'</button>';
+  h+='<button class="pg-btn" onclick="_intGo('+(p+1)+')" '+(p>=t?'disabled':'')+'>›</button>';
+  el.innerHTML=h;
 }
+function _intGo(p){ intLoad(_intLastReq,p); }
+function intToCompanies(){ window.location='/companies'; }
+function intExport(){ _toast('Экспорт: Этап 11'); }
 
-// Tree expand
-document.addEventListener('click',function(e){
-  var arr=e.target.closest('.fp-tree-arr');
-  if(!arr) return; e.stopPropagation();
-  var id=arr.dataset.ssec?'sse-'+arr.dataset.ssec:arr.dataset.scls?'scl-'+arr.dataset.scls:null;
-  if(!id) return;
-  var ch=document.getElementById(id); if(!ch) return;
-  var open=ch.style.display!=='none';
-  ch.style.display=open?'none':'block';
-  arr.classList.toggle('open',!open);
-});
+function intBuildTree(q){ _buildTree('int-tree',INT,'int-okved-q',INT.okved,q); }
 
-function _chips(elId,items,key,arr){
-  var el=document.getElementById(elId); if(!el) return;
-  if(!items.length){el.innerHTML='<span style="font-size:12px;color:var(--text-3)">—</span>';return;}
-  el.innerHTML=items.map(function(item){
-    var val=item[key],n=item.company_count||'',on=arr.indexOf(val)!==-1;
-    return '<button class="fp-chip'+(on?' on':'')+'" onclick="sChip(\''+elId+'\',\''+_e(val)+'\')">'
-      +_e(val)+(n?'<span class="fp-chip-n"> '+n+'</span>':'')+' </button>';
-  }).join('');
-}
+/* ═══════════════════════════════════════════════════════════════
+   MODE 2 — AI search
+═══════════════════════════════════════════════════════════════ */
+var AI = { mode:'main', okved:[], regions:[], industries:[], rdata:[], idata:[] };
 
-function sChip(elId,val){
-  var arr=elId==='s-regions'?SF.regions:SF.industries;
-  var idx=arr.indexOf(val); if(idx===-1) arr.push(val); else arr.splice(idx,1);
-  _chips(elId,elId==='s-regions'?SF._rdata:SF._idata,elId==='s-regions'?'region':'name',arr);
-}
+function aiSetMode(m){ AI.mode=m; document.getElementById('ai-mode-main').classList.toggle('active',m==='main'); document.getElementById('ai-mode-all').classList.toggle('active',m==='all'); }
+function aiReset(){ AI.okved=[]; AI.regions=[]; AI.industries=[]; document.getElementById('ai-okved-q').value=''; aiSetMode('main'); aiBuildTree(''); _chips('ai-regions',AI.rdata,'region',AI.regions); _chips('ai-industries',AI.idata,'name',AI.industries); }
+function aiBuildTree(q){ _buildTree('ai-tree',AI,'ai-okved-q',AI.okved,q); }
 
-// ── Build filter request ─────────────────────────────────────────
-function sGetReq(){
-  return {
-    okved_include: SF.okved.slice(),
-    okved_mode: SF.mode,
-    regions: SF.regions.slice(),
-    industry_groups: SF.industries.slice(),
-    scope: 'external',
-  };
-}
+function aiRunSearch(){
+  var count=Math.max(1,Math.min(50,parseInt(document.getElementById('ai-count').value)||10));
+  var model=document.getElementById('ai-model').value;
+  var req={okved_include:AI.okved.slice(),okved_mode:AI.mode,regions:AI.regions.slice(),industry_groups:AI.industries.slice(),count:count,model:model,contact_requirements:['company_name','website','generic_email']};
 
-// ── Run search ───────────────────────────────────────────────────
-function sRunSearch(){
-  var btn=document.getElementById('s-run-btn');
-  var status=document.getElementById('s-run-status');
-  btn.disabled=true;
-  status.innerHTML='<span class="cand-spinner"></span>Поиск…';
-  document.getElementById('s-cand-list').innerHTML='<div class="cand-empty"><span class="cand-spinner"></span> Поиск компаний…</div>';
+  document.getElementById('ai-run-btn').disabled=true;
+  document.getElementById('ai-run-btn').innerHTML='<span class="ai-spinner"></span>Запуск…';
+  document.getElementById('ai-stop-btn').style.display='inline-flex';
+  document.getElementById('ai-progress').style.display='block';
+  document.getElementById('ai-log').innerHTML='';
+  document.getElementById('ai-bar').style.width='0%';
+  document.getElementById('ai-progress-meta').textContent='0 / '+count;
+  document.getElementById('ai-progress-title').textContent='Поиск компаний через ИИ…';
 
-  fetch('/api/search/external',{
-    method:'POST', credentials:'same-origin',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      filter:sGetReq(),
-      provider:document.getElementById('s-provider').value,
-      limit:parseInt(document.getElementById('s-limit').value)||20
-    })
-  }).then(function(r){return r.json();})
+  fetch('/api/search/ai-start',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(req)})
+    .then(function(r){return r.json();})
     .then(function(d){
-      btn.disabled=false;
-      if(!d.ok){ status.textContent='Ошибка: '+(d.error||''); return; }
-      status.textContent='Найдено: '+d.total_found+' · Сохранено: '+d.saved;
-      loadCandidates(_candFilter);
-      loadStats();
+      if(!d.ok){ _aiDone('Ошибка: '+(d.error||'')); return; }
+      _aiRunId=d.run_id;
+      _aiPollTimer=setInterval(function(){ _aiPoll(d.run_id,count); },2000);
     })
-    .catch(function(e){ btn.disabled=false; status.textContent='Ошибка: '+e.message; });
+    .catch(function(e){ _aiDone('Ошибка: '+e.message); });
 }
 
-// ── Load candidates ──────────────────────────────────────────────
-function sCandFilter(status,btn){
-  _candFilter=status;
-  document.querySelectorAll('.cand-tab').forEach(function(el){ el.classList.remove('active'); });
-  if(btn) btn.classList.add('active');
-  loadCandidates(status);
+function _aiPoll(runId,target){
+  fetch('/api/search/ai-status/'+runId,{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var found=d.found_count||0;
+      var pct=target>0?Math.min(100,Math.round(found/target*100)):0;
+      document.getElementById('ai-bar').style.width=pct+'%';
+      document.getElementById('ai-progress-meta').textContent=found+' / '+target;
+      // Render last few log lines
+      var log=d.log||[];
+      var logEl=document.getElementById('ai-log');
+      logEl.innerHTML=log.slice(-12).map(function(l){
+        var cls=l.indexOf('✓')!==-1?'ok':l.indexOf('✗')!==-1||l.indexOf('Ошибка')!==-1?'err':'';
+        return '<div class="ai-log-line '+cls+'">'+_e(l)+'</div>';
+      }).join('');
+      logEl.scrollTop=logEl.scrollHeight;
+      if(d.status==='done'||d.status==='interrupted'||d.status==='finished'){
+        clearInterval(_aiPollTimer); _aiPollTimer=null;
+        document.getElementById('ai-progress-title').textContent='Поиск завершён, обрабатываю результаты…';
+        // Finalize: deduplicate & save to candidates
+        fetch('/api/search/ai-finalize/'+runId,{method:'POST',credentials:'same-origin'})
+          .then(function(r){return r.json();})
+          .then(function(fd){
+            _aiDone('Готово: '+fd.saved+' кандидатов сохранено');
+            aiLoadCandidates(_aiCandFilter);
+            aiLoadStats();
+          });
+      }
+    });
 }
 
-function loadCandidates(status){
+function aiStop(){
+  if(_aiRunId){
+    fetch('/research/run/'+_aiRunId+'/finish',{method:'POST',credentials:'same-origin'});
+  }
+  clearInterval(_aiPollTimer); _aiPollTimer=null;
+  _aiDone('Остановлено пользователем');
+}
+
+function _aiDone(msg){
+  document.getElementById('ai-run-btn').disabled=false;
+  document.getElementById('ai-run-btn').innerHTML='🤖 Запустить поиск';
+  document.getElementById('ai-stop-btn').style.display='none';
+  document.getElementById('ai-progress-title').textContent=msg;
+}
+
+function aiCandFilter(status,btn){
+  _aiCandFilter=status;
+  document.querySelectorAll('.cft').forEach(function(el){ el.classList.remove('on'); });
+  if(btn) btn.classList.add('on');
+  aiLoadCandidates(status);
+}
+
+function aiLoadCandidates(status){
   var params=status?'?status='+status+'&limit=100':'?limit=100';
   fetch('/api/search/candidates'+params,{credentials:'same-origin'})
     .then(function(r){return r.json();})
     .then(function(d){
-      document.getElementById('s-cand-info').textContent='Всего: '+d.total;
+      document.getElementById('ai-cand-info').textContent='Кандидатов: '+d.total;
       _renderCands(d.candidates||[]);
-      if(d.stats) _applyStats(d.stats);
+      if(d.stats) aiApplyStats(d.stats);
     });
 }
 
-function loadStats(){
+function aiLoadStats(){
   fetch('/api/search/stats',{credentials:'same-origin'})
-    .then(function(r){return r.json();})
-    .then(function(d){ _applyStats(d); });
+    .then(function(r){return r.json();}).then(aiApplyStats);
 }
 
-function _applyStats(s){
-  document.getElementById('s-stats').style.display='flex';
+function aiApplyStats(s){
+  document.getElementById('ai-stats').style.display='flex';
   document.getElementById('st-new').textContent=s.new||0;
   document.getElementById('st-pos').textContent=s.possible_duplicate||0;
   document.getElementById('st-dup').textContent=s.duplicate||0;
@@ -397,63 +604,138 @@ function _applyStats(s){
 }
 
 function _renderCands(cands){
-  var el=document.getElementById('s-cand-list');
-  if(!cands.length){
-    el.innerHTML='<div class="cand-empty">Нет кандидатов. Запустите поиск.</div>'; return;
-  }
-  var ST={
-    new:{cls:'ds-new',lbl:'Новый'},
-    duplicate:{cls:'ds-duplicate',lbl:'Дубль'},
-    possible_duplicate:{cls:'ds-possible',lbl:'Возм. дубль'},
-    needs_review:{cls:'ds-review',lbl:'Проверка'},
-    imported:{cls:'ds-imported',lbl:'Импортирован'},
-    rejected:{cls:'ds-rejected',lbl:'Отклонён'},
-  };
+  var el=document.getElementById('ai-cand-list');
+  if(!cands.length){ el.innerHTML='<div class="cand-empty">Кандидатов нет. Запустите поиск через ИИ.</div>'; return; }
+  var ST={new:'ds-new',duplicate:'ds-duplicate',possible_duplicate:'ds-possible',needs_review:'ds-review',imported:'ds-imported',rejected:'ds-rejected'};
+  var SL={new:'Новый',duplicate:'Дубль',possible_duplicate:'Возм. дубль',needs_review:'Проверка',imported:'Импортирован',rejected:'Отклонён'};
   el.innerHTML=cands.map(function(c){
-    var s=ST[c.dedupe_status]||{cls:'ds-review',lbl:c.dedupe_status};
-    var isNew=c.dedupe_status==='new'||c.dedupe_status==='needs_review';
-    var isPoss=c.dedupe_status==='possible_duplicate';
-    return '<div class="cand-card" id="cand-'+c.id+'">'
-      +'<div class="cand-card-body">'
-      +'<div class="cand-name">'+_e(c.company_name||'—')
-      +'&ensp;<span class="cand-status-badge '+s.cls+'">'+s.lbl+'</span>'
+    var sc=ST[c.dedupe_status]||'ds-review';
+    var sl=SL[c.dedupe_status]||c.dedupe_status;
+    var canImport=c.dedupe_status==='new'||c.dedupe_status==='possible_duplicate'||c.dedupe_status==='needs_review';
+    return '<div class="cand-card" id="cc-'+c.id+'">'
+      +'<div class="cand-body">'
+      +'<div class="cand-name">'+_e(c.company_name||'—')+' <span class="cand-ds '+sc+'">'+sl+'</span>'
       +(c.dedupe_notes?'<span style="font-size:11px;color:var(--text-3);margin-left:6px">'+_e(c.dedupe_notes)+'</span>':'')
       +'</div>'
       +'<div class="cand-meta">'
-      +(c.inn?'<span class="cand-meta-item">ИНН '+_e(c.inn)+'</span>':'')
-      +(c.region?'<span class="cand-meta-item">📍 '+_e(c.region)+'</span>':'')
-      +(c.okved_main_code?'<span class="cand-meta-item">ОКВЭД '+_e(c.okved_main_code)+'</span>':'')
-      +(c.email?'<span class="cand-meta-item">✉ '+_e(c.email)+'</span>':'')
-      +(c.website?'<span class="cand-meta-item"><a href="'+_e(c.website)+'" target="_blank" style="color:var(--link)">↗ Сайт</a></span>':'')
-      +'</div>'
-      +'</div>'
-      +'<div class="cand-actions">'
-      +(isNew||isPoss ? '<button class="cand-btn cand-btn-primary" onclick="sImport('+c.id+')">↓ Импорт</button>' : '')
-      +(c.dedupe_status!=='rejected'&&c.dedupe_status!=='imported' ? '<button class="cand-btn cand-btn-danger" onclick="sReject('+c.id+')">✕</button>' : '')
-      +'</div>'
-      +'</div>';
+      +(c.inn?'<span>ИНН '+_e(c.inn)+'</span>':'')
+      +(c.region?'<span>📍 '+_e(c.region)+'</span>':'')
+      +(c.okved_main_code?'<span>ОКВЭД '+_e(c.okved_main_code)+'</span>':'')
+      +(c.email?'<span>✉ '+_e(c.email)+'</span>':'')
+      +(c.website?'<span><a href="'+_e(c.website)+'" target="_blank" style="color:var(--link)">↗ Сайт</a></span>':'')
+      +(c.external_source?'<span style="opacity:.6">'+_e(c.external_source)+'</span>':'')
+      +'</div></div>'
+      +'<div class="cand-acts">'
+      +(canImport?'<button class="cand-btn cand-btn-ok" onclick="aiImport('+c.id+')">↓ В базу</button>':'')
+      +(c.dedupe_status!=='rejected'&&c.dedupe_status!=='imported'?'<button class="cand-btn cand-btn-del" onclick="aiReject('+c.id+')">✕</button>':'')
+      +'</div></div>';
   }).join('');
 }
 
-function sImport(id){
+function aiImport(id){
   fetch('/api/search/candidates/'+id+'/import',{method:'POST',credentials:'same-origin'})
-    .then(function(r){return r.json();})
-    .then(function(d){
-      if(d.ok){ _removeCard(id,'Импортировано'); loadStats(); }
-      else alert('Ошибка: '+d.error);
+    .then(function(r){return r.json();}).then(function(d){
+      if(d.ok){ _toast('Компания добавлена в базу'); aiLoadCandidates(_aiCandFilter); aiLoadStats(); }
+      else _toast('Ошибка: '+(d.error||''),true);
     });
 }
-
-function sReject(id){
+function aiReject(id){
   fetch('/api/search/candidates/'+id+'/reject',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'})
-    .then(function(){ _removeCard(id,'Отклонено'); loadStats(); });
+    .then(function(){ _toast('Кандидат отклонён'); aiLoadCandidates(_aiCandFilter); aiLoadStats(); });
 }
 
-function _removeCard(id,msg){
-  var el=document.getElementById('cand-'+id);
-  if(el){ el.style.opacity='.4'; el.style.transition='opacity .2s'; setTimeout(function(){ loadCandidates(_candFilter); },500); }
+/* ═══════════════════════════════════════════════════════════════
+   Shared tree builder
+═══════════════════════════════════════════════════════════════ */
+function _buildTree(elId, state, qId, selected, q) {
+  var el=document.getElementById(elId); if(!el) return;
+  q=(q||'').toLowerCase();
+  var pfx=elId.split('-')[0]; // 'int' or 'ai'
+  var html='';
+  _sharedTree.forEach(function(sect){
+    var sm=!q||(sect.section+' '+sect.name).toLowerCase().indexOf(q)!==-1;
+    var ch='';
+    (sect.classes||[]).forEach(function(cls){
+      var cm=!q||(cls.code+' '+cls.name).toLowerCase().indexOf(q)!==-1;
+      var lh='';
+      (cls.codes||[]).forEach(function(code){
+        var dm=!q||(code.code+' '+code.name).toLowerCase().indexOf(q)!==-1;
+        if(!dm&&q) return; cm=sm=true;
+        var on=selected.indexOf(code.code)!==-1;
+        lh+='<div class="fp-tree-row fp-tree-leaf" onclick="'+pfx+'TogOkved(\''+code.code+'\')">'
+          +'<div class="fp-tree-chk'+(on?' on':'')+'"></div>'
+          +'<span class="fp-tree-lbl">'+code.code+' — '+_e(code.name)+'</span>'
+          +(code.company_count?'<span class="fp-tree-cnt">'+code.company_count+'</span>':'')+'</div>';
+      });
+      if(!cm&&!lh&&q) return;
+      var on=selected.indexOf(cls.code)!==-1;
+      ch+='<div><div class="fp-tree-row" onclick="'+pfx+'TogOkved(\''+cls.code+'\')">'
+        +'<span class="fp-tree-arr'+(q?' open':'')+'" data-tc-'+pfx+'="'+cls.code+'">▶</span>'
+        +'<div class="fp-tree-chk'+(on?' on':'')+'"></div>'
+        +'<span class="fp-tree-lbl">'+cls.code+' — '+_e(cls.name)+'</span>'
+        +'<span class="fp-tree-cnt">'+cls.company_count+'</span></div>'
+        +'<div class="fp-tree-children" id="'+pfx+'cl-'+cls.code+'" style="display:'+(q?'block':'none')+'">'+lh+'</div></div>';
+    });
+    if(!sm&&!ch&&q) return;
+    var on=selected.indexOf(sect.section)!==-1;
+    html+='<div><div class="fp-tree-row fp-tree-section-row" onclick="'+pfx+'TogOkved(\''+sect.section+'\')">'
+      +'<span class="fp-tree-arr'+(q?' open':'')+'" data-ts-'+pfx+'="'+sect.section+'">▶</span>'
+      +'<div class="fp-tree-chk'+(on?' on':'')+'"></div>'
+      +'<span class="fp-tree-lbl"><b>'+sect.section+'</b> — '+_e(sect.name)+'</span>'
+      +'<span class="fp-tree-cnt">'+sect.company_count+'</span></div>'
+      +'<div class="fp-tree-children" id="'+pfx+'se-'+sect.section+'" style="display:'+(q?'block':'none')+'">'+ch+'</div></div>';
+  });
+  el.innerHTML=html||'<div style="font-size:12px;color:var(--text-3);padding:6px">Ничего не найдено</div>';
 }
 
+// Tree expand for both modes
+document.addEventListener('click',function(e){
+  var arr=e.target.closest('.fp-tree-arr'); if(!arr) return; e.stopPropagation();
+  // Figure out which tree
+  var sec=arr.dataset['tsint']||arr.dataset['tsai'];
+  var cls=arr.dataset['tcint']||arr.dataset['tcai'];
+  var pfx=arr.dataset['tsint']||arr.dataset['tcint']?'int':'ai';
+  var id=sec?(pfx+'se-'+sec):cls?(pfx+'cl-'+cls):null; if(!id) return;
+  var ch=document.getElementById(id); if(!ch) return;
+  var open=ch.style.display!=='none';
+  ch.style.display=open?'none':'block';
+  arr.classList.toggle('open',!open);
+});
+
+// Mode-specific OKVED toggle functions
+function intTogOkved(code){ var idx=INT.okved.indexOf(code); if(idx===-1) INT.okved.push(code); else INT.okved.splice(idx,1); intBuildTree(document.getElementById('int-okved-q').value); intApply(); }
+function aiTogOkved(code){  var idx=AI.okved.indexOf(code);  if(idx===-1) AI.okved.push(code);  else AI.okved.splice(idx,1);  aiBuildTree(document.getElementById('ai-okved-q').value); }
+
+// Chip builder & toggle
+function _chips(elId,items,key,arr){
+  var el=document.getElementById(elId); if(!el) return;
+  if(!items||!items.length){el.innerHTML='<span style="font-size:12px;color:var(--text-3)">—</span>';return;}
+  el.innerHTML=items.map(function(item){
+    var val=item[key],n=item.company_count||'',on=arr.indexOf(val)!==-1;
+    return '<button class="fp-chip'+(on?' on':'')+'" onclick="_chipTog(\''+elId+'\',\''+_e(val)+'\')">'
+      +_e(val)+(n?'<span class="fp-chip-n"> '+n+'</span>':'')+'</button>';
+  }).join('');
+}
+function _chipTog(elId,val){
+  var isInt=elId.startsWith('int');
+  var state=isInt?INT:AI;
+  var isReg=elId.indexOf('region')!==-1||elId.indexOf('regions')!==-1;
+  var arr=isReg?state.regions:state.industries;
+  var data=isReg?state.rdata:state.idata;
+  var key=isReg?'region':'name';
+  var idx=arr.indexOf(val); if(idx===-1) arr.push(val); else arr.splice(idx,1);
+  _chips(elId,data,key,arr);
+  if(isInt) intApply();
+}
+
+// Toast
+function _toast(msg,err){
+  var t=document.getElementById('_t'); if(!t){t=document.createElement('div');t.id='_t';t.style.cssText='position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(14px);padding:9px 20px;border-radius:99px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:all .22s;pointer-events:none;box-shadow:var(--shadow-md);color:#fff';document.body.appendChild(t);}
+  t.textContent=msg; t.style.background=err?'#ef4444':'var(--accent)';
+  t.style.opacity='1';t.style.transform='translateX(-50%) translateY(0)';
+  clearTimeout(t._t); t._t=setTimeout(function(){t.style.opacity='0';t.style.transform='translateX(-50%) translateY(14px)';},2400);
+}
 function _e(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 </script>
+<script src="{{ url_for('static', filename='js/companyCard.js') }}"></script>
 {% endblock %}
