@@ -1,0 +1,245 @@
+{% from "macros/icon.html" import icon %}
+{% extends "base.html" %}
+{% block title %}Компании — ABCENTRUM{% endblock %}
+{% block heading %}Компании <span class="count-badge" id="companies-count">…</span>{% endblock %}
+
+{% block extra_css %}
+<style>
+.companies-layout { display: flex; gap: 0; min-height: calc(100vh - 120px); }
+
+/* ── Filter panel ── */
+.fp-sidebar {
+  width: 280px; min-width: 280px; flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  overflow-y: auto;
+  max-height: calc(100vh - 120px);
+  position: sticky; top: 0;
+}
+.fp-root { font-size: 13.5px; }
+.fp-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+.fp-title { font-weight:700; font-size:14px; }
+.fp-reset { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:12px; padding:4px 8px; border-radius:6px; }
+.fp-reset:hover { background:var(--surface); }
+.fp-section { margin-bottom:18px; }
+.fp-section-title { font-weight:600; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
+.fp-mode-toggle { display:flex; gap:4px; margin-top:6px; }
+.fp-mode-btn { padding:3px 10px; border-radius:99px; border:1.5px solid var(--border); background:none; font-size:11px; cursor:pointer; color:var(--text-muted); font-family:inherit; }
+.fp-mode-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.fp-search { width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); font-family:inherit; margin-bottom:8px; }
+.fp-search:focus { outline:none; border-color:var(--accent); }
+
+/* OKVED tree */
+.fp-tree { max-height:260px; overflow-y:auto; font-size:12.5px; }
+.fp-tree-row { display:flex; align-items:center; gap:6px; padding:4px 6px; border-radius:6px; cursor:pointer; user-select:none; }
+.fp-tree-row:hover { background:var(--surface); }
+.fp-tree-section-row { font-weight:600; }
+.fp-tree-arrow { font-size:9px; color:var(--text-muted); width:10px; text-align:center; transition:transform .15s; }
+.fp-tree-arrow.open { transform:rotate(90deg); }
+.fp-tree-check { width:14px; height:14px; border:1.5px solid var(--border); border-radius:3px; flex-shrink:0; transition:background .1s; }
+.fp-tree-check.checked { background:var(--accent); border-color:var(--accent); position:relative; }
+.fp-tree-check.checked::after { content:'✓'; position:absolute; top:-1px; left:1px; font-size:10px; color:#fff; font-weight:700; }
+.fp-tree-label { flex:1; line-height:1.3; }
+.fp-tree-count { font-size:11px; color:var(--text-muted); }
+.fp-tree-children { padding-left:14px; }
+.fp-tree-leaf { padding-left:18px; }
+
+/* Chips */
+.fp-chip-list { display:flex; flex-wrap:wrap; gap:5px; max-height:120px; overflow-y:auto; }
+.fp-chip { padding:3px 9px; border-radius:99px; border:1.5px solid var(--border); background:none; font-size:11.5px; cursor:pointer; color:var(--text); font-family:inherit; transition:all .12s; white-space:nowrap; }
+.fp-chip:hover { border-color:var(--accent); color:var(--accent); }
+.fp-chip.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+.fp-chip-cnt { opacity:.6; }
+.fp-toggle-row { display:flex; align-items:center; gap:8px; padding:4px 0; cursor:pointer; font-size:13px; }
+.fp-toggle-row input { accent-color:var(--accent); }
+.fp-footer { padding-top:12px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.fp-count { font-size:12px; color:var(--text-muted); }
+.fp-save-btn { background:none; border:none; cursor:pointer; color:var(--accent); font-size:12px; font-family:inherit; }
+.fp-empty { color:var(--text-muted); font-size:12px; padding:6px; }
+
+/* ── Table area ── */
+.companies-main { flex:1; min-width:0; padding:16px 20px; }
+.companies-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+.companies-table-wrap { overflow-x:auto; }
+table.companies-tbl { width:100%; border-collapse:collapse; font-size:13.5px; }
+table.companies-tbl th { text-align:left; padding:8px 12px; border-bottom:2px solid var(--border); font-weight:600; font-size:12px; color:var(--text-muted); white-space:nowrap; }
+table.companies-tbl td { padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+table.companies-tbl tr:hover td { background:var(--surface); cursor:pointer; }
+.tbl-name { font-weight:600; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tbl-inn { font-family:monospace; font-size:12px; color:var(--text-muted); }
+.tbl-okved { font-size:12px; background:rgba(28,58,52,.07); border-radius:5px; padding:2px 6px; white-space:nowrap; }
+.tbl-status { font-size:11px; padding:2px 8px; border-radius:99px; font-weight:600; white-space:nowrap; }
+.st-verified { background:rgba(34,197,94,.12); color:#15803d; }
+.st-likely   { background:rgba(59,130,246,.12); color:#1d4ed8; }
+.st-review   { background:rgba(245,158,11,.12); color:#92400e; }
+.st-conflict { background:rgba(239,68,68,.12);  color:#b91c1c; }
+.st-default  { background:var(--surface); color:var(--text-muted); }
+.tbl-icon { display:inline-flex; align-items:center; gap:3px; font-size:12px; color:var(--text-muted); }
+.tbl-icon.has { color:var(--accent); }
+.companies-pagination { display:flex; align-items:center; gap:8px; margin-top:16px; justify-content:center; font-size:13px; }
+.pg-btn { padding:5px 12px; border-radius:8px; border:1.5px solid var(--border); background:none; cursor:pointer; font-family:inherit; font-size:13px; }
+.pg-btn:disabled { opacity:.4; cursor:default; }
+.pg-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.companies-empty { text-align:center; padding:64px 20px; color:var(--text-muted); font-size:14px; }
+.loading-row td { text-align:center; padding:48px; color:var(--text-muted); }
+</style>
+{% endblock %}
+
+{% block header_actions %}
+  <button class="btn btn-secondary" id="export-btn" onclick="exportCsv()">
+    {{ icon("export") }} Экспорт
+  </button>
+  <button class="btn btn-primary" id="mailing-btn" onclick="createMailing()" disabled>
+    {{ icon("mail") }} Рассылка из выборки
+  </button>
+{% endblock %}
+
+{% block content %}
+<div class="companies-layout">
+
+  <!-- ── Filter sidebar ── -->
+  <aside class="fp-sidebar">
+    {% include "partials/filters_panel.html" %}
+  </aside>
+
+  <!-- ── Main table ── -->
+  <div class="companies-main">
+    <div class="companies-toolbar">
+      <span id="toolbar-info" style="font-size:13px;color:var(--text-muted)">Загрузка…</span>
+    </div>
+    <div class="companies-table-wrap">
+      <table class="companies-tbl" id="companies-tbl">
+        <thead>
+          <tr>
+            <th>Компания</th>
+            <th>ИНН</th>
+            <th>Регион</th>
+            <th>Отрасль</th>
+            <th>ОКВЭД</th>
+            <th>Email</th>
+            <th>Тел.</th>
+            <th>Сайт</th>
+            <th>Качество</th>
+          </tr>
+        </thead>
+        <tbody id="companies-tbody">
+          <tr class="loading-row"><td colspan="9">Загрузка данных…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="companies-pagination" id="companies-pagination"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/filters.js') }}"></script>
+<script>
+var _page = 1;
+var _totalPages = 1;
+var _lastReq = {};
+
+function loadCompanies(req, page) {
+  _page = page || 1;
+  req = req || _lastReq;
+  _lastReq = Object.assign({}, req, {page: _page, per_page: 50});
+
+  document.getElementById('companies-tbody').innerHTML =
+    '<tr class="loading-row"><td colspan="9">Загрузка…</td></tr>';
+
+  fetch('/api/companies/filter', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(_lastReq)
+  }).then(function(r){ return r.json(); })
+    .then(function(d) {
+      _totalPages = d.total_pages;
+      document.getElementById('companies-count').textContent = d.total;
+      document.getElementById('toolbar-info').textContent =
+        'Найдено: ' + d.total + ' компаний · страница ' + d.page + ' из ' + d.total_pages;
+      document.getElementById('mailing-btn').disabled = d.total === 0;
+
+      var tbody = document.getElementById('companies-tbody');
+      if (!d.companies.length) {
+        tbody.innerHTML = '<tr class="loading-row"><td colspan="9">Компании не найдены по выбранным фильтрам.</td></tr>';
+        document.getElementById('companies-pagination').innerHTML = '';
+        return;
+      }
+
+      tbody.innerHTML = d.companies.map(function(c) {
+        var st = c.match_status || 'manual_review';
+        var stCls = st === 'verified' ? 'st-verified' : st === 'likely' ? 'st-likely' : st === 'conflict' ? 'st-conflict' : st === 'manual_review' ? 'st-review' : 'st-default';
+        var stLabel = st === 'verified' ? 'Подтверждён' : st === 'likely' ? 'Вероятно' : st === 'conflict' ? 'Конфликт' : 'Проверка';
+        var okved = c.okved_main_code && c.okved_main_code !== 'NOT_FOUND' ? c.okved_main_code : '—';
+        return '<tr onclick="openCompanyCard(\'' + c.company_id + '\')" data-cid="' + c.company_id + '">'
+          + '<td class="tbl-name" title="' + _esc(c.company_name_original) + '">' + _esc(c.company_name_original || '—') + '</td>'
+          + '<td class="tbl-inn">' + (c.inn || '—') + '</td>'
+          + '<td>' + _esc(c.region || '—') + '</td>'
+          + '<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="' + _esc(c.industry_group_final||'') + '">' + _esc(c.industry_group_final || '—') + '</td>'
+          + '<td>' + (okved !== '—' ? '<span class="tbl-okved">' + okved + '</span>' : '<span style="color:var(--text-muted)">—</span>') + '</td>'
+          + '<td><span class="tbl-icon ' + (c.emails_all ? 'has' : '') + '">✉ ' + (c.emails_all ? '✓' : '—') + '</span></td>'
+          + '<td><span class="tbl-icon ' + (c.mobile_phones_all || c.landline_phones_all ? 'has' : '') + '">☎ ' + (c.mobile_phones_all || c.landline_phones_all ? '✓' : '—') + '</span></td>'
+          + '<td>' + (c.website ? '<a href="' + c.website + '" target="_blank" onclick="event.stopPropagation()" style="font-size:12px;color:var(--accent)">↗</a>' : '—') + '</td>'
+          + '<td><span class="tbl-status ' + stCls + '">' + stLabel + '</span></td>'
+          + '</tr>';
+      }).join('');
+
+      renderPagination(d.page, d.total_pages);
+    })
+    .catch(function(e) {
+      document.getElementById('companies-tbody').innerHTML =
+        '<tr class="loading-row"><td colspan="9">Ошибка загрузки: ' + e.message + '</td></tr>';
+    });
+}
+
+function renderPagination(page, total) {
+  var el = document.getElementById('companies-pagination');
+  if (total <= 1) { el.innerHTML = ''; return; }
+  var html = '<button class="pg-btn" onclick="loadCompanies(null,' + (page-1) + ')" ' + (page<=1?'disabled':'') + '>‹</button>';
+  var start = Math.max(1, page-2), end = Math.min(total, page+2);
+  if (start > 1) html += '<button class="pg-btn" onclick="loadCompanies(null,1)">1</button>' + (start>2?'<span>…</span>':'');
+  for (var p = start; p <= end; p++) {
+    html += '<button class="pg-btn' + (p===page?' active':'') + '" onclick="loadCompanies(null,' + p + ')">' + p + '</button>';
+  }
+  if (end < total) html += (end<total-1?'<span>…</span>':'') + '<button class="pg-btn" onclick="loadCompanies(null,'+total+')">'+total+'</button>';
+  html += '<button class="pg-btn" onclick="loadCompanies(null,' + (page+1) + ')" ' + (page>=total?'disabled':'') + '>›</button>';
+  el.innerHTML = html;
+}
+
+function openCompanyCard(cid) {
+  // Placeholder — will be implemented in Stage 6
+  alert('Карточка компании ' + cid + ' — будет реализована на Этапе 6');
+}
+
+function exportCsv() {
+  var params = new URLSearchParams({filter: JSON.stringify(_lastReq)});
+  window.location = '/api/companies/export?' + params;
+}
+
+function createMailing() {
+  window.location = '/campaigns?from_filter=' + encodeURIComponent(JSON.stringify(_lastReq));
+}
+
+function _esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Toggle tree expand
+document.addEventListener('click', function(e) {
+  var arrow = e.target.closest('.fp-tree-arrow');
+  if (!arrow) return;
+  var secId = arrow.dataset.sec || arrow.dataset.cls;
+  var prefix = arrow.dataset.sec ? 'fp-sec-' : 'fp-cls-';
+  var children = document.getElementById(prefix + secId);
+  if (!children) return;
+  var open = children.style.display !== 'none';
+  children.style.display = open ? 'none' : 'block';
+  arrow.classList.toggle('open', !open);
+});
+
+// Init
+document.addEventListener('DOMContentLoaded', function() {
+  fpInit(function(req) { loadCompanies(req, 1); });
+});
+</script>
+{% endblock %}

@@ -193,6 +193,10 @@
           <span class="nav-icon">{{ icon("home") }}</span>
           Главная
         </a>
+        <a href="{{ url_for('companies_page') }}" class="nav-item {% if request.endpoint == 'companies_page' %}active{% endif %}">
+          <span class="nav-icon">{{ icon("building") }}</span>
+          Компании
+        </a>
         <a href="{{ url_for('research') }}" class="nav-item {% if request.endpoint == 'research' %}active{% endif %}">
           <span class="nav-icon">{{ icon("search") }}</span>
           Поиск

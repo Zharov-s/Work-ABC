@@ -1,0 +1,58 @@
+{# Reusable filter panel — include with: {% include "partials/filters_panel.html" %} #}
+<div class="fp-root" id="fp-root">
+  <!-- ── Header ── -->
+  <div class="fp-header">
+    <span class="fp-title">Фильтры</span>
+    <button class="fp-reset" id="fp-reset" onclick="fpReset()" title="Сбросить все фильтры">✕ Сбросить</button>
+  </div>
+
+  <!-- ── Поиск ── -->
+  <div class="fp-section">
+    <input id="fp-q" type="text" class="fp-search" placeholder="Поиск по названию, ИНН, сайту…" oninput="fpDebounce()">
+  </div>
+
+  <!-- ── ОКВЭД ── -->
+  <div class="fp-section">
+    <div class="fp-section-title">
+      Сфера деятельности (ОКВЭД)
+      <div class="fp-mode-toggle">
+        <button class="fp-mode-btn active" id="fp-mode-main" onclick="fpSetMode('main')">Основной</button>
+        <button class="fp-mode-btn" id="fp-mode-all"  onclick="fpSetMode('all')">Все ОКВЭД</button>
+      </div>
+    </div>
+    <input id="fp-okved-search" type="text" class="fp-search" placeholder="Поиск по названию или коду…" oninput="fpFilterOkvedTree(this.value)">
+    <div id="fp-okved-tree" class="fp-tree"></div>
+  </div>
+
+  <!-- ── Отрасль ── -->
+  <div class="fp-section">
+    <div class="fp-section-title">Отрасль проекта</div>
+    <div id="fp-industry-list" class="fp-chip-list"></div>
+  </div>
+
+  <!-- ── Регион ── -->
+  <div class="fp-section">
+    <div class="fp-section-title">Регион</div>
+    <div id="fp-region-list" class="fp-chip-list"></div>
+  </div>
+
+  <!-- ── Каналы связи ── -->
+  <div class="fp-section">
+    <div class="fp-section-title">Каналы связи</div>
+    <label class="fp-toggle-row">
+      <input type="checkbox" id="fp-has-email" onchange="fpApply()"> Есть email
+    </label>
+    <label class="fp-toggle-row">
+      <input type="checkbox" id="fp-has-phone" onchange="fpApply()"> Есть телефон
+    </label>
+    <label class="fp-toggle-row">
+      <input type="checkbox" id="fp-has-website" onchange="fpApply()"> Есть сайт
+    </label>
+  </div>
+
+  <!-- ── Счётчик ── -->
+  <div class="fp-footer">
+    <div class="fp-count" id="fp-count">—</div>
+    <button class="fp-save-btn" onclick="fpSavePreset()" title="Сохранить фильтр">☆ Сохранить</button>
+  </div>
+</div>

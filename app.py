@@ -27,7 +27,10 @@ from researcher import (
     project_contact_to_requirements,
 )
 
+from routes.filters_routes import filters_bp
+
 app = Flask(__name__)
+app.register_blueprint(filters_bp)
 app.secret_key = os.getenv('SECRET_KEY', 'abcentrum-dev-key')
 
 @app.template_filter('from_json')
@@ -254,6 +257,12 @@ def export_contacts():
 
 
 # ── Research ──────────────────────────────────────────────────────────────────
+
+
+@app.route('/companies')
+@login_required
+def companies_page():
+    return render_template('companies.html')
 
 @app.route('/research')
 @login_required
