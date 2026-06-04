@@ -3,245 +3,803 @@
 {% block title %}Компании — ABCENTRUM{% endblock %}
 {% block heading %}Компании <span class="count-badge" id="companies-count">…</span>{% endblock %}
 
-{% block extra_css %}
-<style>
-.companies-layout { display: flex; gap: 0; min-height: calc(100vh - 120px); }
-
-/* ── Filter panel ── */
-.fp-sidebar {
-  width: 280px; min-width: 280px; flex-shrink: 0;
-  border-right: 1px solid var(--border);
-  padding: 16px 12px;
-  overflow-y: auto;
-  max-height: calc(100vh - 120px);
-  position: sticky; top: 0;
-}
-.fp-root { font-size: 13.5px; }
-.fp-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
-.fp-title { font-weight:700; font-size:14px; }
-.fp-reset { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:12px; padding:4px 8px; border-radius:6px; }
-.fp-reset:hover { background:var(--surface); }
-.fp-section { margin-bottom:18px; }
-.fp-section-title { font-weight:600; font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
-.fp-mode-toggle { display:flex; gap:4px; margin-top:6px; }
-.fp-mode-btn { padding:3px 10px; border-radius:99px; border:1.5px solid var(--border); background:none; font-size:11px; cursor:pointer; color:var(--text-muted); font-family:inherit; }
-.fp-mode-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-.fp-search { width:100%; padding:7px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); font-family:inherit; margin-bottom:8px; }
-.fp-search:focus { outline:none; border-color:var(--accent); }
-
-/* OKVED tree */
-.fp-tree { max-height:260px; overflow-y:auto; font-size:12.5px; }
-.fp-tree-row { display:flex; align-items:center; gap:6px; padding:4px 6px; border-radius:6px; cursor:pointer; user-select:none; }
-.fp-tree-row:hover { background:var(--surface); }
-.fp-tree-section-row { font-weight:600; }
-.fp-tree-arrow { font-size:9px; color:var(--text-muted); width:10px; text-align:center; transition:transform .15s; }
-.fp-tree-arrow.open { transform:rotate(90deg); }
-.fp-tree-check { width:14px; height:14px; border:1.5px solid var(--border); border-radius:3px; flex-shrink:0; transition:background .1s; }
-.fp-tree-check.checked { background:var(--accent); border-color:var(--accent); position:relative; }
-.fp-tree-check.checked::after { content:'✓'; position:absolute; top:-1px; left:1px; font-size:10px; color:#fff; font-weight:700; }
-.fp-tree-label { flex:1; line-height:1.3; }
-.fp-tree-count { font-size:11px; color:var(--text-muted); }
-.fp-tree-children { padding-left:14px; }
-.fp-tree-leaf { padding-left:18px; }
-
-/* Chips */
-.fp-chip-list { display:flex; flex-wrap:wrap; gap:5px; max-height:120px; overflow-y:auto; }
-.fp-chip { padding:3px 9px; border-radius:99px; border:1.5px solid var(--border); background:none; font-size:11.5px; cursor:pointer; color:var(--text); font-family:inherit; transition:all .12s; white-space:nowrap; }
-.fp-chip:hover { border-color:var(--accent); color:var(--accent); }
-.fp-chip.active { background:var(--accent); border-color:var(--accent); color:#fff; }
-.fp-chip-cnt { opacity:.6; }
-.fp-toggle-row { display:flex; align-items:center; gap:8px; padding:4px 0; cursor:pointer; font-size:13px; }
-.fp-toggle-row input { accent-color:var(--accent); }
-.fp-footer { padding-top:12px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
-.fp-count { font-size:12px; color:var(--text-muted); }
-.fp-save-btn { background:none; border:none; cursor:pointer; color:var(--accent); font-size:12px; font-family:inherit; }
-.fp-empty { color:var(--text-muted); font-size:12px; padding:6px; }
-
-/* ── Table area ── */
-.companies-main { flex:1; min-width:0; padding:16px 20px; }
-.companies-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
-.companies-table-wrap { overflow-x:auto; }
-table.companies-tbl { width:100%; border-collapse:collapse; font-size:13.5px; }
-table.companies-tbl th { text-align:left; padding:8px 12px; border-bottom:2px solid var(--border); font-weight:600; font-size:12px; color:var(--text-muted); white-space:nowrap; }
-table.companies-tbl td { padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
-table.companies-tbl tr:hover td { background:var(--surface); cursor:pointer; }
-.tbl-name { font-weight:600; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.tbl-inn { font-family:monospace; font-size:12px; color:var(--text-muted); }
-.tbl-okved { font-size:12px; background:rgba(28,58,52,.07); border-radius:5px; padding:2px 6px; white-space:nowrap; }
-.tbl-status { font-size:11px; padding:2px 8px; border-radius:99px; font-weight:600; white-space:nowrap; }
-.st-verified { background:rgba(34,197,94,.12); color:#15803d; }
-.st-likely   { background:rgba(59,130,246,.12); color:#1d4ed8; }
-.st-review   { background:rgba(245,158,11,.12); color:#92400e; }
-.st-conflict { background:rgba(239,68,68,.12);  color:#b91c1c; }
-.st-default  { background:var(--surface); color:var(--text-muted); }
-.tbl-icon { display:inline-flex; align-items:center; gap:3px; font-size:12px; color:var(--text-muted); }
-.tbl-icon.has { color:var(--accent); }
-.companies-pagination { display:flex; align-items:center; gap:8px; margin-top:16px; justify-content:center; font-size:13px; }
-.pg-btn { padding:5px 12px; border-radius:8px; border:1.5px solid var(--border); background:none; cursor:pointer; font-family:inherit; font-size:13px; }
-.pg-btn:disabled { opacity:.4; cursor:default; }
-.pg-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
-.companies-empty { text-align:center; padding:64px 20px; color:var(--text-muted); font-size:14px; }
-.loading-row td { text-align:center; padding:48px; color:var(--text-muted); }
-</style>
-{% endblock %}
-
 {% block header_actions %}
-  <button class="btn btn-secondary" id="export-btn" onclick="exportCsv()">
+  <button class="btn btn-secondary btn-sm" id="export-btn" onclick="exportCompanies()">
     {{ icon("export") }} Экспорт
   </button>
-  <button class="btn btn-primary" id="mailing-btn" onclick="createMailing()" disabled>
+  <button class="btn btn-primary btn-sm" id="mailing-btn" onclick="createMailing()" disabled>
     {{ icon("mail") }} Рассылка из выборки
   </button>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ── Layout ───────────────────────────────────────────────────────── */
+.companies-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+/* ── Filter sidebar ───────────────────────────────────────────────── */
+.fp-sidebar {
+  width: 264px;
+  min-width: 264px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 88px);
+  overflow-y: auto;
+}
+.fp-sidebar::-webkit-scrollbar { width: 4px; }
+.fp-sidebar::-webkit-scrollbar-track { background: transparent; }
+.fp-sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.fp-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-shadow);
+  overflow: hidden;
+}
+.fp-panel-header {
+  padding: 11px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--panel-hdr-bg);
+}
+.fp-panel-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.fp-reset-btn {
+  font-size: 11.5px;
+  color: var(--text-2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: inherit;
+  transition: color .15s, background .15s;
+}
+.fp-reset-btn:hover { color: var(--text); background: var(--surface-2); }
+
+.fp-section {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--panel-border);
+}
+.fp-section:last-child { border-bottom: none; }
+.fp-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 8px;
+}
+
+/* Mode toggle */
+.fp-mode {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 9px;
+}
+.fp-mode-btn {
+  flex: 1;
+  padding: 5px 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--btn-2-bg);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all .12s;
+  text-align: center;
+}
+.fp-mode-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Search input */
+.fp-input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--inp-border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--inp-bg);
+  color: var(--inp-text);
+  font-family: inherit;
+  margin-bottom: 6px;
+  transition: border-color .15s;
+}
+.fp-input:focus { outline: none; border-color: var(--inp-focus); box-shadow: 0 0 0 3px var(--inp-focus-ring); }
+.fp-input::placeholder { color: var(--inp-ph); }
+.fp-input:last-child { margin-bottom: 0; }
+
+/* OKVED tree */
+.fp-tree {
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+.fp-tree::-webkit-scrollbar { width: 3px; }
+.fp-tree::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.fp-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12.5px;
+  color: var(--text);
+  transition: background .1s;
+}
+.fp-tree-row:hover { background: var(--surface-2); }
+.fp-tree-section-row { font-weight: 600; color: var(--text); }
+.fp-tree-arr {
+  font-size: 8px;
+  color: var(--text-3);
+  width: 10px;
+  text-align: center;
+  transition: transform .15s;
+  flex-shrink: 0;
+}
+.fp-tree-arr.open { transform: rotate(90deg); }
+.fp-tree-chk {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 3px;
+  flex-shrink: 0;
+  transition: all .1s;
+  position: relative;
+}
+.fp-tree-chk.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.fp-tree-chk.on::after {
+  content: '';
+  position: absolute;
+  left: 3px; top: 1px;
+  width: 5px; height: 8px;
+  border: 2px solid #fff;
+  border-top: none;
+  border-left: none;
+  transform: rotate(40deg);
+}
+.fp-tree-lbl { flex: 1; line-height: 1.35; }
+.fp-tree-cnt {
+  font-size: 11px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.fp-tree-children { padding-left: 14px; display: none; }
+.fp-tree-leaf { padding-left: 6px; }
+.fp-empty-tree { font-size: 12px; color: var(--text-3); padding: 6px 4px; }
+
+/* Chips */
+.fp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 100px;
+  overflow-y: auto;
+}
+.fp-chips::-webkit-scrollbar { width: 3px; }
+.fp-chips::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.fp-chip {
+  padding: 3px 9px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--btn-2-bg);
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-2);
+  font-family: inherit;
+  transition: all .12s;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.fp-chip:hover { border-color: var(--accent); color: var(--accent); }
+.fp-chip.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.fp-chip-n { opacity: .65; font-size: 11px; }
+
+/* Toggles */
+.fp-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+  user-select: none;
+}
+.fp-toggle input { accent-color: var(--accent); cursor: pointer; }
+
+/* Footer */
+.fp-footer {
+  padding: 10px 14px;
+  background: var(--panel-hdr-bg);
+  border-top: 1px solid var(--panel-border);
+  font-size: 12px;
+  color: var(--text-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fp-save-link {
+  font-size: 12px;
+  color: var(--link);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 0;
+  text-decoration: none;
+}
+.fp-save-link:hover { text-decoration: underline; }
+
+/* ── Main area ────────────────────────────────────────────────────── */
+.companies-main { flex: 1; min-width: 0; }
+
+.companies-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-shadow);
+  overflow: hidden;
+}
+.companies-panel-header {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--panel-border);
+  background: var(--panel-hdr-bg);
+  min-height: 46px;
+}
+.companies-panel-info {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+/* Table */
+.companies-tbl-wrap { overflow-x: auto; }
+table.companies-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+table.companies-tbl th {
+  text-align: left;
+  padding: 9px 12px;
+  background: var(--tbl-hdr-bg);
+  border-bottom: 1px solid var(--tbl-border);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--tbl-hdr-text);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+table.companies-tbl td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--tbl-border);
+  vertical-align: middle;
+  color: var(--text);
+}
+table.companies-tbl tr:last-child td { border-bottom: none; }
+table.companies-tbl tbody tr:hover td {
+  background: var(--tbl-row-hover);
+  cursor: pointer;
+}
+.tbl-name {
+  font-weight: 600;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tbl-sub {
+  font-size: 11.5px;
+  color: var(--text-2);
+  margin-top: 1px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tbl-inn { font-family: 'Menlo', monospace; font-size: 12px; color: var(--text-2); }
+.tbl-region { font-size: 13px; color: var(--text); white-space: nowrap; }
+.tbl-industry {
+  font-size: 12px;
+  color: var(--text-2);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tbl-okved-code {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 7px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.tbl-has { color: var(--accent); font-size: 13px; }
+.tbl-no  { color: var(--text-3); font-size: 13px; }
+
+/* Status badges */
+.tbl-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.st-verified { background: var(--bdg-green-bg); color: var(--bdg-green-text); border: 1px solid var(--bdg-green-bdr); }
+.st-likely   { background: var(--bdg-blue-bg);  color: var(--bdg-blue-text);  border: 1px solid var(--bdg-blue-bdr); }
+.st-review   { background: var(--bdg-yel-bg);   color: var(--bdg-yel-text);   border: 1px solid var(--bdg-yel-bdr); }
+.st-conflict { background: var(--bdg-red-bg);   color: var(--bdg-red-text);   border: 1px solid var(--bdg-red-bdr); }
+.st-default  { background: var(--bdg-gray-bg);  color: var(--bdg-gray-text);  border: 1px solid var(--bdg-gray-bdr); }
+
+/* Loading / empty states */
+.tbl-loading td,
+.tbl-empty td {
+  text-align: center;
+  padding: 56px 20px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+.tbl-spinner {
+  display: inline-block;
+  width: 20px; height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Pagination */
+.companies-pagination {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-top: 1px solid var(--panel-border);
+  background: var(--panel-hdr-bg);
+}
+.pg-btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--btn-2-bg);
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all .12s;
+}
+.pg-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.pg-btn:disabled { opacity: .35; cursor: default; }
+.pg-btn.current {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.pg-dots { color: var(--text-3); padding: 0 4px; font-size: 13px; }
+</style>
 {% endblock %}
 
 {% block content %}
 <div class="companies-layout">
 
-  <!-- ── Filter sidebar ── -->
+  <!-- ── Filter panel ── -->
   <aside class="fp-sidebar">
-    {% include "partials/filters_panel.html" %}
+    <div class="fp-panel">
+      <div class="fp-panel-header">
+        <span class="fp-panel-title">Фильтры</span>
+        <button class="fp-reset-btn" id="fp-reset" onclick="fpReset()">Сбросить</button>
+      </div>
+
+      <!-- ОКВЭД -->
+      <div class="fp-section">
+        <div class="fp-section-label">Сфера деятельности (ОКВЭД)</div>
+        <div class="fp-mode">
+          <button class="fp-mode-btn active" id="fp-mode-main" onclick="fpSetMode('main')">Основной</button>
+          <button class="fp-mode-btn" id="fp-mode-all" onclick="fpSetMode('all')">Все ОКВЭД</button>
+        </div>
+        <input class="fp-input" id="fp-okved-q" type="text" placeholder="Поиск по коду или названию…" oninput="fpFilterTree(this.value)">
+        <div class="fp-tree" id="fp-tree"></div>
+      </div>
+
+      <!-- Поиск -->
+      <div class="fp-section">
+        <div class="fp-section-label">Поиск</div>
+        <input class="fp-input" id="fp-q" type="text" placeholder="Название, ИНН, сайт…" oninput="fpDebounce()">
+      </div>
+
+      <!-- Отрасль -->
+      <div class="fp-section">
+        <div class="fp-section-label">Отрасль проекта</div>
+        <div class="fp-chips" id="fp-industries"></div>
+      </div>
+
+      <!-- Регион -->
+      <div class="fp-section">
+        <div class="fp-section-label">Регион</div>
+        <div class="fp-chips" id="fp-regions"></div>
+      </div>
+
+      <!-- Каналы -->
+      <div class="fp-section">
+        <div class="fp-section-label">Каналы связи</div>
+        <label class="fp-toggle"><input type="checkbox" id="fp-has-email" onchange="fpApply()"> Есть email</label>
+        <label class="fp-toggle"><input type="checkbox" id="fp-has-phone" onchange="fpApply()"> Есть телефон</label>
+        <label class="fp-toggle"><input type="checkbox" id="fp-has-website" onchange="fpApply()"> Есть сайт</label>
+      </div>
+
+      <!-- Footer -->
+      <div class="fp-footer">
+        <span id="fp-count" style="font-size:12px;color:var(--text-2)">—</span>
+        <button class="fp-save-link" onclick="fpSavePreset()">☆ Сохранить фильтр</button>
+      </div>
+    </div>
   </aside>
 
-  <!-- ── Main table ── -->
+  <!-- ── Table panel ── -->
   <div class="companies-main">
-    <div class="companies-toolbar">
-      <span id="toolbar-info" style="font-size:13px;color:var(--text-muted)">Загрузка…</span>
+    <div class="companies-panel">
+      <div class="companies-panel-header">
+        <span class="companies-panel-info" id="tbl-info">Загрузка…</span>
+      </div>
+      <div class="companies-tbl-wrap">
+        <table class="companies-tbl">
+          <thead>
+            <tr>
+              <th>Компания</th>
+              <th>ИНН</th>
+              <th>Регион</th>
+              <th>Отрасль</th>
+              <th>ОКВЭД</th>
+              <th>Email</th>
+              <th>Тел.</th>
+              <th>Сайт</th>
+              <th>Качество</th>
+            </tr>
+          </thead>
+          <tbody id="companies-tbody">
+            <tr class="tbl-loading"><td colspan="9"><span class="tbl-spinner"></span>Загрузка…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="companies-pagination" id="companies-pg"></div>
     </div>
-    <div class="companies-table-wrap">
-      <table class="companies-tbl" id="companies-tbl">
-        <thead>
-          <tr>
-            <th>Компания</th>
-            <th>ИНН</th>
-            <th>Регион</th>
-            <th>Отрасль</th>
-            <th>ОКВЭД</th>
-            <th>Email</th>
-            <th>Тел.</th>
-            <th>Сайт</th>
-            <th>Качество</th>
-          </tr>
-        </thead>
-        <tbody id="companies-tbody">
-          <tr class="loading-row"><td colspan="9">Загрузка данных…</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="companies-pagination" id="companies-pagination"></div>
   </div>
+
 </div>
+{% include "partials/company_card.html" %}
 {% endblock %}
 
-{% include "partials/company_card.html" %}
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/filters.js') }}"></script>
-<script src="{{ url_for('static', filename='js/companyCard.js') }}"></script>
 <script>
-var _page = 1;
-var _totalPages = 1;
-var _lastReq = {};
+/* ── Filter state ─────────────────────────────────────────────── */
+var FP = {
+  mode: 'main', okvedInc: [], regions: [], industries: [],
+  _timer: null, _tree: [],
+};
 
-function loadCompanies(req, page) {
-  _page = page || 1;
-  req = req || _lastReq;
-  _lastReq = Object.assign({}, req, {page: _page, per_page: 50});
+function fpInit() {
+  Promise.all([
+    fetch('/api/filters/okved-tree').then(function(r){return r.json();}),
+    fetch('/api/filters/industry-groups').then(function(r){return r.json();}),
+    fetch('/api/filters/regions').then(function(r){return r.json();}),
+  ]).then(function(res) {
+    FP._tree = res[0];
+    _buildTree(res[0], '');
+    _buildChips('fp-industries', res[1], 'name', FP.industries);
+    _buildChips('fp-regions',    res[2], 'region', FP.regions);
+    fpApply();
+  }).catch(function(e){ console.error('filter init failed', e); });
+}
 
-  document.getElementById('companies-tbody').innerHTML =
-    '<tr class="loading-row"><td colspan="9">Загрузка…</td></tr>';
+/* ── ОКЭД tree ────────────────────────────────────────────────── */
+function _buildTree(tree, q) {
+  var el = document.getElementById('fp-tree');
+  if (!el) return;
+  var html = '';
+  q = (q||'').toLowerCase().trim();
+  tree.forEach(function(sect) {
+    var sCode = sect.section;
+    var sLabel = '<b>' + _esc(sCode) + '</b> — ' + _esc(sect.name);
+    var sMatch = !q || (sCode+' '+sect.name).toLowerCase().indexOf(q) !== -1;
+    var childHtml = '';
+    (sect.classes||[]).forEach(function(cls) {
+      var cMatch = !q || (cls.code+' '+cls.name).toLowerCase().indexOf(q) !== -1;
+      var leafHtml = '';
+      (cls.codes||[]).forEach(function(code) {
+        var dMatch = !q || (code.code+' '+code.name).toLowerCase().indexOf(q) !== -1;
+        if (!dMatch && q) return;
+        var on = FP.okvedInc.indexOf(code.code) !== -1;
+        leafHtml += '<div class="fp-tree-row fp-tree-leaf" onclick="fpToggleOkved(\'' + code.code + '\')">'
+          + '<div class="fp-tree-chk' + (on?' on':'') + '"></div>'
+          + '<span class="fp-tree-lbl">' + code.code + ' — ' + _esc(code.name) + '</span>'
+          + (code.company_count ? '<span class="fp-tree-cnt">' + code.company_count + '</span>' : '')
+          + '</div>';
+        if (dMatch) cMatch = sMatch = true;
+      });
+      if (!cMatch && !leafHtml && q) return;
+      var con = FP.okvedInc.indexOf(cls.code) !== -1;
+      childHtml += '<div class="fp-tree-cls">'
+        + '<div class="fp-tree-row" onclick="fpToggleOkved(\'' + cls.code + '\')">'
+        + '<span class="fp-tree-arr' + (q?' open':'') + '" data-cls="' + cls.code + '">▶</span>'
+        + '<div class="fp-tree-chk' + (con?' on':'') + '"></div>'
+        + '<span class="fp-tree-lbl">' + cls.code + ' — ' + _esc(cls.name) + '</span>'
+        + '<span class="fp-tree-cnt">' + cls.company_count + '</span>'
+        + '</div>'
+        + '<div class="fp-tree-children" id="fc-' + cls.code + '" style="display:' + (q?'block':'none') + '">' + leafHtml + '</div>'
+        + '</div>';
+    });
+    if (!sMatch && !childHtml && q) return;
+    var son = FP.okvedInc.indexOf(sCode) !== -1;
+    html += '<div class="fp-tree-sec">'
+      + '<div class="fp-tree-row fp-tree-section-row" onclick="fpToggleOkved(\'' + sCode + '\')">'
+      + '<span class="fp-tree-arr' + (q?' open':'') + '" data-sec="' + sCode + '">▶</span>'
+      + '<div class="fp-tree-chk' + (son?' on':'') + '"></div>'
+      + '<span class="fp-tree-lbl">' + sLabel + '</span>'
+      + '<span class="fp-tree-cnt">' + sect.company_count + '</span>'
+      + '</div>'
+      + '<div class="fp-tree-children" id="fs-' + sCode + '" style="display:' + (q?'block':'none') + '">' + childHtml + '</div>'
+      + '</div>';
+  });
+  el.innerHTML = html || '<div class="fp-empty-tree">Ничего не найдено</div>';
+}
 
-  fetch('/api/companies/filter', {
+function fpFilterTree(q) { _buildTree(FP._tree, q); }
+
+function fpToggleOkved(code) {
+  var idx = FP.okvedInc.indexOf(code);
+  if (idx === -1) FP.okvedInc.push(code); else FP.okvedInc.splice(idx, 1);
+  _buildTree(FP._tree, document.getElementById('fp-okved-q').value);
+  fpApply();
+}
+
+/* ── Tree expand/collapse clicks ────────────────────────────── */
+document.addEventListener('click', function(e) {
+  var arr = e.target.closest('.fp-tree-arr');
+  if (!arr) return;
+  e.stopPropagation();
+  var id = arr.dataset.sec ? 'fs-'+arr.dataset.sec : arr.dataset.cls ? 'fc-'+arr.dataset.cls : null;
+  if (!id) return;
+  var ch = document.getElementById(id);
+  if (!ch) return;
+  var open = ch.style.display !== 'none';
+  ch.style.display = open ? 'none' : 'block';
+  arr.classList.toggle('open', !open);
+});
+
+/* ── Chips ───────────────────────────────────────────────────── */
+function _buildChips(elId, items, key, arr) {
+  var el = document.getElementById(elId);
+  if (!el) return;
+  if (!items.length) { el.innerHTML = '<span style="font-size:12px;color:var(--text-3)">—</span>'; return; }
+  el.innerHTML = items.map(function(item) {
+    var val = item[key], n = item.company_count||'';
+    var on  = arr.indexOf(val) !== -1;
+    return '<button class="fp-chip' + (on?' on':'') + '" onclick="fpChip(\'' + elId + '\',\'' + _esc(val) + '\')">'
+         + _esc(val) + (n ? '<span class="fp-chip-n"> ' + n + '</span>' : '') + '</button>';
+  }).join('');
+}
+
+function fpChip(elId, val) {
+  var arr = elId === 'fp-industries' ? FP.industries : FP.regions;
+  var idx = arr.indexOf(val);
+  if (idx === -1) arr.push(val); else arr.splice(idx, 1);
+  _buildChips(elId,
+    elId === 'fp-industries' ? FP._industriesData : FP._regionsData,
+    elId === 'fp-industries' ? 'name' : 'region',
+    arr
+  );
+  fpApply();
+}
+
+/* ── Mode, reset, debounce ───────────────────────────────────── */
+function fpSetMode(m) {
+  FP.mode = m;
+  document.getElementById('fp-mode-main').classList.toggle('active', m === 'main');
+  document.getElementById('fp-mode-all').classList.toggle('active',  m === 'all');
+  fpApply();
+}
+
+function fpReset() {
+  FP.okvedInc = []; FP.regions = []; FP.industries = [];
+  FP.mode = 'main';
+  document.getElementById('fp-q').value = '';
+  document.getElementById('fp-okved-q').value = '';
+  ['fp-has-email','fp-has-phone','fp-has-website'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.checked = false;
+  });
+  fpSetMode('main');
+  _buildTree(FP._tree, '');
+  _buildChips('fp-industries', FP._industriesData||[], 'name',   FP.industries);
+  _buildChips('fp-regions',    FP._regionsData||[],    'region', FP.regions);
+  fpApply();
+}
+
+function fpDebounce() {
+  clearTimeout(FP._timer);
+  FP._timer = setTimeout(fpApply, 350);
+}
+
+/* ── Count preview ───────────────────────────────────────────── */
+function fpUpdateCount() {
+  fetch('/api/filters/count-preview', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(fpGetReq())
+  }).then(function(r){return r.json();}).then(function(d){
+    document.getElementById('fp-count').textContent =
+      'Найдено: ' + d.total + ' · ' + d.with_email + ' с email';
+  }).catch(function(){});
+}
+
+function fpGetReq() {
+  return {
+    q:               document.getElementById('fp-q').value || '',
+    okved_include:   FP.okvedInc.slice(),
+    okved_mode:      FP.mode,
+    regions:         FP.regions.slice(),
+    industry_groups: FP.industries.slice(),
+    has_email:       !!(document.getElementById('fp-has-email')||{}).checked,
+    has_phone:       !!(document.getElementById('fp-has-phone')||{}).checked,
+    has_website:     !!(document.getElementById('fp-has-website')||{}).checked,
+  };
+}
+
+function fpSavePreset() {
+  var name = prompt('Название пресета:');
+  if (!name) return;
+  fetch('/api/filters/save-preset', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({name:name, filter:fpGetReq()})
+  }).then(function(r){return r.json();}).then(function(d){
+    if (d.ok) _showToast('Пресет «'+name+'» сохранён');
+  });
+}
+
+/* ── Table ───────────────────────────────────────────────────── */
+var _page=1, _totalPages=1, _lastReq={};
+
+function fpApply() {
+  fpUpdateCount();
+  loadCompanies(fpGetReq(), 1);
+}
+
+function loadCompanies(req, page) {
+  _page = page||1;
+  _lastReq = Object.assign({}, req||_lastReq, {page:_page, per_page:50});
+  var tbody = document.getElementById('companies-tbody');
+  tbody.innerHTML = '<tr class="tbl-loading"><td colspan="9"><span class="tbl-spinner"></span>Загрузка…</td></tr>';
+
+  fetch('/api/companies/filter', {
+    method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(_lastReq)
-  }).then(function(r){ return r.json(); })
+  }).then(function(r){return r.json();})
     .then(function(d) {
-      _totalPages = d.total_pages;
+      _totalPages = d.total_pages||1;
       document.getElementById('companies-count').textContent = d.total;
-      document.getElementById('toolbar-info').textContent =
-        'Найдено: ' + d.total + ' компаний · страница ' + d.page + ' из ' + d.total_pages;
+      document.getElementById('tbl-info').textContent =
+        'Компаний: ' + d.total + ' · страница ' + d.page + ' из ' + d.total_pages;
       document.getElementById('mailing-btn').disabled = d.total === 0;
 
-      var tbody = document.getElementById('companies-tbody');
-      if (!d.companies.length) {
-        tbody.innerHTML = '<tr class="loading-row"><td colspan="9">Компании не найдены по выбранным фильтрам.</td></tr>';
-        document.getElementById('companies-pagination').innerHTML = '';
+      if (!d.companies||!d.companies.length) {
+        tbody.innerHTML = '<tr class="tbl-empty"><td colspan="9">Компании не найдены по выбранным фильтрам.</td></tr>';
+        document.getElementById('companies-pg').innerHTML = '';
         return;
       }
 
       tbody.innerHTML = d.companies.map(function(c) {
-        var st = c.match_status || 'manual_review';
-        var stCls = st === 'verified' ? 'st-verified' : st === 'likely' ? 'st-likely' : st === 'conflict' ? 'st-conflict' : st === 'manual_review' ? 'st-review' : 'st-default';
-        var stLabel = st === 'verified' ? 'Подтверждён' : st === 'likely' ? 'Вероятно' : st === 'conflict' ? 'Конфликт' : 'Проверка';
-        var okved = c.okved_main_code && c.okved_main_code !== 'NOT_FOUND' ? c.okved_main_code : '—';
-        return '<tr onclick="openCompanyCard(\'' + c.company_id + '\')" data-cid="' + c.company_id + '">'
-          + '<td class="tbl-name" title="' + _esc(c.company_name_original) + '">' + _esc(c.company_name_original || '—') + '</td>'
-          + '<td class="tbl-inn">' + (c.inn || '—') + '</td>'
-          + '<td>' + _esc(c.region || '—') + '</td>'
-          + '<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px" title="' + _esc(c.industry_group_final||'') + '">' + _esc(c.industry_group_final || '—') + '</td>'
-          + '<td>' + (okved !== '—' ? '<span class="tbl-okved">' + okved + '</span>' : '<span style="color:var(--text-muted)">—</span>') + '</td>'
-          + '<td><span class="tbl-icon ' + (c.emails_all ? 'has' : '') + '">✉ ' + (c.emails_all ? '✓' : '—') + '</span></td>'
-          + '<td><span class="tbl-icon ' + (c.mobile_phones_all || c.landline_phones_all ? 'has' : '') + '">☎ ' + (c.mobile_phones_all || c.landline_phones_all ? '✓' : '—') + '</span></td>'
-          + '<td>' + (c.website ? '<a href="' + c.website + '" target="_blank" onclick="event.stopPropagation()" style="font-size:12px;color:var(--accent)">↗</a>' : '—') + '</td>'
-          + '<td><span class="tbl-status ' + stCls + '">' + stLabel + '</span></td>'
+        var st    = c.match_status||'manual_review';
+        var stCls = {verified:'st-verified',likely:'st-likely',conflict:'st-conflict',manual_review:'st-review'}[st]||'st-default';
+        var stLbl = {verified:'Подтверждён',likely:'Вероятно',conflict:'Конфликт',manual_review:'Проверка',not_found:'Не найден'}[st]||'Проверка';
+        var okved = c.okved_main_code && c.okved_main_code!=='NOT_FOUND' ? c.okved_main_code : null;
+        var hasEmail = c.emails_all && c.emails_all.trim();
+        var hasPhone = (c.mobile_phones_all&&c.mobile_phones_all.trim())||(c.landline_phones_all&&c.landline_phones_all.trim());
+        return '<tr onclick="openCompanyCard(\'' + c.company_id + '\')" title="Открыть карточку компании">'
+          + '<td><div class="tbl-name">' + _esc(c.company_name_original||'—') + '</div></td>'
+          + '<td class="tbl-inn">' + _esc(c.inn||'—') + '</td>'
+          + '<td class="tbl-region">' + _esc(c.region||'—') + '</td>'
+          + '<td class="tbl-industry" title="' + _esc(c.industry_group_final||'') + '">' + _esc(c.industry_group_final||'—') + '</td>'
+          + '<td>' + (okved ? '<span class="tbl-okved-code">' + okved + '</span>' : '<span class="tbl-no">—</span>') + '</td>'
+          + '<td><span class="' + (hasEmail?'tbl-has':'tbl-no') + '">' + (hasEmail?'✓':'—') + '</span></td>'
+          + '<td><span class="' + (hasPhone?'tbl-has':'tbl-no') + '">' + (hasPhone?'✓':'—') + '</span></td>'
+          + '<td>' + (c.website ? '<a href="' + _esc(c.website) + '" target="_blank" onclick="event.stopPropagation()" style="color:var(--link);font-size:12px">↗</a>' : '<span class="tbl-no">—</span>') + '</td>'
+          + '<td><span class="tbl-status ' + stCls + '">' + stLbl + '</span></td>'
           + '</tr>';
       }).join('');
 
-      renderPagination(d.page, d.total_pages);
+      _renderPg(d.page, d.total_pages);
     })
     .catch(function(e) {
-      document.getElementById('companies-tbody').innerHTML =
-        '<tr class="loading-row"><td colspan="9">Ошибка загрузки: ' + e.message + '</td></tr>';
+      tbody.innerHTML = '<tr class="tbl-empty"><td colspan="9">Ошибка: ' + _esc(e.message) + '</td></tr>';
     });
 }
 
-function renderPagination(page, total) {
-  var el = document.getElementById('companies-pagination');
-  if (total <= 1) { el.innerHTML = ''; return; }
-  var html = '<button class="pg-btn" onclick="loadCompanies(null,' + (page-1) + ')" ' + (page<=1?'disabled':'') + '>‹</button>';
-  var start = Math.max(1, page-2), end = Math.min(total, page+2);
-  if (start > 1) html += '<button class="pg-btn" onclick="loadCompanies(null,1)">1</button>' + (start>2?'<span>…</span>':'');
-  for (var p = start; p <= end; p++) {
-    html += '<button class="pg-btn' + (p===page?' active':'') + '" onclick="loadCompanies(null,' + p + ')">' + p + '</button>';
-  }
-  if (end < total) html += (end<total-1?'<span>…</span>':'') + '<button class="pg-btn" onclick="loadCompanies(null,'+total+')">'+total+'</button>';
-  html += '<button class="pg-btn" onclick="loadCompanies(null,' + (page+1) + ')" ' + (page>=total?'disabled':'') + '>›</button>';
-  el.innerHTML = html;
+function _renderPg(p, t) {
+  var el = document.getElementById('companies-pg');
+  if (t <= 1) { el.innerHTML=''; return; }
+  var h = '<button class="pg-btn" onclick="loadCompanies(null,'+(p-1)+')" '+(p<=1?'disabled':'')+'>‹</button>';
+  var s = Math.max(1,p-2), e = Math.min(t,p+2);
+  if (s>1) h += '<button class="pg-btn" onclick="loadCompanies(null,1)">1</button>'+(s>2?'<span class="pg-dots">…</span>':'');
+  for (var i=s;i<=e;i++) h += '<button class="pg-btn'+(i===p?' current':'')+'" onclick="loadCompanies(null,'+i+')">'+i+'</button>';
+  if (e<t) h += (e<t-1?'<span class="pg-dots">…</span>':'')+'<button class="pg-btn" onclick="loadCompanies(null,'+t+')">'+t+'</button>';
+  h += '<button class="pg-btn" onclick="loadCompanies(null,'+(p+1)+')" '+(p>=t?'disabled':'')+'>›</button>';
+  el.innerHTML = h;
 }
 
-function openCompanyCard(cid) {
-  // Placeholder — will be implemented in Stage 6
-  alert('Карточка компании ' + cid + ' — будет реализована на Этапе 6');
+function exportCompanies() {
+  // placeholder
+  _showToast('Экспорт будет реализован на Этапе 11');
 }
-
-function exportCsv() {
-  var params = new URLSearchParams({filter: JSON.stringify(_lastReq)});
-  window.location = '/api/companies/export?' + params;
-}
-
 function createMailing() {
   window.location = '/campaigns?from_filter=' + encodeURIComponent(JSON.stringify(_lastReq));
+}
+
+function _showToast(msg, err) {
+  var t = document.getElementById('_toast');
+  if (!t) {
+    t = document.createElement('div'); t.id='_toast';
+    t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(12px);background:var(--accent);color:#fff;padding:9px 20px;border-radius:99px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:all .2s;pointer-events:none;box-shadow:var(--shadow-md)';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.background = err ? '#ef4444' : 'var(--accent)';
+  t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
+  clearTimeout(t._t);
+  t._t = setTimeout(function(){ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(12px)'; }, 2400);
 }
 
 function _esc(s) {
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Toggle tree expand
-document.addEventListener('click', function(e) {
-  var arrow = e.target.closest('.fp-tree-arrow');
-  if (!arrow) return;
-  var secId = arrow.dataset.sec || arrow.dataset.cls;
-  var prefix = arrow.dataset.sec ? 'fp-sec-' : 'fp-cls-';
-  var children = document.getElementById(prefix + secId);
-  if (!children) return;
-  var open = children.style.display !== 'none';
-  children.style.display = open ? 'none' : 'block';
-  arrow.classList.toggle('open', !open);
-});
-
-// Init
+/* ── Boot ────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', function() {
-  fpInit(function(req) { loadCompanies(req, 1); });
+  // Store data for chip rebuilds on toggle
+  Promise.all([
+    fetch('/api/filters/industry-groups').then(function(r){return r.json();}),
+    fetch('/api/filters/regions').then(function(r){return r.json();}),
+  ]).then(function(res){ FP._industriesData = res[0]; FP._regionsData = res[1]; });
+  fpInit();
 });
 </script>
+<script src="{{ url_for('static', filename='js/companyCard.js') }}"></script>
 {% endblock %}

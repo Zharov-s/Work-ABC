@@ -84,7 +84,6 @@
     <span class="ft-panel-title">Фильтр по ВРИ / ОКВЭД</span>
     <div style="display:flex;gap:8px;align-items:center">
       <button type="button" class="ft-panel-clear" onclick="ftClearAll()">Сбросить всё</button>
-      <button type="button" class="btn btn-primary" style="height:28px;padding:0 14px;font-size:12px" onclick="ftApply()">Применить</button>
     </div>
   </div>
   <div class="ft-panel-body">
@@ -215,8 +214,8 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/filter_data.js') }}?v=3"></script>
-<script src="{{ url_for('static', filename='js/filter_tree.js') }}?v=3"></script>
+<script src="{{ url_for('static', filename='js/filter_data.js') }}?v=4"></script>
+<script src="{{ url_for('static', filename='js/filter_tree.js') }}?v=4"></script>
 <script>
 // ── Contacts page JS ─────────────────────────────────────────────────────────
 
@@ -312,13 +311,13 @@ function deleteContact(id, btn) {
   const tree = new FilterTree(root, state).onChange(codes => {
     hiddenInput.value = codes.join(',');
     _updateBadgeAndChips(codes);
+    // Auto-apply: submit form immediately when selection changes
+    document.getElementById('contacts-filter-form').submit();
   });
 
-  // Open panel and expand selected nodes AFTER tree is fully built
+  // Open panel when filter is active — do NOT auto-expand nodes
   if (initialCodes.length) {
     _openPanel();
-    tree.expandSelected();
-    tree.refresh();
   }
 
   _updateBadgeAndChips(initialCodes);
@@ -338,6 +337,7 @@ function deleteContact(id, btn) {
     tree.refresh();
     hiddenInput.value = '';
     _updateBadgeAndChips([]);
+    document.getElementById('contacts-filter-form').submit();
   };
 
   window.ftRemoveCode = function (code) {

@@ -1,415 +1,398 @@
 /**
- * companyCard.js — centered modal company card with blur backdrop, tabs, edit/save.
+ * companyCard.js — centered modal with blur backdrop, 5 tabs, edit/save.
+ * Design tokens from main.css via CSS variables.
  */
 (function() {
   var _editing = false;
-  var _data    = null;
-  var _tab     = 'overview';
+  var _data = null;
+  var _tab = 'overview';
 
-  // ── Open / Close ─────────────────────────────────────────────────────────
+  /* ── Open / Close ──────────────────────────────────────────── */
   window.openCompanyCard = function(companyId) {
-    _tab     = 'overview';
-    _editing = false;
-    _data    = null;
-
+    _tab = 'overview'; _editing = false; _data = null;
     var bd = document.getElementById('cc-backdrop');
     bd.classList.add('open');
     document.body.style.overflow = 'hidden';
-
     _showSkeleton();
-    _loadCard(companyId);
-
-    // Update URL without navigation
-    var url = new URL(window.location);
-    url.searchParams.set('company_id', companyId);
-    history.replaceState(null, '', url);
+    _load(companyId);
+    var u = new URL(window.location);
+    u.searchParams.set('company_id', companyId);
+    history.replaceState(null, '', u);
   };
 
-  function _closeCard() {
+  window._ccClose = function() {
     var bd = document.getElementById('cc-backdrop');
     bd.classList.remove('open');
     document.body.style.overflow = '';
     _editing = false;
-    var url = new URL(window.location);
-    url.searchParams.delete('company_id');
-    history.replaceState(null, '', url);
-  }
+    var u = new URL(window.location);
+    u.searchParams.delete('company_id');
+    history.replaceState(null, '', u);
+  };
 
-  // ── Load data ─────────────────────────────────────────────────────────────
-  function _loadCard(companyId) {
-    fetch('/api/companies/' + companyId + '/card', {credentials: 'same-origin'})
-      .then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
-      .then(function(d) {
-        _data = d;
-        _render();
-      })
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && document.getElementById('cc-backdrop').classList.contains('open')) {
+      window._ccClose();
+    }
+  });
+
+  /* ── Load ──────────────────────────────────────────────────── */
+  function _load(cid) {
+    fetch('/api/companies/' + cid + '/card', {credentials:'same-origin'})
+      .then(function(r) { if (!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+      .then(function(d) { _data = d; _render(); })
       .catch(function(e) {
         document.getElementById('cc-body').innerHTML =
-          '<div class="cc-empty">⚠ Не удалось загрузить карточку: ' + e.message + '<br>' +
-          '<button class="cc-btn" onclick="openCompanyCard(\'' + companyId + '\')" style="margin-top:12px">↺ Повторить</button></div>';
+          '<div class="cc-empty">⚠ Ошибка загрузки: '+_esc(e.message)+'<br>'
+          +'<button class="cc-btn" onclick="openCompanyCard(\''+cid+'\')" style="margin-top:12px">↺ Повторить</button></div>';
       });
   }
 
-  // ── Skeleton ──────────────────────────────────────────────────────────────
+  /* ── Skeleton ──────────────────────────────────────────────── */
   function _showSkeleton() {
-    var modal = document.getElementById('cc-modal');
-    modal.querySelector('.cc-head-top').innerHTML =
-      '<div class="cc-skeleton"><div class="cc-skeleton-line" style="width:220px;height:22px"></div></div>' +
-      '<button class="cc-close" onclick="_ccClose()">✕</button>';
-    modal.querySelector('.cc-tabs').innerHTML =
-      '<div class="cc-skeleton" style="display:flex;gap:8px;padding:8px 0">' +
-      ['Обзор','Контакты','ОКВЭД','Рассылки','История'].map(function(t){
-        return '<div class="cc-skeleton-line" style="width:60px;height:32px;border-radius:6px"></div>';
-      }).join('') + '</div>';
+    var m = document.getElementById('cc-modal');
+    m.querySelector('.cc-head-top').innerHTML =
+      '<div class="cc-sk-line" style="width:200px;height:20px;border-radius:6px"></div>'
+      +'<button class="cc-close" onclick="_ccClose()">✕</button>';
+    m.querySelector('.cc-meta').innerHTML = '';
+    m.querySelector('.cc-warnings').innerHTML = '';
+    m.querySelector('.cc-actions').innerHTML = '';
+    m.querySelector('.cc-tabs').innerHTML = '';
     document.getElementById('cc-body').innerHTML =
-      '<div class="cc-skeleton">' +
-      '<div class="cc-skeleton-line" style="width:60%"></div>'.repeat(6) +
-      '</div>';
-    document.getElementById('cc-save-bar').style.display = 'none';
+      '<div>'
+      +'<div class="cc-sk-line" style="width:55%"></div>'
+      +'<div class="cc-sk-line" style="width:38%"></div>'
+      +'<div class="cc-sk-line" style="width:70%;margin-top:16px"></div>'
+      +'<div class="cc-sk-line" style="width:45%"></div>'
+      +'<div class="cc-sk-line" style="width:60%"></div>'
+      +'</div>';
+    document.getElementById('cc-save-bar').className = 'cc-save-bar';
   }
 
-  // ── Render card ───────────────────────────────────────────────────────────
+  /* ── Render ────────────────────────────────────────────────── */
   function _render() {
     if (!_data) return;
     var c = _data.company;
-    var modal = document.getElementById('cc-modal');
+    var m = document.getElementById('cc-modal');
 
-    // head
-    var st = c.match_status || 'manual_review';
-    var stCls   = {verified:'cc-badge-green', likely:'cc-badge-blue', conflict:'cc-badge-red', manual_review:'cc-badge-yellow'}[st] || 'cc-badge-gray';
-    var stLabel = {verified:'Подтверждён', likely:'Вероятно', conflict:'Конфликт', manual_review:'Требует проверки', not_found:'Не найден'}[st] || st;
+    // Status badge
+    var stMap = {
+      verified:     {cls:'cc-badge-green',  lbl:'Подтверждён'},
+      likely:       {cls:'cc-badge-blue',   lbl:'Вероятно'},
+      conflict:     {cls:'cc-badge-red',    lbl:'Конфликт'},
+      manual_review:{cls:'cc-badge-yellow', lbl:'Требует проверки'},
+      not_found:    {cls:'cc-badge-gray',   lbl:'Не найден'},
+    };
+    var st = stMap[c.match_status] || {cls:'cc-badge-gray', lbl:'Проверка'};
 
-    modal.querySelector('.cc-head-top').innerHTML =
-      '<div>' +
-      '<div class="cc-company-name">' + _esc(c.company_name_original || '—') + '</div>' +
-      (c.legal_name_found && c.legal_name_found !== c.company_name_original
-        ? '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">' + _esc(c.legal_name_found) + '</div>' : '') +
-      '</div>' +
-      '<button class="cc-close" onclick="_ccClose()">✕</button>';
+    // Head
+    m.querySelector('.cc-head-top').innerHTML =
+      '<div>'
+      +'<div class="cc-company-name">'+_esc(c.company_name_original||'—')+'</div>'
+      +(c.legal_name_found&&c.legal_name_found!==c.company_name_original
+        ? '<div class="cc-company-legal">'+_esc(c.legal_name_found)+'</div>' : '')
+      +'</div>'
+      +'<button class="cc-close" onclick="_ccClose()">✕</button>';
 
-    modal.querySelector('.cc-meta').innerHTML =
-      '<span class="cc-badge ' + stCls + '">' + stLabel + '</span>' +
-      (c.inn ? '<span>ИНН&nbsp;<b>' + c.inn + '</b></span><button class="cc-copy-btn" onclick="ccCopy(\'' + c.inn + '\')">⎘</button>' : '') +
-      (c.region ? '<span>📍&nbsp;' + _esc(c.region) + (c.city && c.city !== c.region ? ',&nbsp;' + _esc(c.city) : '') + '</span>' : '');
+    // Meta
+    var metaParts = ['<span class="cc-badge '+st.cls+'">'+st.lbl+'</span>'];
+    if (c.inn) metaParts.push('ИНН&nbsp;<b>'+_esc(c.inn)+'</b>'
+      +'<button class="cc-ch-btn" onclick="ccCopy(\''+_esc(c.inn)+'\')">⎘</button>');
+    if (c.region) metaParts.push('📍&nbsp;'+_esc(c.region)+(c.city&&c.city!==c.region?',&nbsp;'+_esc(c.city):''));
+    m.querySelector('.cc-meta').innerHTML = metaParts.join('<span class="cc-meta-sep"> · </span>');
 
-    // warnings
-    var warnHtml = '';
-    (_data.warnings || []).forEach(function(w) {
-      var isErr = w.type === 'conflict' || w.type === 'bounce';
-      warnHtml += '<div class="cc-warn' + (isErr?' err':'') + '">⚠&nbsp;' + _esc(w.text) + '</div>';
+    // Warnings
+    var wHtml = '';
+    (_data.warnings||[]).forEach(function(w){
+      var isErr = w.type==='conflict'||w.type==='bounce';
+      wHtml += '<div class="cc-warn'+(isErr?' err':'')+'">⚠&thinsp;'+_esc(w.text)+'</div>';
     });
-    modal.querySelector('.cc-warnings').innerHTML = warnHtml;
+    m.querySelector('.cc-warnings').innerHTML = wHtml;
 
-    // action buttons
-    var emails = (_data.channels||[]).filter(function(ch){ return ch.channel_type==='email' && ch.status==='active'; });
-    var emailLink = emails.length ? 'mailto:' + emails[0].value : '#';
-    modal.querySelector('.cc-actions').innerHTML =
-      (c.website ? '<a href="' + _esc(c.website) + '" target="_blank" class="cc-btn">↗ Сайт</a>' : '') +
-      (c.inn ? '<button class="cc-btn" onclick="ccCopy(\'' + c.inn + '\')">⎘ ИНН</button>' : '') +
-      (emails.length ? '<button class="cc-btn" onclick="ccCopy(\'' + emails[0].value + '\')">⎘ Email</button>' : '') +
-      '<button class="cc-btn cc-btn-primary" id="cc-edit-btn" onclick="ccToggleEdit()">' + (_editing ? '✕ Отмена' : '✎ Редактировать') + '</button>';
+    // Action buttons
+    var emails = (_data.channels||[]).filter(function(ch){ return ch.channel_type==='email'&&ch.status==='active'; });
+    m.querySelector('.cc-actions').innerHTML =
+      (c.website ? '<a href="'+_esc(c.website)+'" target="_blank" class="cc-btn">↗ Сайт</a>' : '')
+      +(c.inn  ? '<button class="cc-btn" onclick="ccCopy(\''+_esc(c.inn)+'\')">⎘ ИНН</button>' : '')
+      +(emails.length ? '<button class="cc-btn" onclick="ccCopy(\''+_esc(emails[0].value)+'\')">⎘ Email</button>' : '')
+      +'<button class="cc-btn cc-btn-primary" id="cc-edit-btn" onclick="ccToggleEdit()">'
+      +(_editing?'✕ Отмена':'✎ Редактировать')+'</button>';
 
-    // tabs
-    var tabs = [
-      {id:'overview', label:'Обзор'},
-      {id:'contacts', label:'Контакты&nbsp;(' + (_data.channels||[]).length + ')'},
-      {id:'okved',    label:'ОКВЭД'},
-      {id:'campaigns',label:'Рассылки&nbsp;(' + (_data.campaign_history||[]).length + ')'},
-      {id:'history',  label:'История'},
+    // Tabs
+    var TABS = [
+      {id:'overview',  label:'Обзор'},
+      {id:'contacts',  label:'Контакты&thinsp;('+(_data.channels||[]).length+')'},
+      {id:'okved',     label:'ОКВЭД'},
+      {id:'campaigns', label:'Рассылки&thinsp;('+(_data.campaign_history||[]).length+')'},
+      {id:'history',   label:'История'},
     ];
-    modal.querySelector('.cc-tabs').innerHTML = tabs.map(function(t) {
-      return '<button class="cc-tab' + (_tab===t.id?' active':'') + '" onclick="ccTab(\'' + t.id + '\')">' + t.label + '</button>';
+    m.querySelector('.cc-tabs').innerHTML = TABS.map(function(t){
+      return '<button class="cc-tab'+(_tab===t.id?' active':'')+'" onclick="ccTab(\''+t.id+'\')">'+t.label+'</button>';
     }).join('');
 
-    _renderTab();
+    _renderBody();
   }
 
-  function _renderTab() {
+  /* ── Body ──────────────────────────────────────────────────── */
+  function _renderBody() {
     var body = document.getElementById('cc-body');
-    var saveBar = document.getElementById('cc-save-bar');
-    if (!_data) return;
-
-    if (_tab === 'overview')  { body.innerHTML = _renderOverview(); saveBar.style.display = _editing ? 'flex' : 'none'; }
-    if (_tab === 'contacts')  { body.innerHTML = _renderContacts(); saveBar.style.display = 'none'; }
-    if (_tab === 'okved')     { body.innerHTML = _renderOkved();    saveBar.style.display = 'none'; }
-    if (_tab === 'campaigns') { body.innerHTML = _renderCampaigns();saveBar.style.display = 'none'; }
-    if (_tab === 'history')   { body.innerHTML = _renderHistory();  saveBar.style.display = 'none'; }
+    var bar  = document.getElementById('cc-save-bar');
+    if (_tab==='overview')  { body.innerHTML=_overview(); bar.className='cc-save-bar'+(_editing?' visible':''); }
+    if (_tab==='contacts')  { body.innerHTML=_contacts(); bar.className='cc-save-bar'; }
+    if (_tab==='okved')     { body.innerHTML=_okved();    bar.className='cc-save-bar'; }
+    if (_tab==='campaigns') { body.innerHTML=_campaigns();bar.className='cc-save-bar'; }
+    if (_tab==='history')   { body.innerHTML=_history();  bar.className='cc-save-bar'; }
   }
 
-  // ── Tab: Overview ─────────────────────────────────────────────────────────
-  function _renderOverview() {
+  /* ── Overview ──────────────────────────────────────────────── */
+  function _overview() {
     var c = _data.company;
     if (_editing) {
-      return '<div class="cc-field-grid">' +
-        _field('company_name_original', 'Название',            c.company_name_original, 'input') +
-        _field('inn',                   'ИНН',                 c.inn, 'input') +
-        _field('website',               'Сайт',                c.website, 'input') +
-        _field('region',                'Регион',              c.region, 'input') +
-        _field('city',                  'Город',               c.city, 'input') +
-        _field('segment',               'Сегмент',             c.segment, 'input') +
-        _field('industry_group_final',  'Отрасль',             c.industry_group_final, 'input', true) +
-        _field('activity_type_final',   'Вид деятельности',    c.activity_type_final, 'input', true) +
-        _field('registration_address',  'Адрес регистрации',   c.registration_address, 'input', true) +
-        _field('review_comment',        'Комментарий',         c.review_comment, 'textarea', true) +
-        '</div>';
+      return '<div class="cc-field-grid">'
+        +_ef('company_name_original','Название',c.company_name_original)
+        +_ef('inn','ИНН',c.inn)
+        +_ef('website','Сайт',c.website)
+        +_ef('region','Регион',c.region)
+        +_ef('city','Город',c.city)
+        +_ef('segment','Сегмент',c.segment)
+        +_ef('industry_group_final','Отрасль',c.industry_group_final,false,true)
+        +_ef('activity_type_final','Вид деятельности',c.activity_type_final,false,true)
+        +_ef('registration_address','Адрес регистрации',c.registration_address,false,true)
+        +_ef('review_comment','Комментарий',c.review_comment,true,true)
+        +'</div>';
     }
-    function row(label, val, link) {
+    function rv(label, val, isLink) {
       if (!val) return '';
-      var display = link ? '<a href="' + _esc(val) + '" target="_blank">' + _esc(val) + '</a>' : _esc(val);
-      return '<div class="cc-field"><div class="cc-label">' + label + '</div><div class="cc-value">' + display + '</div></div>';
+      var disp = isLink
+        ? '<a href="'+_esc(val)+'" target="_blank">'+_esc(val)+'</a>'
+        : _esc(val);
+      return '<div class="cc-field"><div class="cc-label">'+label+'</div>'
+             +'<div class="cc-value">'+disp+'</div></div>';
     }
-    return '<div class="cc-field-grid">' +
-      row('Название',          c.company_name_original) +
-      row('Юр. название',      c.legal_name_found) +
-      row('ИНН',               c.inn) +
-      row('ОГРН',              c.ogrn) +
-      row('Сайт',              c.website, true) +
-      row('Регион',            c.region) +
-      row('Город',             c.city) +
-      row('Сегмент',           c.segment) +
-      row('Отрасль',           c.industry_group_final) +
-      row('Вид деятельности',  c.activity_type_final) +
-      row('Адрес регистрации', c.registration_address) +
-      (c.review_comment ? '<div class="cc-field cc-field-wide"><div class="cc-label">Комментарий</div><div class="cc-value">' + _esc(c.review_comment) + '</div></div>' : '') +
-      '</div>';
+    return '<div class="cc-field-grid">'
+      +rv('Название',          c.company_name_original)
+      +rv('Юр. название',      c.legal_name_found)
+      +rv('ИНН',               c.inn)
+      +rv('ОГРН',              c.ogrn)
+      +rv('Сайт',              c.website, true)
+      +rv('Регион',            c.region)
+      +rv('Город',             c.city)
+      +rv('Сегмент',           c.segment)
+      +rv('Отрасль',           c.industry_group_final)
+      +rv('Вид деятельности',  c.activity_type_final)
+      +rv('Адрес регистрации', c.registration_address)
+      +(c.review_comment?'<div class="cc-field cc-field-wide"><div class="cc-label">Комментарий</div><div class="cc-value">'+_esc(c.review_comment)+'</div></div>':'')
+      +'</div>';
   }
 
-  function _field(name, label, val, type, wide) {
-    var input = type === 'textarea'
-      ? '<textarea class="cc-textarea" name="' + name + '">' + _esc(val||'') + '</textarea>'
-      : '<input class="cc-input" type="text" name="' + name + '" value="' + _esc(val||'') + '">';
-    return '<div class="cc-field' + (wide?' cc-field-wide':'') + '">' +
-           '<div class="cc-label">' + label + '</div>' + input + '</div>';
+  function _ef(name, label, val, ta, wide) {
+    var inp = ta
+      ? '<textarea class="cc-textarea" name="'+name+'">'+_esc(val||'')+'</textarea>'
+      : '<input class="cc-input" type="text" name="'+name+'" value="'+_esc(val||'')+'">';
+    return '<div class="cc-field'+(wide?' cc-field-wide':'')+'"><div class="cc-label">'+label+'</div>'+inp+'</div>';
   }
 
-  // ── Tab: Contacts ─────────────────────────────────────────────────────────
-  function _renderContacts() {
-    var chans = _data.channels || [];
-    if (!chans.length) return '<div class="cc-empty">Контакты не найдены.<br>Добавьте первый канал связи.</div>' + _addChannelForm();
-    var icons = {email:'✉', mobile_phone:'📱', landline_phone:'☎', website:'🌐'};
-    var html = '<div class="cc-ch-list">';
-    chans.forEach(function(ch) {
-      var statusCls = ch.status || 'active';
-      html += '<div class="cc-ch-row">' +
-        '<span class="cc-ch-icon">' + (icons[ch.channel_type]||'📌') + '</span>' +
-        '<span class="cc-ch-val">' + _esc(ch.value) + '</span>' +
-        '<span class="cc-ch-type">' + _typeLabel(ch.channel_type) + '</span>' +
-        '<div class="cc-ch-status-dot ' + statusCls + '" title="' + statusCls + '"></div>' +
-        '<div class="cc-ch-actions">' +
-        '<button class="cc-copy-btn" onclick="ccCopy(\'' + _esc(ch.value) + '\')">⎘</button>' +
-        (statusCls === 'active'
-          ? '<button class="cc-copy-btn" onclick="ccSetChannelStatus(' + ch.id + ',\'inactive\')" title="Пометить неактуальным">✕</button>'
-          : '<button class="cc-copy-btn" onclick="ccSetChannelStatus(' + ch.id + ',\'active\')" title="Восстановить">✓</button>') +
-        '</div></div>';
-    });
-    html += '</div>' + _addChannelForm();
+  /* ── Contacts ──────────────────────────────────────────────── */
+  function _contacts() {
+    var chans = _data.channels||[];
+    var ICON = {email:'✉',mobile_phone:'📱',landline_phone:'☎',website:'🌐'};
+    var LTYPE = {email:'Email',mobile_phone:'Мобильный',landline_phone:'Городской',website:'Сайт'};
+    var html = chans.length
+      ? '<div class="cc-ch-list">'+chans.map(function(ch){
+          var st = ch.status||'active';
+          return '<div class="cc-ch-row">'
+            +'<span class="cc-ch-icon">'+(ICON[ch.channel_type]||'📌')+'</span>'
+            +'<span class="cc-ch-val">'+_esc(ch.value)+'</span>'
+            +'<span class="cc-ch-type">'+(LTYPE[ch.channel_type]||ch.channel_type)+'</span>'
+            +'<div class="cc-ch-status '+st+'" title="'+st+'"></div>'
+            +'<div class="cc-ch-btns">'
+            +'<button class="cc-ch-btn" onclick="ccCopy(\''+_esc(ch.value)+'\')">⎘</button>'
+            +(st==='active'
+              ?'<button class="cc-ch-btn" onclick="ccSetChSt('+ch.id+',\'inactive\')" title="Пометить неактуальным">✕</button>'
+              :'<button class="cc-ch-btn" onclick="ccSetChSt('+ch.id+',\'active\')" title="Восстановить">✓</button>')
+            +'</div></div>';
+        }).join('')+'</div>'
+      : '<div class="cc-empty">Каналы связи не найдены.</div>';
+
+    html += '<div class="cc-add-ch">'
+      +'<select id="cc-new-type"><option value="email">Email</option>'
+      +'<option value="mobile_phone">Мобильный</option>'
+      +'<option value="landline_phone">Городской</option>'
+      +'<option value="website">Сайт</option></select>'
+      +'<input id="cc-new-val" type="text" placeholder="Значение…">'
+      +'<button class="cc-btn cc-btn-primary" onclick="ccAddCh()">+ Добавить</button>'
+      +'</div>';
     return html;
   }
 
-  function _addChannelForm() {
-    return '<div class="cc-add-ch" style="margin-top:14px">' +
-      '<select id="cc-ch-type"><option value="email">Email</option><option value="mobile_phone">Мобильный</option><option value="landline_phone">Городской</option><option value="website">Сайт</option></select>' +
-      '<input id="cc-ch-val" type="text" placeholder="Введите значение…">' +
-      '<button class="cc-btn cc-btn-primary" onclick="ccAddChannel()">+ Добавить</button>' +
-      '</div>';
-  }
-
-  function _typeLabel(t) {
-    return {email:'Email', mobile_phone:'Мобильный', landline_phone:'Городской', website:'Сайт'}[t] || t;
-  }
-
-  // ── Tab: OKVED ────────────────────────────────────────────────────────────
-  function _renderOkved() {
+  /* ── OKVED ─────────────────────────────────────────────────── */
+  function _okved() {
     var c = _data.company;
-    var okveds = _data.okveds || [];
-    var main = okveds.find(function(o){ return o.okved_role === 'main'; });
-    var others = okveds.filter(function(o){ return o.okved_role !== 'main'; });
-    var mainCode = main ? main.okved_code : (c.okved_main_code !== 'NOT_FOUND' ? c.okved_main_code : null);
-    var mainName = main ? main.okved_name : c.okved_main_activity;
-
+    var okveds = _data.okveds||[];
+    var main = okveds.find(function(o){return o.okved_role==='main';});
+    var others = okveds.filter(function(o){return o.okved_role!=='main';});
+    var mainCode = main?main.okved_code:(c.okved_main_code!=='NOT_FOUND'?c.okved_main_code:null);
+    var mainName = main?main.okved_name:c.okved_main_activity;
     var html = '';
     if (mainCode) {
-      html += '<div class="cc-okved-main">' +
-        '<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Основной ОКВЭД</div>' +
-        '<div class="cc-okved-code">' + mainCode + '</div>' +
-        '<div class="cc-okved-name">' + _esc(mainName || '') + '</div>' +
-        '<button class="cc-okved-add" onclick="ccFilterByOkved(\'' + mainCode + '\')" style="margin-top:8px">🔍 Найти похожие по ОКВЭД</button>' +
-        '</div>';
+      html += '<div class="cc-okved-main">'
+        +'<div class="cc-okved-main-lbl">Основной ОКВЭД</div>'
+        +'<div class="cc-okved-code">'+_esc(mainCode)+'</div>'
+        +(mainName?'<div class="cc-okved-name">'+_esc(mainName)+'</div>':'')
+        +'<button class="cc-okved-action" onclick="ccFindByOkved(\''+_esc(mainCode)+'\')">🔍 Найти похожие компании</button>'
+        +'</div>';
     } else {
-      html += '<div class="cc-warn">ОКВЭД не найден в справочниках. Требуется ручная проверка.</div>';
+      html += '<div class="cc-warn">ОКВЭД не найден в справочниках</div>';
     }
     if (others.length) {
-      html += '<div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin:12px 0 8px">Дополнительные ОКВЭД</div>';
-      html += '<div class="cc-okved-list">';
-      others.forEach(function(o) {
-        html += '<div class="cc-okved-row"><span class="cc-okved-badge">' + o.okved_code + '</span><span style="color:var(--text-muted)">' + _esc(o.okved_name || '') + '</span></div>';
-      });
-      html += '</div>';
+      html += '<div style="font-size:11px;font-weight:600;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">Дополнительные ОКВЭД</div>'
+        +'<div class="cc-okved-add-list">'+others.map(function(o){
+          return '<div class="cc-okved-add-row">'
+            +'<span class="cc-okved-add-code">'+_esc(o.okved_code)+'</span>'
+            +'<span class="cc-okved-add-name">'+_esc(o.okved_name||'')+'</span>'
+            +'</div>';
+        }).join('')+'</div>';
     }
-    if (c.okved_additional_activities && !others.length) {
-      html += '<div style="font-size:12px;color:var(--text-muted);margin-top:10px;background:var(--surface);padding:10px;border-radius:8px;">' +
-        '<b>Из исходных данных:</b> ' + _esc(c.okved_additional_activities) + '</div>';
-    }
-    if (!mainCode && !others.length) {
-      html += '<div class="cc-empty">Данные ОКВЭД отсутствуют.</div>';
-    }
+    if (!mainCode && !others.length) html += '<div class="cc-empty">Данные ОКВЭД отсутствуют.</div>';
     return html;
   }
 
-  // ── Tab: Campaigns ────────────────────────────────────────────────────────
-  function _renderCampaigns() {
-    var hist = _data.campaign_history || [];
+  /* ── Campaigns ─────────────────────────────────────────────── */
+  function _campaigns() {
+    var hist = _data.campaign_history||[];
     if (!hist.length) return '<div class="cc-empty">Рассылки по этой компании не проводились.</div>';
-    var html = '';
-    hist.forEach(function(h) {
-      var stCls = h.status === 'sent' ? 'cc-badge-green' : h.status === 'bounced' ? 'cc-badge-red' : 'cc-badge-gray';
-      html += '<div class="cc-camp-row">' +
-        '<div class="cc-camp-name">' + _esc(h.campaign_name || 'Рассылка #' + h.campaign_id) + '</div>' +
-        '<div style="font-size:12px;color:var(--text-muted)">' + _esc((h.sent_at||'').slice(0,10)) + '</div>' +
-        '<span class="cc-badge ' + stCls + '">' + _esc(h.status) + '</span>' +
-        '</div>';
-    });
-    return html;
+    var stMap = {sent:'cc-badge-green',bounced:'cc-badge-red',failed:'cc-badge-red'};
+    return '<div class="cc-camp-list">'+hist.map(function(h){
+      var sc = stMap[h.status]||'cc-badge-gray';
+      return '<div class="cc-camp-row">'
+        +'<span class="cc-camp-name">'+_esc(h.campaign_name||'Рассылка #'+h.campaign_id)+'</span>'
+        +'<span class="cc-camp-date">'+_esc((h.sent_at||'').slice(0,10))+'</span>'
+        +'<span class="cc-badge '+sc+'">'+_esc(h.status)+'</span>'
+        +'</div>';
+    }).join('')+'</div>';
   }
 
-  // ── Tab: History ──────────────────────────────────────────────────────────
-  function _renderHistory() {
-    var log = _data.contact_change_log || [];
+  /* ── History ───────────────────────────────────────────────── */
+  function _history() {
+    var log = _data.contact_change_log||[];
     if (!log.length) return '<div class="cc-empty">История изменений пуста.</div>';
-    var html = '';
-    log.forEach(function(l) {
-      html += '<div class="cc-hist-row">' +
-        '<div class="cc-hist-date">' + _esc((l.created_at||'').slice(0,10)) + '</div>' +
-        '<div class="cc-hist-body">' +
-        '<b>' + _esc(_changeLabel(l.change_type)) + '</b>' +
-        (l.old_value ? ' — было: <span style="color:var(--text-muted)">' + _esc(l.old_value) + '</span>' : '') +
-        (l.new_value ? ' → <span>' + _esc(l.new_value) + '</span>' : '') +
-        (l.reason    ? '<div style="font-size:12px;color:var(--text-muted)">' + _esc(l.reason) + '</div>' : '') +
-        '</div></div>';
-    });
-    return html;
+    var CHTYPE = {status_change:'Статус изменён',added:'Канал добавлен',replaced:'Заменён',bounced:'Bounce получен'};
+    return '<div class="cc-hist-list">'+log.map(function(l){
+      return '<div class="cc-hist-row">'
+        +'<div class="cc-hist-date">'+_esc((l.created_at||'').slice(0,10))+'</div>'
+        +'<div class="cc-hist-body">'
+        +'<div class="cc-hist-type">'+(CHTYPE[l.change_type]||_esc(l.change_type))+'</div>'
+        +((l.old_value||l.new_value)?'<div class="cc-hist-detail">'
+          +(l.old_value?'Было: <span style="color:var(--text-3)">'+_esc(l.old_value)+'</span>':'')
+          +(l.old_value&&l.new_value?' → ':'')
+          +(l.new_value?_esc(l.new_value):'')
+          +(l.reason?'<br>'+_esc(l.reason):'')
+          +'</div>':'')
+        +'</div></div>';
+    }).join('')+'</div>';
   }
 
-  function _changeLabel(t) {
-    return {status_change:'Статус изменён', added:'Добавлен', replaced:'Заменён', bounced:'Bounce'}[t] || t;
-  }
-
-  // ── Tab switch ────────────────────────────────────────────────────────────
+  /* ── Tab switch ────────────────────────────────────────────── */
   window.ccTab = function(tab) {
     _tab = tab;
-    document.querySelectorAll('.cc-tab').forEach(function(el){ el.classList.toggle('active', el.textContent.trim().startsWith(tab==='overview'?'Обзор':tab==='contacts'?'Контакты':tab==='okved'?'ОКВЭД':tab==='campaigns'?'Рассылки':'История')); });
-    // simpler: re-render tabs and body
-    _render();
+    // Update active state on tab buttons
+    document.querySelectorAll('.cc-tab').forEach(function(el,i){
+      var tabs = ['overview','contacts','okved','campaigns','history'];
+      el.classList.toggle('active', tabs[i]===tab);
+    });
+    _renderBody();
   };
 
-  // ── Edit toggle ───────────────────────────────────────────────────────────
+  /* ── Edit / Save ───────────────────────────────────────────── */
   window.ccToggleEdit = function() {
-    _editing = !_editing;
-    _tab = 'overview';
-    _render();
+    _editing = !_editing; _tab = 'overview'; _render();
   };
 
-  // ── Save ──────────────────────────────────────────────────────────────────
   window.ccSave = function() {
-    var form = document.getElementById('cc-body');
-    var inputs = form.querySelectorAll('[name]');
     var payload = {};
-    inputs.forEach(function(inp){ if (inp.value.trim() !== '') payload[inp.name] = inp.value.trim(); });
-    var companyId = _data.company.company_id;
-
-    fetch('/api/companies/' + companyId, {
-      method: 'PATCH',
-      headers: {'Content-Type':'application/json'},
-      credentials: 'same-origin',
+    document.getElementById('cc-body').querySelectorAll('[name]').forEach(function(el){
+      if (el.value.trim()) payload[el.name] = el.value.trim();
+    });
+    var cid = _data.company.company_id;
+    fetch('/api/companies/'+cid, {
+      method:'PATCH', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
       body: JSON.stringify(payload)
-    }).then(function(r){ return r.json(); })
-      .then(function(d) {
-        if (d.ok) {
-          // Update local data and re-render
-          Object.assign(_data.company, payload);
-          _editing = false;
-          _render();
-          _showToast('Данные сохранены');
-        } else {
-          _showToast('Ошибка: ' + d.error, true);
-        }
-      });
+    }).then(function(r){return r.json();}).then(function(d){
+      if (d.ok) {
+        Object.assign(_data.company, payload);
+        _editing = false; _render();
+        _toast('Данные сохранены');
+      } else { _toast('Ошибка: '+(d.error||''), true); }
+    });
   };
 
-  // ── Add channel ───────────────────────────────────────────────────────────
-  window.ccAddChannel = function() {
-    var type = document.getElementById('cc-ch-type').value;
-    var val  = (document.getElementById('cc-ch-val').value || '').trim();
+  /* ── Add channel ───────────────────────────────────────────── */
+  window.ccAddCh = function() {
+    var type = document.getElementById('cc-new-type').value;
+    var val  = (document.getElementById('cc-new-val').value||'').trim();
     if (!val) return;
-    fetch('/api/companies/' + _data.company.company_id + '/channels', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      credentials: 'same-origin',
-      body: JSON.stringify({channel_type: type, value: val})
-    }).then(function(r){ return r.json(); })
-      .then(function(d) {
-        if (d.ok) { _loadCard(_data.company.company_id); }
-        else _showToast('Ошибка: ' + d.error, true);
-      });
+    fetch('/api/companies/'+_data.company.company_id+'/channels', {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({channel_type:type, value:val})
+    }).then(function(r){return r.json();}).then(function(d){
+      if (d.ok) _load(_data.company.company_id);
+      else _toast('Ошибка: '+(d.error||''), true);
+    });
   };
 
-  // ── Set channel status ────────────────────────────────────────────────────
-  window.ccSetChannelStatus = function(channelId, status) {
-    fetch('/api/channels/' + channelId + '/status', {
-      method: 'PATCH',
-      headers: {'Content-Type':'application/json'},
-      credentials: 'same-origin',
-      body: JSON.stringify({status: status, reason: 'Изменено вручную'})
-    }).then(function(){ _loadCard(_data.company.company_id); });
+  window.ccSetChSt = function(id, status) {
+    fetch('/api/channels/'+id+'/status', {
+      method:'PATCH', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({status:status, reason:'Изменено вручную'})
+    }).then(function(){ _load(_data.company.company_id); });
   };
 
-  // ── Filter by OKVED ───────────────────────────────────────────────────────
-  window.ccFilterByOkved = function(code) {
-    _ccClose();
-    if (typeof fpInit === 'function') {
-      FP.okvedInc = [code]; fpApply();
+  /* ── Find by OKVED ─────────────────────────────────────────── */
+  window.ccFindByOkved = function(code) {
+    window._ccClose();
+    if (typeof FP !== 'undefined') {
+      FP.okvedInc = [code];
+      fpSetMode('main');
     }
   };
 
-  // ── Copy helper ───────────────────────────────────────────────────────────
+  /* ── Copy ──────────────────────────────────────────────────── */
   window.ccCopy = function(text) {
-    navigator.clipboard.writeText(text).then(function(){ _showToast('Скопировано'); });
+    navigator.clipboard.writeText(text).then(function(){ _toast('Скопировано'); }).catch(function(){
+      var ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+      _toast('Скопировано');
+    });
   };
 
-  // ── Toast ─────────────────────────────────────────────────────────────────
-  function _showToast(msg, isError) {
-    var t = document.getElementById('cc-toast');
+  /* ── Toast ─────────────────────────────────────────────────── */
+  function _toast(msg, err) {
+    var t = document.getElementById('_cc_toast');
     if (!t) {
-      t = document.createElement('div');
-      t.id = 'cc-toast';
-      t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);' +
-        'background:#1c3a34;color:#fff;padding:10px 20px;border-radius:99px;font-size:13px;font-weight:600;' +
-        'z-index:9999;opacity:0;transition:all .2s;pointer-events:none;';
+      t = document.createElement('div'); t.id='_cc_toast';
+      t.style.cssText='position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(14px);'
+        +'padding:9px 20px;border-radius:99px;font-size:13px;font-weight:600;'
+        +'z-index:9999;opacity:0;transition:all .22s;pointer-events:none;'
+        +'box-shadow:0 4px 16px rgba(0,0,0,.18);';
       document.body.appendChild(t);
     }
     t.textContent = msg;
-    t.style.background = isError ? '#ef4444' : '#1c3a34';
-    t.style.opacity = '1'; t.style.transform = 'translateX(-50%) translateY(0)';
-    clearTimeout(t._timer);
-    t._timer = setTimeout(function(){
-      t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(20px)';
-    }, 2200);
+    t.style.background = err ? 'var(--bdg-red-text)' : 'var(--accent)';
+    t.style.color = '#fff';
+    t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
+    clearTimeout(t._tm);
+    t._tm = setTimeout(function(){ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(14px)'; }, 2400);
   }
 
-  // ── Escape close ─────────────────────────────────────────────────────────
-  window._ccClose = _closeCard;
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') _closeCard();
-  });
-
-  // ── Deep link: open card from URL ─────────────────────────────────────────
+  /* ── Deep link ─────────────────────────────────────────────── */
   document.addEventListener('DOMContentLoaded', function() {
-    var params = new URLSearchParams(window.location.search);
-    var cid = params.get('company_id');
-    if (cid) setTimeout(function(){ openCompanyCard(cid); }, 300);
+    var p = new URLSearchParams(window.location.search);
+    var cid = p.get('company_id');
+    if (cid) setTimeout(function(){ window.openCompanyCard(cid); }, 200);
   });
 
   function _esc(s) {
