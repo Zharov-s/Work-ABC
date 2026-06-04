@@ -132,8 +132,10 @@ table.companies-tbl tr:hover td { background:var(--surface); cursor:pointer; }
 </div>
 {% endblock %}
 
+{% include "partials/company_card.html" %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/filters.js') }}"></script>
+<script src="{{ url_for('static', filename='js/companyCard.js') }}"></script>
 <script>
 var _page = 1;
 var _totalPages = 1;

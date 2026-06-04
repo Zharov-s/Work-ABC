@@ -1,0 +1,34 @@
+{# Company Card Modal — include once per page that shows companies #}
+<div class="cc-backdrop" id="cc-backdrop" onclick="if(event.target===this)_ccClose()">
+  <div class="cc-modal" id="cc-modal" onclick="event.stopPropagation()">
+
+    <!-- ── Header ── -->
+    <div class="cc-head">
+      <div class="cc-head-top">
+        <div class="cc-company-name">Загрузка…</div>
+        <button class="cc-close" onclick="_ccClose()">✕</button>
+      </div>
+      <div class="cc-meta"></div>
+      <div class="cc-warnings"></div>
+      <div class="cc-actions"></div>
+    </div>
+
+    <!-- ── Tabs ── -->
+    <div class="cc-tabs"></div>
+
+    <!-- ── Body ── -->
+    <div class="cc-body" id="cc-body">
+      <div class="cc-empty">Загрузка…</div>
+    </div>
+
+    <!-- ── Save bar (visible in edit mode) ── -->
+    <div class="cc-save-bar" id="cc-save-bar">
+      <span class="cc-save-hint">✎ Режим редактирования — несохранённые изменения будут потеряны при закрытии</span>
+      <div style="display:flex;gap:8px">
+        <button class="cc-btn" onclick="ccToggleEdit()">Отмена</button>
+        <button class="cc-btn cc-btn-primary" onclick="ccSave()">💾 Сохранить</button>
+      </div>
+    </div>
+
+  </div>
+</div>
