@@ -1,6 +1,70 @@
 {% from "macros/icon.html" import icon %}
 {% extends "base.html" %}
-{% block title %}Контакты — ABCENTRUM{% endblock %}
+{% block title %}Контакты — ABCENTRUM
+<script>
+// ── Contact stats & needs-review ─────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  fetch('/api/contacts/stats', {credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      var row = document.getElementById('cst-row');
+      if(!row) return;
+      row.style.display='flex';
+      var stats = [
+        {n:d.email_active, l:'Активных email'},
+        {n:d.bounced,      l:'Bounce',        warn:d.bounced>0},
+        {n:d.unsubscribed, l:'Отписки'},
+        {n:d.needs_review, l:'На проверке',   warn:d.needs_review>0},
+        {n:d.replaced,     l:'Заменены'},
+      ];
+      row.innerHTML = stats.map(function(s){
+        return '<div class="contact-stat-card">'
+          +'<div class="contact-stat-n" style="'+(s.warn?'color:var(--bdg-red-text)':'')+'">'+s.n+'</div>'
+          +'<div class="contact-stat-l">'+s.l+'</div>'
+          +'</div>';
+      }).join('');
+    });
+
+  fetch('/api/contacts/needs-review', {credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(rows){
+      var panel = document.getElementById('crp');
+      var list  = document.getElementById('crp-list');
+      var cnt   = document.getElementById('crp-count');
+      if(!rows.length) return;
+      panel.style.display = 'block';
+      cnt.textContent = rows.length + ' контакт(ов)';
+      var TYPES = {email:'Email',mobile_phone:'Мобильный',landline_phone:'Городской',website:'Сайт'};
+      list.innerHTML = rows.map(function(r){
+        return '<div class="crp-row" id="crp-'+r.id+'">'
+          +'<span class="crp-company">'+_cesc(r.company_name_original||r.company_id||'')+'</span>'
+          +'<span class="crp-value">'+_cesc(r.value)+'</span>'
+          +'<span class="crp-type">'+(TYPES[r.channel_type]||r.channel_type)+'</span>'
+          +'<div class="crp-acts">'
+          +'<button class="crp-btn crp-btn-ok" onclick="crpConfirm('+r.id+')">✓ Подтвердить</button>'
+          +'<button class="crp-btn" onclick="crpBounce('+r.id+')">✕ Отклонить</button>'
+          +'</div></div>';
+      }).join('');
+    });
+});
+
+function crpConfirm(id) {
+  fetch('/api/channels/'+id+'/confirm',{method:'POST',credentials:'same-origin'})
+    .then(function(){_crpRemove(id,'✓ Подтверждено');});
+}
+function crpBounce(id) {
+  fetch('/api/channels/'+id+'/bounce',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:'{"reason":"Отклонено пользователем"}'})
+    .then(function(){_crpRemove(id,'✕ Отклонено');});
+}
+function _crpRemove(id, msg) {
+  var el = document.getElementById('crp-'+id);
+  if(el){ el.style.opacity='.4'; setTimeout(function(){ el.remove(); },400); }
+}
+function _cesc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+
+{% endblock %}
 {% block heading %}Контакты <span class="count-badge">{{ total }}</span>{% endblock %}
 
 {% block extra_css %}
@@ -23,6 +87,16 @@
 {% endblock %}
 
 {% block content %}
+
+<!-- ── Contact stats + needs-review panel ──── -->
+<div class="contact-stats-row" id="cst-row" style="display:none"></div>
+<div class="contacts-review-panel" id="crp" style="display:none">
+  <div class="crp-header">
+    <span class="crp-title">⚠️ Контакты, требующие подтверждения</span>
+    <span id="crp-count" style="font-size:12px;color:var(--bdg-yel-text)"></span>
+  </div>
+  <div class="crp-list" id="crp-list"></div>
+</div>
 
 <!-- Панель выбора (появляется при выборе строк) -->
 <div class="selection-bar" id="selection-bar" style="display:none">

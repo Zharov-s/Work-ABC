@@ -471,6 +471,22 @@ def init_db():
         if _col not in _ctcols:
             conn.execute(f'ALTER TABLE contacts ADD COLUMN {_col} {_def}')
 
+
+    # ── Миграция company_channels: добавить колонки если нет ─────────────────
+    _cc_cols = [r[1] for r in conn.execute('PRAGMA table_info(company_channels)').fetchall()]
+    for _col, _def in [
+        ('bounce_count',     'INTEGER DEFAULT 0'),
+        ('last_verified_at', 'TEXT'),
+        ('replaced_by_id',   'INTEGER'),
+        ('updated_at',       'TEXT'),
+        ('status',           "TEXT DEFAULT 'active'"),
+    ]:
+        if _cc_cols and _col not in _cc_cols:
+            try:
+                conn.execute(f'ALTER TABLE company_channels ADD COLUMN {_col} {_def}')
+            except Exception:
+                pass
+
     conn.commit()
 
     # Заполняем настройки по умолчанию (только если ключа ещё нет)
