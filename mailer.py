@@ -161,6 +161,7 @@ def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, sour
 
     failed: list[str] = []
     failed_errors: dict[str, str] = {}
+    failed_types: dict[str, str] = {}   # email → classified failure type
     tokens: dict[str, str] = {}   # email → tracking_token
 
     # ── Режим A: per-recipient с трекингом ──────────────────────────────────
@@ -198,6 +199,7 @@ def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, sour
             if not sent:
                 failed.append(addr)
                 failed_errors[addr] = last_error
+                failed_types[addr] = _classify_bounce_reason(last_error)
             # Небольшая пауза между отправками чтобы не превысить лимит SMTP
             if i < len(valid) - 1:
                 time.sleep(0.4)
@@ -236,7 +238,9 @@ def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, sour
                     if refused_recipients:
                         for addr in refused_recipients:
                             failed.append(addr)
-                            failed_errors[addr] = str(refused[addr])
+                            err_text = str(refused[addr])
+                            failed_errors[addr] = err_text
+                            failed_types[addr] = _classify_bounce_reason(err_text)
                     sent = True
                     break
                 except Exception as e:
@@ -246,9 +250,14 @@ def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, sour
             if sent:
                 ok_batches += 1
             else:
+                raw_type = _classify_bounce_reason(last_error)
+                # batch-level exception не привязан к конкретному адресу —
+                # нельзя приписывать nonexistent_email всей пачке.
+                batch_fail_type = raw_type if raw_type != 'nonexistent_email' else 'unknown_failure'
                 failed.extend(batch)
                 for addr in batch:
                     failed_errors[addr] = last_error
+                    failed_types[addr] = batch_fail_type
             if i < len(batches):
                 time.sleep(PAUSE_SEC)
 
@@ -307,13 +316,28 @@ def _send_addresses(template_key, valid, invalid=None, recipient_rows=None, sour
                 (addr, cid)
             )
         else:
+            fail_type = failed_types.get(addr, 'unknown_failure')
+            # GUARD: только nonexistent_email → bounced; всё остальное НЕ удаляется
+            if fail_type == 'nonexistent_email':
+                mr_status = 'bounced'
+                conn.execute(
+                    """UPDATE contacts SET status='bounced', bounce_count=COALESCE(bounce_count,0)+1
+                       WHERE lower(email)=? OR lower(personal_email)=? OR lower(generic_email)=?""",
+                    (addr, addr, addr)
+                )
+            elif fail_type == 'blocked_or_policy':
+                mr_status = 'blocked'
+            else:
+                mr_status = 'failed'
             conn.execute(
                 """INSERT INTO mailing_recipients(email, contact_id, status, last_error)
-                   VALUES(?,?, 'failed', ?)
+                   VALUES(?,?,?,?)
                    ON CONFLICT(email) DO UPDATE SET
-                     status='failed', last_error=excluded.last_error,
+                     status=CASE WHEN mailing_recipients.status = 'bounced'
+                                 THEN 'bounced' ELSE excluded.status END,
+                     last_error=excluded.last_error,
                      contact_id=COALESCE(mailing_recipients.contact_id, excluded.contact_id)""",
-                (addr, cid, failed_errors.get(addr, 'Ошибка отправки'))
+                (addr, cid, mr_status, failed_errors.get(addr, 'Ошибка отправки'))
             )
 
     conn.commit()
@@ -360,7 +384,7 @@ def send_pending_campaign(template_key, requested_count=None):
     rows = conn.execute(
         f"""SELECT id, contact_id, email
             FROM mailing_recipients
-            WHERE status!='sent'
+            WHERE status IN ('pending', 'failed')
             ORDER BY CASE WHEN status='failed' THEN 1 ELSE 0 END, id
             {limit}""",
         params
@@ -460,42 +484,114 @@ _EMAIL_RE_BOUNCE = re.compile(r'[\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,}')
 
 
 def _classify_bounce_reason(text: str) -> str:
-    """Определяет причину bounce по тексту SMTP-ответа."""
+    """
+    Классифицирует причину отказа доставки по тексту SMTP-ответа или bounce-письма.
+
+    Возвращает ТОЛЬКО одно из четырёх значений:
+      'nonexistent_email'  — адрес явно не существует → разрешено ставить bounced
+      'blocked_or_policy'  — доставка заблокирована антиспамом/политикой, адрес рабочий
+      'temporary_failure'  — временная ошибка, адрес рабочий
+      'unknown_failure'    — причина неизвестна, адрес считать рабочим
+
+    КРИТИЧНО: логика консервативная.
+    Нет 100% явного признака несуществования → НЕ возвращать 'nonexistent_email'.
+    По умолчанию → 'unknown_failure': адрес НЕ удаляется и НЕ становится bounced.
+
+    Примеры → 'nonexistent_email' (только для этого класса разрешён bounced/удаление):
+      "user unknown", "no such user", "mailbox not found", "does not exist",
+      "5.1.1 user unknown", "recipient not found", "domain not found"
+
+    Примеры → 'blocked_or_policy' (НЕ bounced, НЕ удалять — адрес валиден):
+      "550 rejected for policy", "554 message rejected as spam",
+      "5.7.1 blocked", "5.7.2 policy violation", "blacklist",
+      "believe this mail is spam", "non-local recipient verification failed",
+      "recipient verification failed", "DMARC", "SPF", "DKIM"
+
+    Примеры → 'temporary_failure' (НЕ bounced, НЕ удалять — временная проблема):
+      "421", "451", "452", "ratelimit", "try again later",
+      "temporarily unavailable", "greylisted", "timeout", "connection refused"
+    """
     t = text.lower()
-    if any(x in t for x in ['spam', 'policy', '5.7.1', '5.7.2', 'rejected for policy',
-                             'believe this mail is spam', 'junk', 'blacklist', 'blocked']):
-        return 'спам/политика сервера'
-    # Только явные текстовые признаки несуществующего адреса — НЕ просто код 550,
-    # который в России часто используется и для спам-политики
-    if any(x in t for x in ['user unknown', 'does not exist', 'no such user',
-                             'user not found', 'invalid address', 'invalid mailbox',
-                             'no mailbox', 'mailbox not found', 'account does not exist',
-                             '5.1.1', '5.1.2', '5.1.3']):
-        return 'адрес не существует'
-    if any(x in t for x in ['mailbox full', 'quota', 'over quota', 'storage']):
-        return 'ящик переполнен'
-    if any(x in t for x in ['connection refused', 'host not found', 'name or service not known',
-                             'cannot connect', 'network unreachable']):
-        return 'сервер недоступен'
-    if '452' in t or '421' in t:
-        return 'временная ошибка'
-    # 554/553/550 без явных ключевых слов — скорее всего спам или политика
+
+    # Порядок проверок: temporary → blocked → nonexistent.
+    # Более конкретные (и более опасные) проверки — позже.
+    # Если error-текст содержит и временный код, и слово nonexistent — временный побеждает.
+
+    # ── 1. Временные ошибки — адрес рабочий, попробовать позже ────────────
+    # НЕ bounced, НЕ удалять! Проверяем ПЕРВЫМИ.
+    _TEMPORARY = [
+        'ratelimit', 'rate limit', 'rate-limit',
+        'too many messages', 'too many connections', 'too busy',
+        'try again', 'try later', 'please retry', 'come back later',
+        'temporarily', 'temporary', 'transient',
+        'greylisted', 'greylisting', 'grey listed',
+        'timeout', 'timed out',
+        'connection refused', 'connection reset',
+        'cannot connect', 'network unreachable', 'service unavailable',
+        'mailbox full', 'over quota', 'quota exceeded', 'storage full',
+        '421', '450', '451', '452',
+    ]
+    if any(x in t for x in _TEMPORARY):
+        return 'temporary_failure'
+
+    # ── 2. Антиспам, политика, репутация — адрес может быть рабочим ────────
+    # НЕ bounced, НЕ удалять! Проверяем ВТОРЫМИ.
+    _BLOCKED = [
+        'spam', 'junk', 'blacklist', 'black list', 'blocklist',
+        'blocked', 'blocking',
+        'policy', 'rejected for policy', 'believe this mail is spam',
+        'message rejected', 'relay denied', 'relay not permitted',
+        'relay access denied',
+        'access denied', 'sender rejected', 'sender not allowed',
+        'reputation', 'dmarc', 'spf', 'dkim',
+        'non-local recipient verification failed',
+        'recipient verification failed',
+        '5.7.0', '5.7.1', '5.7.2', '5.7.3', '5.7.4', '5.7.5',
+        '5.7.6', '5.7.7', '5.7.8', '5.7.9',
+    ]
+    if any(x in t for x in _BLOCKED):
+        return 'blocked_or_policy'
+
+    # ── 3. Явные признаки несуществующего адреса/домена ────────────────────
+    # ТОЛЬКО при этих признаках разрешено ставить status='bounced'. Проверяем ПОСЛЕДНИМИ.
+    _NONEXISTENT = [
+        'user unknown', 'unknown user', 'no such user', 'no such mailbox',
+        'mailbox unavailable', 'mailbox not found', 'mailbox does not exist',
+        'no mailbox here', 'invalid mailbox',
+        'account does not exist',
+        'user not found', 'recipient not found', 'address not found',
+        'recipient address rejected: user unknown',
+        'invalid recipient',
+        'does not exist',
+        'domain not found', 'no such domain',
+        'host not found', 'unresolvable address',
+        '5.1.1', '5.1.2', '5.1.3',
+    ]
+    if any(x in t for x in _NONEXISTENT):
+        return 'nonexistent_email'
+
+    # ── 4. 554/553/550 без явных слов — консервативно НЕ bounced ───────────
+    # В России эти коды часто используются для спам-политики, а не несуществующих адресов.
     if '554' in t or '553' in t or '550' in t:
-        return 'спам/политика сервера'
-    return 'ошибка доставки'
+        return 'blocked_or_policy'
+
+    # ── 5. Неизвестная причина — консервативно: адрес считать рабочим ──────
+    return 'unknown_failure'
 
 
 def _parse_bounce_details(msg) -> dict:
     """
     Извлекает упавшие адреса и причины из bounce-сообщения Mail.ru.
-    Возвращает dict: {email: reason_str}
+    Возвращает dict: {email: {'reason': reason_str, 'raw': raw_context_str}}
+
+    raw — фрагмент DSN-текста, на основе которого принято решение (для аудита).
     """
     result = {}
 
     # 1. X-Failed-Recipients header (самый надёжный)
     header = msg.get('X-Failed-Recipients', '')
     for addr in _EMAIL_RE_BOUNCE.findall(header):
-        result[addr.lower()] = 'ошибка доставки'
+        result[addr.lower()] = {'reason': 'unknown_failure', 'raw': f'X-Failed-Recipients: {header.strip()}'}
 
     # 2. Тело письма
     body = ''
@@ -530,16 +626,25 @@ def _parse_bounce_details(msg) -> dict:
             # Берём следующие 4 строки как контекст для определения причины
             context = '\n'.join(lines[i+1:i+5])
             reason = _classify_bounce_reason(context)
-            result[addr] = reason
+            result[addr] = {'reason': reason, 'raw': context.strip()[:500]}
 
-    # Final-Recipient (RFC 3464)
-    for m in re.finditer(
-        r'Final-Recipient[^:]*:[^\n]*rfc822;?\s*([\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,})',
-        body, re.I
-    ):
+    # Final-Recipient (RFC 3464) — извлекаем Diagnostic-Code как raw
+    dsn_re = re.compile(
+        r'Final-Recipient[^:]*:[^\n]*rfc822;?\s*([\w.+\-]+@[\w.\-]+\.[a-zA-Z]{2,})'
+        r'(?:[^\n]*\n)*?(?:Diagnostic-Code[^:]*:\s*([^\n]+))?',
+        re.I
+    )
+    for m in dsn_re.finditer(body):
         addr = m.group(1).lower()
+        diag = (m.group(2) or '').strip()
         if addr not in result:
-            result[addr] = 'ошибка доставки'
+            raw_ctx = diag if diag else 'Final-Recipient (no Diagnostic-Code)'
+            reason = _classify_bounce_reason(diag) if diag else 'unknown_failure'
+            result[addr] = {'reason': reason, 'raw': raw_ctx[:500]}
+        elif diag and result[addr]['reason'] == 'unknown_failure':
+            # Уточняем причину если нашли Diagnostic-Code
+            new_reason = _classify_bounce_reason(diag)
+            result[addr] = {'reason': new_reason, 'raw': diag[:500]}
 
     return result
 
@@ -572,16 +677,30 @@ def check_bounces() -> dict:
     except Exception as e:
         return {'ok': False, 'error': f'IMAP: {e}'}
 
-    # Собираем ID bounce-сообщений по нескольким критериям
+    # Загружаем Message-ID уже обработанных bounce-уведомлений для дедупликации.
+    # Без этого каждый вызов check_bounces() обрабатывает одни и те же IMAP-сообщения
+    # снова и снова, накапливая bounce_count до 100+ и ложно финализируя контакты.
+    _conn_dup = get_db()
+    processed_bounce_msg_ids: set = {
+        r[0] for r in _conn_dup.execute(
+            "SELECT msg_id FROM notifications WHERE type='bounce' AND msg_id IS NOT NULL"
+        ).fetchall()
+    }
+    _conn_dup.close()
+
+    # Собираем ID bounce-сообщений по нескольким критериям.
+    # UNSEEN — обрабатываем только непрочитанные сообщения.
+    # mail.fetch(RFC822) автоматически ставит флаг \Seen на Mail.ru/Dovecot,
+    # поэтому повторный запуск не найдёт уже обработанные письма.
     msg_ids: set = set()
     for crit in [
-        b'FROM "MAILER-DAEMON"',
-        b'FROM "mailer-daemon"',
-        b'SUBJECT "Mail failure"',
-        b'SUBJECT "delivery"',
-        b'SUBJECT "undeliverable"',
-        b'SUBJECT "Undeliverable"',
-        b'SUBJECT "failed"',
+        b'UNSEEN FROM "MAILER-DAEMON"',
+        b'UNSEEN FROM "mailer-daemon"',
+        b'UNSEEN SUBJECT "Mail failure"',
+        b'UNSEEN SUBJECT "delivery"',
+        b'UNSEEN SUBJECT "undeliverable"',
+        b'UNSEEN SUBJECT "Undeliverable"',
+        b'UNSEEN SUBJECT "failed"',
     ]:
         try:
             st, data = mail.search(None, crit)
@@ -591,131 +710,238 @@ def check_bounces() -> dict:
         except Exception:
             pass
 
-    # Парсим сообщения — собираем {email: reason}
-    bounced_with_reasons: dict = {}
+    # Парсим сообщения — собираем {email: {'reason': str, 'raw': str}}.
+    # \Seen НЕ ставим здесь — только после успешного commit в БД (см. ниже).
+    bounced_with_reasons: dict = {}       # email → reason_type
+    bounce_raw_texts: dict = {}           # email → raw DSN text для аудита
+    bounce_msg_ids: dict = {}             # email → Message-ID для дедупликации
+    successfully_parsed_mids: dict = {}  # msg_id_header → imap mid (для post-commit \Seen)
+
     for mid in msg_ids:
         try:
             st, data = mail.fetch(mid, b'(RFC822)')
             if st != 'OK':
                 continue
             msg = emaillib.message_from_bytes(data[0][1])
+
+            # Сначала парсим — результат нужен для synthetic Message-ID.
+            # Synthetic ID должен включать parsed content (extracted emails + raw reason),
+            # иначе разные bounce-письма с одинаковой темой/датой склеиваются в один ID.
             details = _parse_bounce_details(msg)
-            for addr, reason in details.items():
+
+            msg_id_header = msg.get('Message-ID', '').strip()
+            if not msg_id_header:
+                # Synthetic ID: Date + Subject + From + To + extracted_emails + raw_reasons.
+                # Включаем parsed content для устойчивой дедупликации без Message-ID.
+                date_h = msg.get('Date', '')
+                subj_h = msg.get('Subject', '')
+                from_h = msg.get('From', '')
+                to_h   = msg.get('To', '')
+                extracted_emails = ','.join(sorted(details.keys()))
+                raw_reasons = ','.join(sorted(v['raw'][:120] for v in details.values()))
+                raw_key = '\x00'.join([date_h, subj_h, from_h, to_h, extracted_emails, raw_reasons])
+                if raw_key.replace('\x00', '').strip():
+                    msg_id_header = 'synthetic:' + hashlib.md5(raw_key.encode('utf-8', 'ignore')).hexdigest()
+
+            # Дедупликация: persistent в БД, переживает перезапуски приложения.
+            if msg_id_header and msg_id_header in processed_bounce_msg_ids:
+                continue
+
+            for addr, info in details.items():
                 if addr not in bounced_with_reasons:
-                    bounced_with_reasons[addr] = reason
+                    bounced_with_reasons[addr] = info['reason']
+                    bounce_raw_texts[addr]     = info['raw']
+                    if msg_id_header:
+                        bounce_msg_ids[addr]   = msg_id_header
+
+            # Трекаем mid для \Seen после commit. Если commit упадёт —
+            # письмо останется UNSEEN и будет обработано повторно.
+            if msg_id_header:
+                successfully_parsed_mids[msg_id_header] = mid
+
         except Exception:
             continue
+
+    # ── Вспомогательная функция: помечает IMAP-письма \Seen ─────────────────
+    def _mark_seen_after_commit():
+        """Вызывается ТОЛЬКО после успешного conn.commit()."""
+        for _mid in successfully_parsed_mids.values():
+            try:
+                mail.store(_mid, '+FLAGS', '\\Seen')
+            except Exception:
+                pass
+
+    if not bounced_with_reasons:
+        # Нет новых bounce-адресов. Письма обработаны (возможно, все адреса
+        # не из нашей базы) — помечаем \Seen и завершаем без DB-записей.
+        _mark_seen_after_commit()
+        try:
+            mail.logout()
+        except Exception:
+            pass
+        return {'ok': True, 'total': len(msg_ids), 'new': 0, 'bounced': []}
+
+    # Получаем все email из нашей базы — обрабатываем только известные
+    new_count   = 0
+    bounced_list = []
+    db_committed = False
+    conn = get_db()
+    try:
+        known_contacts = {
+            r['email'].lower(): dict(r)
+            for r in conn.execute(
+                "SELECT id, email, status, company_name FROM contacts WHERE email IS NOT NULL AND email != ''"
+            ).fetchall()
+        }
+
+        for addr, reason in bounced_with_reasons.items():
+            # ── GUARD: только nonexistent_email может вести к bounced/удалению ──
+            # blocked_or_policy, temporary_failure, unknown_failure —
+            # адрес остаётся в базе как рабочий контакт, НЕ помечается bounced,
+            # bounce_count НЕ увеличивается, контакт НЕ удаляется.
+            if reason != 'nonexistent_email':
+                raw_text = bounce_raw_texts.get(addr, '')
+                if addr in known_contacts:
+                    if reason == 'blocked_or_policy':
+                        err = f'Заблокировано: антиспам или политика сервера. {raw_text}'[:500]
+                        conn.execute(
+                            """UPDATE mailing_recipients
+                               SET status='blocked', last_error=?
+                               WHERE lower(email)=?
+                                 AND status != 'bounced'""",
+                            (err, addr)
+                        )
+                    elif reason == 'temporary_failure':
+                        err = f'Временная ошибка доставки, адрес не изменён. {raw_text}'[:500]
+                        conn.execute(
+                            """UPDATE mailing_recipients
+                               SET last_error=?
+                               WHERE lower(email)=?
+                                 AND status != 'bounced'""",
+                            (err, addr)
+                        )
+                    # unknown_failure: никаких изменений — email остаётся как есть
+                company_name = (known_contacts[addr].get('company_name') or '') if addr in known_contacts else ''
+                bounced_list.append({'email': addr, 'company': company_name, 'reason': reason})
+                continue
+
+            if addr not in known_contacts:
+                continue
+
+            contact = known_contacts[addr]
+            company = contact.get('company_name') or ''
+            company_str = f' ({company})' if company else ''
+
+            current_status = contact.get('status', '')
+            bounce_count   = contact.get('bounce_count') or 0
+            was_confirmed  = (current_status == 'bounced')
+
+            # ── Правило двух сигналов ──────────────────────────────────────
+            # Сигнал 1: текущий hard bounce с raw DSN и reason=nonexistent_email
+            # Сигнал 2: предыдущий bounce (bounce_count > 0) — другое IMAP-письмо,
+            #           другой Message-ID (UNSEEN-фильтр гарантирует независимость).
+            #
+            # dead MX убран из two_signals: DNS-сбой ≠ несуществующий адрес.
+            two_signals = bounce_count > 0
+
+            raw_bounce    = bounce_raw_texts.get(addr, '')
+            bounce_msg_id = bounce_msg_ids.get(addr)
+
+            if two_signals:
+                # Подтверждённый несуществующий адрес — второй независимый сигнал.
+                # Только UPDATE. DELETE contacts никогда не выполняется.
+                conn.execute(
+                    """UPDATE contacts SET status='bounced', bounce_count=bounce_count+1
+                       WHERE lower(email)=? AND status != 'bounced'""",
+                    (addr,)
+                )
+                conn.execute(
+                    "UPDATE mailing_recipients SET status='bounced' WHERE lower(email)=? AND status!='bounced'",
+                    (addr,)
+                )
+                send_row = conn.execute(
+                    """SELECT sr.id, sr.send_id FROM send_recipients sr
+                       WHERE lower(sr.email)=? AND sr.status='sent'
+                       ORDER BY sr.send_id DESC LIMIT 1""", (addr,)
+                ).fetchone()
+                if send_row:
+                    conn.execute("UPDATE send_recipients SET status='bounced' WHERE id=?", (send_row['id'],))
+                    conn.execute(
+                        "UPDATE send_history SET total_failed=total_failed+1, status='partial' WHERE id=?",
+                        (send_row['send_id'],)
+                    )
+                if not was_confirmed:
+                    summary = f'{addr}{company_str} — адрес не существует, подтверждено 2 bounce-сигналами. Исключён из рассылки.'
+                    notif_details = {
+                        'from_email':        addr, 'company': company,
+                        'action_done':       'Адрес исключён из рассылки (2 подтверждённых bounce с raw DSN)',
+                        'body_preview':      'Bounce: адрес не существует (сигнал 2/2)',
+                        'raw_bounce_reason': raw_bounce,
+                        'reason_type':       'nonexistent_email',
+                    }
+                    conn.execute(
+                        """INSERT INTO notifications
+                           (type,contact_id,company_name,from_email,summary,details_json,msg_id)
+                           VALUES('bounce',?,?,?,?,?,?)""",
+                        (contact.get('id'), company, addr, summary,
+                         json.dumps(notif_details, ensure_ascii=False), bounce_msg_id)
+                    )
+                    new_count += 1
+            else:
+                # Первый сигнал — probable_bounce только при наличии raw DSN.
+                # probable_bounce значит: "есть реальный DSN с reason=nonexistent_email,
+                # ждём второго независимого сигнала для подтверждения".
+                conn.execute(
+                    "UPDATE contacts SET bounce_count=1 WHERE lower(email)=?", (addr,)
+                )
+                last_err = f'[nonexistent_email] {raw_bounce}'[:500] if raw_bounce \
+                    else '[nonexistent_email] Bounce: адрес не найден на сервере (нет raw DSN)'
+                conn.execute(
+                    """UPDATE mailing_recipients
+                       SET status='probable_bounce', last_error=?
+                       WHERE lower(email)=? AND status NOT IN ('bounced','probable_bounce','needs_review')""",
+                    (last_err, addr)
+                )
+                if current_status not in ('bounced', 'probable_bounce'):
+                    summary = f'{addr}{company_str} — bounce получен (сигнал 1/2). Повторный bounce подтвердит исключение.'
+                    notif_details = {
+                        'from_email':        addr, 'company': company,
+                        'action_done':       'Помечен probable_bounce (сигнал 1/2, raw DSN сохранён)',
+                        'body_preview':      'Bounce: адрес не существует (сигнал 1/2)',
+                        'raw_bounce_reason': raw_bounce,
+                        'reason_type':       'nonexistent_email',
+                    }
+                    conn.execute(
+                        """INSERT INTO notifications
+                           (type,contact_id,company_name,from_email,summary,details_json,msg_id)
+                           VALUES('bounce',?,?,?,?,?,?)""",
+                        (contact.get('id'), company, addr, summary,
+                         json.dumps(notif_details, ensure_ascii=False), bounce_msg_id)
+                    )
+                    new_count += 1
+            bounced_list.append({'email': addr, 'company': company, 'reason': reason})
+
+        conn.commit()
+        db_committed = True
+
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+    # Помечаем IMAP-письма \Seen ТОЛЬКО после успешного commit.
+    # Если commit упал — письма остаются UNSEEN для повторной обработки.
+    if db_committed:
+        _mark_seen_after_commit()
 
     try:
         mail.logout()
     except Exception:
         pass
-
-    if not bounced_with_reasons:
-        return {'ok': True, 'total': len(msg_ids), 'new': 0, 'bounced': []}
-
-    # Получаем все email из нашей базы — обрабатываем только известные
-    conn = get_db()
-    known_contacts = {
-        r['email'].lower(): dict(r)
-        for r in conn.execute(
-            "SELECT id, email, status, company_name FROM contacts WHERE email IS NOT NULL AND email != ''"
-        ).fetchall()
-    }
-
-    # Только реально нерабочие адреса требуют действий и уведомлений.
-    # Спам/политика (554/553), временные ошибки, полный ящик — адрес РАБОЧИЙ,
-    # просто сервер отклонил конкретное письмо. Игнорируем полностью.
-    ACTIONABLE_REASONS = {'адрес не существует'}
-
-    new_count   = 0
-    bounced_list = []
-
-    for addr, reason in bounced_with_reasons.items():
-        # Пропускаем спам-отказы и временные ошибки — адрес валиден
-        if reason not in ACTIONABLE_REASONS:
-            continue
-
-        if addr not in known_contacts:
-            continue
-
-        contact = known_contacts[addr]
-        company = contact.get('company_name') or ''
-        company_str = f' ({company})' if company else ''
-
-        current_status  = contact.get('status', '')
-        bounce_count    = contact.get('bounce_count') or 0
-        was_confirmed   = (current_status == 'bounced')
-
-        # ── Правило двух сигналов ──────────────────────────────────────────
-        # Сигнал 1: текущий hard bounce (адрес не существует)
-        # Сигнал 2: либо предыдущий bounce (bounce_count > 0), либо мёртвый MX домена
-        domain = addr.split('@')[1] if '@' in addr else ''
-        from validator import _check_mx_dns
-        mx_alive = _check_mx_dns(domain) if domain else True
-
-        two_signals = (bounce_count > 0) or (not mx_alive)
-
-        if two_signals:
-            # Подтверждённый INACTIVE — удаляем из рассылки
-            new_status = 'bounced'
-            conn.execute(
-                "UPDATE contacts SET status='bounced', bounce_count=bounce_count+1 WHERE lower(email)=?",
-                (addr,)
-            )
-            conn.execute(
-                "UPDATE mailing_recipients SET status='bounced' WHERE lower(email)=? AND status!='bounced'",
-                (addr,)
-            )
-            send_row = conn.execute(
-                """SELECT sr.id, sr.send_id FROM send_recipients sr
-                   WHERE lower(sr.email)=? AND sr.status='sent'
-                   ORDER BY sr.send_id DESC LIMIT 1""", (addr,)
-            ).fetchone()
-            if send_row:
-                conn.execute("UPDATE send_recipients SET status='bounced' WHERE id=?", (send_row['id'],))
-                conn.execute(
-                    "UPDATE send_history SET total_failed=total_failed+1, status='partial' WHERE id=?",
-                    (send_row['send_id'],)
-                )
-            if not was_confirmed:
-                reason_extra = '' if mx_alive else ' (домен не отвечает)'
-                summary = f'{addr}{company_str} — адрес подтверждён как нерабочий{reason_extra}. Удалён из базы рассылки.'
-                details = {
-                    'from_email':   addr, 'company': company,
-                    'action_done':  'Адрес удалён из базы рассылки (2 сигнала)',
-                    'body_preview': f'Bounce: адрес не существует (bounce #{bounce_count+1}){reason_extra}',
-                }
-                conn.execute(
-                    "INSERT INTO notifications (type,contact_id,company_name,from_email,summary,details_json) VALUES('bounce',?,?,?,?,?)",
-                    (contact.get('id'), company, addr, summary, json.dumps(details, ensure_ascii=False))
-                )
-                new_count += 1
-        else:
-            # Только один сигнал — помечаем как вероятно нерабочий, ждём подтверждения
-            conn.execute(
-                "UPDATE contacts SET bounce_count=1 WHERE lower(email)=?", (addr,)
-            )
-            conn.execute(
-                "UPDATE mailing_recipients SET status='probable_bounce' WHERE lower(email)=? AND status NOT IN ('bounced','probable_bounce')",
-                (addr,)
-            )
-            if current_status not in ('bounced', 'probable_bounce'):
-                summary = f'{addr}{company_str} — bounce получен, адрес под наблюдением. Повторный bounce подтвердит удаление.'
-                details = {
-                    'from_email':   addr, 'company': company,
-                    'action_done':  'Помечен для проверки (1 сигнал из 2)',
-                    'body_preview': f'Bounce: адрес не существует (сигнал 1/2)\n{addr}{company_str}',
-                }
-                conn.execute(
-                    "INSERT INTO notifications (type,contact_id,company_name,from_email,summary,details_json) VALUES('bounce',?,?,?,?,?)",
-                    (contact.get('id'), company, addr, summary, json.dumps(details, ensure_ascii=False))
-                )
-                new_count += 1
-        bounced_list.append({'email': addr, 'company': company, 'reason': reason})
-
-    conn.commit()
-    conn.close()
 
     return {
         'ok':      True,
